@@ -1,0 +1,35 @@
+appId: com.ulttranslator.desktop
+productName: Universal Language Translator
+directories:
+  output: dist/windows
+files:
+  - app/**/*
+  - electron/**/*
+  - packages/**/*
+  - public/**/*
+  - src/**/*
+  - tools/**/*
+  - package.json
+  - next.config.ts
+  - tsconfig.json
+extraResources:
+  - from: Scripts
+    to: runtime/Scripts
+  - from: models
+    to: runtime/models
+  - from: sox-14.4.2
+    to: runtime/sox
+  - from: tools
+    to: runtime/tools
+win:
+  signAndEditExecutable: false
+  target:
+    - nsis
+    - portable
+nsis:
+  oneClick: true
+  allowElevation: true
+  perMachine: false
+  artifactName: "${productName}-${version}-setup.${ext}"
+portable:
+  artifactName: "${productName}-${version}-portable.${ext}"

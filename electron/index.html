@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ULT Translator Desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Windows Desktop Shell</p>
+        <h1>Real-Time Capture And Translation</h1>
+        <p class="lede">
+          This native shell runs the actual Windows capture pipeline through the shared core
+          runtime, using the same session contract as the web debug harness and Android app.
+        </p>
+        <p id="runtime-summary" class="runtime-summary">Loading runtime summary…</p>
+      </section>
+
+      <section class="panel controls">
+        <div class="field-grid">
+          <label class="field">
+            <span>Source Language</span>
+            <select id="source-language">
+              <option value="en">English</option>
+              <option value="te">Telugu</option>
+              <option value="hi">Hindi</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Target Language</span>
+            <select id="target-language">
+              <option value="te">Telugu</option>
+              <option value="en">English</option>
+              <option value="hi">Hindi</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Session Kind</span>
+            <select id="session-kind">
+              <option value="microphone">Native Microphone Translate</option>
+              <option value="system">System Speaker Intercept</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Online Policy</span>
+            <select id="online-policy">
+              <option value="auto">Auto</option>
+              <option value="online-only">Online Only</option>
+              <option value="offline-only">Offline Only</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Route Profile</span>
+            <select id="route-profile"></select>
+          </label>
+
+          <label class="field">
+            <span>Input Device</span>
+            <select id="input-device"></select>
+          </label>
+
+          <label class="field">
+            <span>Output Device</span>
+            <select id="output-device"></select>
+          </label>
+
+          <label class="field">
+            <span>Voice Profile</span>
+            <select id="voice-profile"></select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <div class="button-row">
+            <button id="toggle-session" class="primary-button">Start</button>
+            <button id="refresh-runtime" class="secondary-button">Refresh Runtime</button>
+          </div>
+          <div class="session-state">
+            <span class="state-label">State</span>
+            <strong id="state-text">Idle</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-split">
+        <div class="logs-panel">
+          <div class="logs-header">
+            <h2>Status Logs</h2>
+            <button id="clear-logs" class="secondary-button">Clear</button>
+          </div>
+          <div id="logs" class="logs" aria-live="polite"></div>
+        </div>
+
+        <div class="feed-panel">
+          <div class="logs-header">
+            <h2>Translation Feed</h2>
+          </div>
+          <div id="live-feed" class="feed" aria-live="polite"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+  </html>
