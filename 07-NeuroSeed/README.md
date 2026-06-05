@@ -14,6 +14,13 @@ That original motive is recorded here for project history. The buildable project
 - `prototype/`: local working prototype for seed generation, awake approval, sleep reinforcement simulation, and recall checks.
 - `source-conversation.txt`: original pasted conversation/context that inspired the project.
 
+## Run
+
+```bat
+setup.bat
+run.exe
+```
+
 ## Core Positioning
 
 NeuroSeed should be framed as memory reinforcement, not direct brain upload.
@@ -25,3 +32,10 @@ Best truthful sentence:
 Avoid claiming:
 
 > NeuroSeed uploads information directly into the brain.
+
+## Production Gate
+
+- Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
+- Keep the prototype local-first with no network assets.
+- Preserve the consent boundary: awake approval, user-selected content, local storage, and user-triggered export only.
+- Do not claim direct brain upload, unconscious information injection, or memory copying.

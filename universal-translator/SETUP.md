@@ -29,9 +29,3 @@ npm test
 npm run typecheck
 npm run build
 ```
-
-The workspace-wide production gate is available from the repository root:
-
-```bat
-..\bin\CHECK_PRODUCTION_READINESS.bat
-```

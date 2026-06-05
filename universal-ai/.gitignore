@@ -1,4 +1,8 @@
 .env
+.env.*
+!.env.example
+node_modules/
+**/node_modules/
 ai_env/
 ai_system_env/
 coding_agent_env/
@@ -37,5 +41,12 @@ __pycache__/
 *.mp3
 *.onnx
 *.onnx.json
+*.tsbuildinfo
+dist/
+build/
+coverage/
 0.37.2
 1.0.3
+.DS_Store
+Thumbs.db
+.vscode/

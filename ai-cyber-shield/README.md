@@ -1,11 +1,12 @@
 # Balu Cyber Shield
 
-Balu Cyber Shield is a defensive security agent prototype for macOS. It focuses on stopping attacker access, collecting evidence, hardening the local device, and wasting attacker time through honeypots. It does not attack, damage, or access another device.
+Balu Cyber Shield is a defensive security agent and dashboard prototype for user-owned machines. It focuses on stopping attacker access, collecting evidence, hardening the local device, and wasting attacker time through honeypots. It does not attack, damage, or access another device.
 
 The project now has two layers:
 
 - `bin/balu-shield`: dependency-free shell agent that works on this machine today.
 - `bin/asa-agent`: Python-ready Autonomous Security Agent engine matching the full architecture in `docs/ARCHITECTURE.md`.
+- `setup.bat` and `run.exe`: the canonical Windows setup and launch flow for this workspace.
 
 ## What It Does
 
@@ -45,12 +46,19 @@ C:\Users\balu\Projects\external-projects\CSI-Sense-Zero
 
 ## Quick Start
 
-From this folder:
+Windows workspace flow:
+
+```bat
+setup.bat
+run.exe
+```
+
+Python ASA flow from this folder:
 
 ```bash
-./bin/balu-shield init
-./bin/balu-shield scan
-./bin/balu-shield report
+python -m asa.cli scan
+python -m asa.cli hardening-audit
+python -m asa.cli report
 ```
 
 For continuous monitoring:
@@ -132,3 +140,10 @@ The Python ASA engine is already scaffolded and ready for the next environment s
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+## Production Gate
+
+- Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
+- The ASA pipeline must run as one workflow and continue after non-fatal layer failures.
+- Runtime logs, evidence, blocklists, honeypot contents, quarantine files, and reports must remain local and untracked except placeholder `.gitkeep` files.
+- Auto-containment must stay disabled by default unless an operator explicitly enables it in policy.

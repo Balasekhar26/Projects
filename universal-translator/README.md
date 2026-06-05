@@ -163,6 +163,13 @@ npm run release:check
 node tools/ult-doctor.js
 ```
 
+## Production Gate
+
+- Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
+- STT worker startup must fail fast when required local models or scripts are missing.
+- Runtime audio, model downloads, virtual environments, dependency folders, local databases, and generated build outputs must stay untracked.
+- Paid or online engines must remain optional and must never become the default path.
+
 ## Runtime Settings
 
 Desktop engine settings are stored in:

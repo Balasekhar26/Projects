@@ -1,0 +1,12 @@
+# Local browser/runtime noise
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Generated exports and temporary files
+data/
+logs/
+*.log
+*.tmp
+*.zip
+

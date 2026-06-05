@@ -1,0 +1,33 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+dist-exe/
+*.tsbuildinfo
+
+# Python caches and local environments
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Runtime data and generated reports
+.env
+.env.*
+!.env.example
+data/
+logs/
+reports/
+runtime/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+

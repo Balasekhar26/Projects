@@ -41,6 +41,13 @@ run.exe
 - Touch controls for phones, tablets, and touch screens.
 - Offline PWA build using a service worker.
 
+## Production Gate
+
+- Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
+- TypeScript checks must pass before packaging.
+- AudioContext unlock, key-repeat prevention, and the 16-voice polyphony cap must stay enforced.
+- Generated builds, packaged Electron output, dependency folders, logs, and recorded audio must stay untracked.
+
 ## Structure
 
 - `src` - React keyboard app.

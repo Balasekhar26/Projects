@@ -48,6 +48,13 @@ python -m pcb_doctor.cli
 python -m pcb_doctor.cli --json
 ```
 
+For the Windows app flow:
+
+```bat
+setup.bat
+run.exe
+```
+
 ## Data Shape
 
 Board models live in `data/sample-board.json`. Measurements live in `data/sample-measurements.json`.
@@ -57,3 +64,10 @@ The core loop is:
 ```text
 measure -> compare expected vs observed -> classify fault -> trace upstream -> suggest next measurement
 ```
+
+## Production Gate
+
+- Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
+- Validate board JSON and measurement files before diagnosis.
+- Findings must include confidence, severity, and technician-facing next steps.
+- Generated dashboards, runtime databases, reports, dependency folders, and Python caches must stay untracked.

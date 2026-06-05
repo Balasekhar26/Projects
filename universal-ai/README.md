@@ -72,3 +72,11 @@ Shell execution is off unless `SEKHAR_SHELL_ENABLED=true`.
 Desktop control is off unless `SEKHAR_DESKTOP_ENABLED=true`.
 
 Risky actions require approval, including delete, format, payment, send email, submit, purchase, transfer money, password/login actions, registry/security changes, and destructive commands.
+
+## Production Gate
+
+- Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
+- Core backend modules must compile before packaging.
+- File, terminal, browser, and system-changing actions must route through an approval boundary before execution.
+- Memory storage must stay bounded by decay, summarisation, or pruning.
+- Generated memory, logs, runtime folders, model downloads, virtual environments, dependency folders, and packaged app outputs must stay untracked.

@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+**/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -20,6 +21,7 @@
 # production
 /build
 /dist
+dist-exe/
 /.ult-runtime
 
 # misc
@@ -34,6 +36,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 *.jks
 *.keystore
 apps/android/keystore.properties
@@ -53,6 +56,21 @@ Lib/
 Include/
 Scripts/
 pyvenv.cfg
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Models (large files)
 models/
+data/
+logs/
+runtime/
+real-session-evidence/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.wav
+sox-*/

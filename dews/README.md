@@ -67,3 +67,17 @@ python -m dews_safe_sim.cli
 ```
 
 This prototype only detects unsafe readings and recommends protective actions.
+
+For the Windows app flow:
+
+```bat
+setup.bat
+run.exe
+```
+
+## Production Gate
+
+- Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
+- Keep implementation in the safe simulation and early-warning domain.
+- Do not add targeting, engagement, weapon-disabling, or directed-energy control logic.
+- Generated dashboards, logs, runtime data, databases, and dependency folders must stay untracked.
