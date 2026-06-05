@@ -1,0 +1,90 @@
+{
+  "name": "universal-translator",
+  "version": "0.1.0",
+  "description": "Universal Language Translator desktop and mobile runtime for real-time audio translation.",
+  "author": "balu",
+  "private": true,
+  "main": "electron/main.js",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "node --test packages/ult-core/tests/**/*.test.js",
+    "test:e2e": "node packages/ult-core/tests/run-e2e.js",
+    "test:performance": "node --test packages/ult-core/tests/performance-benchmark.test.js",
+    "typecheck": "tsc --noEmit",
+    "electron": "electron ./electron/main.js",
+    "package:windows": "electron-builder --win nsis portable",
+    "android:apk": "powershell -ExecutionPolicy Bypass -File tools/build-android.ps1 -Target apk",
+    "android:aab": "powershell -ExecutionPolicy Bypass -File tools/build-android.ps1 -Target aab",
+    "bootstrap:runtime": "powershell -ExecutionPolicy Bypass -File tools/bootstrap-runtime.ps1",
+    "capture-audio": "node capture-system-audio.js",
+    "realtime-translate": "node src/index.js",
+    "ear-pass": "node tools/ear-pass.js",
+    "identity-proxy": "node tools/identity-proxy-audit.js",
+    "latency-proxy": "node tools/latency-proxy-audit.js",
+    "roadmap:audit": "node tools/roadmap-audit.js",
+    "translation:check": "node tools/offline-translation-check.js",
+    "release:check": "node tools/release-check.js"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.2.4",
+    "better-sqlite3": "^12.8.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dotenv": "^16.0.0",
+    "drizzle-orm": "^0.45.2",
+    "drizzle-zod": "^0.8.3",
+    "lucide-react": "^1.7.0",
+    "mic": "^2.1.2",
+    "next": "16.2.2",
+    "node-record-lpcm16": "^1.0.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "electron": "^41.0.3",
+    "electron-builder": "^26.0.12",
+    "eslint": "^9",
+    "eslint-config-next": "^16.2.2",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "build": {
+    "appId": "com.balasekhar.universal-translator",
+    "productName": "ULT Translator",
+    "directories": {
+      "output": "dist-exe"
+    },
+    "files": [
+      "web-ui/dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

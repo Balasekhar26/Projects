@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "languages": {
+    "source": "English",
+    "target": "Spanish"
+  },
+  "voice": {
+    "ttsEngine": "xtts",
+    "preserveVoice": true,
+    "emotionAnalysis": true
+  },
+  "network": {
+    "onlineMode": false
+  },
+  "performance": {
+    "sttModel": "base",
+    "chunkSize": 3,
+    "overlap": 0.5
+  },
+  "privacy": {
+    "saveTranscripts": true,
+    "saveAudio": false,
+    "analytics": false
+  },
+  "audio": {
+    "inputDevice": null,
+    "outputDevice": null,
+    "virtualCableDetected": false
+  }
+}

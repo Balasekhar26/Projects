@@ -1,0 +1,32 @@
+server:
+  host: 127.0.0.1
+  port: 8000
+
+ollama:
+  host: http://127.0.0.1:11434
+
+models:
+  fast: qwen2.5:0.5b
+  general: qwen3:4b
+  power: qwen3:30b
+  coder: qwen2.5-coder:3b
+  vision: qwen3-vl:8b
+  reasoning: gpt-oss:20b
+
+memory:
+  chroma_path: backend/memory/chroma
+  sqlite_path: backend/memory/sqlite/sekhar_ai_os.db
+  collection: sekhar_memory
+
+safety:
+  shell_enabled: false
+  desktop_enabled: false
+  guidance_overlay_enabled: true
+  teach_mode_enabled: true
+  require_approval_for_medium_risk: true
+
+paths:
+  screenshots: backend/data/screenshots
+  audio: backend/data/audio
+  logs: backend/data/logs
+  workspace: workspace

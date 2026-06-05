@@ -1,0 +1,38 @@
+﻿deleted: C:\Users\balu\Projects\bin\.continue
+deleted: C:\Users\balu\Projects\bin\.venv
+deleted: C:\Users\balu\Projects\bin\archives
+deleted: C:\Users\balu\Projects\bin\BACKUP_20260511_130701
+deleted: C:\Users\balu\Projects\bin\BACKUP_20260511_130811
+deleted: C:\Users\balu\Projects\bin\claude-code-main
+deleted: C:\Users\balu\Projects\bin\config-files
+deleted: C:\Users\balu\Projects\bin\extracted-archives
+deleted: C:\Users\balu\Projects\bin\hermes-agent-main
+deleted: C:\Users\balu\Projects\bin\Mark-XXXIX-main
+deleted: C:\Users\balu\Projects\bin\Open Design release-stable-win
+deleted: C:\Users\balu\Projects\bin\ORGANIZED_PROJECTS
+deleted: C:\Users\balu\Projects\bin\projects
+deleted: C:\Users\balu\Projects\bin\workspace
+deleted: C:\Users\balu\Projects\bin\_cleanup-quarantine
+deleted: C:\Users\balu\Projects\bin\_organization-tools
+deleted: C:\Users\balu\Projects\bin\.aider.chat.history.md
+deleted: C:\Users\balu\Projects\bin\.aider.input.history
+deleted: C:\Users\balu\Projects\bin\ai-system-lock-skips.txt
+deleted: C:\Users\balu\Projects\bin\AUTO_REBUILD_ALL.bat
+deleted: C:\Users\balu\Projects\bin\BUILD_ALL_EXES.bat
+deleted: C:\Users\balu\Projects\bin\claude-code-main (1).zip
+deleted: C:\Users\balu\Projects\bin\claude-code-main (2).zip
+deleted: C:\Users\balu\Projects\bin\claude-code-main.zip
+deleted: C:\Users\balu\Projects\bin\claude-code-source-code-leak-main (1).zip
+deleted: C:\Users\balu\Projects\bin\claude-code-source-code-leak-main.zip
+deleted: C:\Users\balu\Projects\bin\CLEANUP_AND_ORGANIZE.ps1
+deleted: C:\Users\balu\Projects\bin\cleanup_organize.py
+deleted: C:\Users\balu\Projects\bin\installed.flag
+deleted: C:\Users\balu\Projects\bin\leftover-lock-warning.txt
+deleted: C:\Users\balu\Projects\bin\merge-related-log.txt
+deleted: C:\Users\balu\Projects\bin\organize_simple.py
+deleted: C:\Users\balu\Projects\bin\package-lock.json
+deleted: C:\Users\balu\Projects\bin\README.md
+deleted: C:\Users\balu\Projects\bin\requirements.txt
+deleted: C:\Users\balu\Projects\bin\root-bin-sweep-log.txt
+deleted: C:\Users\balu\Projects\bin\RUN_AI_SYSTEM.bat
+deleted: C:\Users\balu\Projects\bin\RUN_ALL_PROJECTS.bat

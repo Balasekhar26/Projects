@@ -1,0 +1,31 @@
+{
+  "llm_provider": "auto",
+  "ollama_base_url": "http://localhost:11434",
+  "models": {
+    "assistant": "mistral",
+    "coder": "mistral",
+    "reviewer": "phi3",
+    "search_summarizer": "mistral"
+  },
+  "nvidia_base_url": "https://integrate.api.nvidia.com",
+  "nvidia_api_key_env": "NVIDIA_NIM_API_KEY",
+  "nvidia_timeout_seconds": 180,
+  "nvidia_max_tokens": 2048,
+  "nvidia_models": {
+    "assistant": "nvidia/llama-3.1-nemotron-nano-4b-v1_1",
+    "coder": "openai/gpt-oss-20b",
+    "reviewer": "nvidia/llama-3.1-nemotron-nano-4b-v1_1",
+    "search_summarizer": "nvidia/llama-3.1-nemotron-nano-4b-v1_1"
+  },
+  "auto_pull_models": true,
+  "optional_packages": [
+    "duckduckgo-search",
+    "ddgs"
+  ],
+  "workspace_max_file_bytes": 300000,
+  "context_file_char_limit": 8000,
+  "secret_scan_max_file_bytes": 500000,
+  "backup_code_actions": true,
+  "memory_max_notes": 50,
+  "temperature": 0.2
+}

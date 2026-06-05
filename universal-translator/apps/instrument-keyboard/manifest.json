@@ -1,0 +1,19 @@
+{
+  "name": "OneSetup Instrument Keyboard",
+  "short_name": "Instrument Keys",
+  "description": "Offline keyboard instrument app that plays notes for practical keyboard keys.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10141b",
+  "theme_color": "#111827",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

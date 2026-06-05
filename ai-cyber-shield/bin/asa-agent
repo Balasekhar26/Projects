@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$BIN_DIR/.." && pwd)"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is not available on this machine."
+  echo "Use ./bin/balu-shield for the dependency-free shell agent."
+  exit 1
+fi
+
+if ! python3 -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+  echo "python3 exists but cannot run yet. On macOS, install Xcode Command Line Tools."
+  echo "Use ./bin/balu-shield for the dependency-free shell agent."
+  exit 1
+fi
+
+PYTHONPATH="$ROOT" exec python3 -m asa.cli "$@"
+

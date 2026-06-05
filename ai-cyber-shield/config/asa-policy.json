@@ -1,0 +1,53 @@
+{
+  "scan_interval_seconds": 15,
+  "max_cpu_percent": 80.0,
+  "max_memory_percent": 70.0,
+  "max_connections_per_process": 30,
+  "suspicious_remote_ports": [23, 2323, 4444, 5555, 6667, 1337, 31337],
+  "suspicious_process_patterns": [
+    "xmrig",
+    "minerd",
+    "ncat",
+    "netcat",
+    "meterpreter",
+    "cryptominer",
+    "reverse_shell"
+  ],
+  "risky_process_paths": [
+    "/tmp",
+    "/var/tmp",
+    "~/Downloads"
+  ],
+  "protected_process_names": [
+    "launchd",
+    "kernel_task",
+    "WindowServer",
+    "loginwindow",
+    "securityd",
+    "configd",
+    "notifyd",
+    "syslogd",
+    "mds",
+    "mds_stores",
+    "sshd"
+  ],
+  "critical_file_paths": [
+    "~/Library/LaunchAgents",
+    "/Library/LaunchAgents",
+    "/Library/LaunchDaemons"
+  ],
+  "nvidia": {
+    "enabled": false,
+    "api_key_env": "NVIDIA_NIM_API_KEY",
+    "base_url": "https://integrate.api.nvidia.com",
+    "model": "nvidia/llama-3.1-nemotron-nano-4b-v1_1",
+    "timeout_seconds": 60,
+    "max_tokens": 900
+  },
+  "response": {
+    "auto_contain": false,
+    "kill_threshold": 90,
+    "block_threshold": 80,
+    "dry_run": true
+  }
+}

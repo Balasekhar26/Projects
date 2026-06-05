@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NeuroSeed Prototype</title>
+    <link rel="stylesheet" href="styles.css">
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="side-rail" aria-label="Project navigation">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">N7</div>
+          <div>
+            <h1>NeuroSeed</h1>
+            <p>Project 7</p>
+          </div>
+        </div>
+
+        <nav class="mode-tabs" aria-label="Prototype modes">
+          <button class="tab-button active" type="button" data-view="seed">
+            <i data-lucide="sprout"></i>
+            <span>Seed</span>
+          </button>
+          <button class="tab-button" type="button" data-view="sleep">
+            <i data-lucide="moon"></i>
+            <span>Sleep</span>
+          </button>
+          <button class="tab-button" type="button" data-view="recall">
+            <i data-lucide="brain"></i>
+            <span>Recall</span>
+          </button>
+          <button class="tab-button" type="button" data-view="ethics">
+            <i data-lucide="shield-check"></i>
+            <span>Guard</span>
+          </button>
+        </nav>
+
+        <section class="status-panel" aria-label="System status">
+          <div class="status-row">
+            <span>Consent gate</span>
+            <strong id="consentStatus">Active</strong>
+          </div>
+          <div class="status-row">
+            <span>Body load</span>
+            <strong id="loadStatus">Low</strong>
+          </div>
+          <div class="status-row">
+            <span>Sleep cue</span>
+            <strong id="sleepStatus">Idle</strong>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Consent-first memory reinforcement console</p>
+            <h2 id="viewTitle">Seed Builder</h2>
+          </div>
+          <div class="top-actions">
+            <button class="icon-button" type="button" id="saveBtn" title="Save prototype state">
+              <i data-lucide="save"></i>
+            </button>
+            <button class="icon-button" type="button" id="resetBtn" title="Reset prototype state">
+              <i data-lucide="rotate-ccw"></i>
+            </button>
+            <button class="icon-button" type="button" id="exportJsonBtn" title="Export analysis JSON">
+              <i data-lucide="braces"></i>
+            </button>
+            <button class="icon-button" type="button" id="exportCsvBtn" title="Export recall CSV">
+              <i data-lucide="table"></i>
+            </button>
+          </div>
+        </header>
+
+        <section class="view-grid active" id="seedView" data-view-panel="seed">
+          <div class="panel input-panel">
+            <div class="panel-heading">
+              <h3>Knowledge Input</h3>
+              <button class="tool-button" type="button" id="sampleBtn">
+                <i data-lucide="wand-sparkles"></i>
+                <span>Sample</span>
+              </button>
+            </div>
+            <textarea id="sourceText" spellcheck="true" placeholder="Paste notes, formulas, vocabulary, or a short lesson here."></textarea>
+            <div class="control-strip">
+              <label>
+                <span>Seed size</span>
+                <select id="seedSize">
+                  <option value="short">Short</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="dense">Dense</option>
+                </select>
+              </label>
+              <label>
+                <span>Cue type</span>
+                <select id="cueType">
+                  <option value="audio" selected>Audio</option>
+                  <option value="haptic">Haptic</option>
+                  <option value="both">Audio + Haptic</option>
+                </select>
+              </label>
+              <button class="primary-button" type="button" id="generateBtn">
+                <i data-lucide="sparkles"></i>
+                <span>Generate Seeds</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="panel brain-panel">
+            <div class="panel-heading">
+              <h3>Memory Map</h3>
+              <span class="metric-pill" id="seedCount">0 seeds</span>
+            </div>
+            <canvas id="memoryCanvas" width="760" height="480" aria-label="Animated memory cue map"></canvas>
+          </div>
+
+          <div class="panel seed-list-panel">
+            <div class="panel-heading">
+              <h3>Awake Approval</h3>
+              <span class="metric-pill" id="approvedCount">0 approved</span>
+            </div>
+            <div class="seed-list" id="seedList"></div>
+          </div>
+        </section>
+
+        <section class="view-grid" id="sleepView" data-view-panel="sleep">
+          <div class="panel">
+            <div class="panel-heading">
+              <h3>Sleep Reinforcement</h3>
+              <span class="metric-pill" id="eligibleCount">0 eligible</span>
+            </div>
+            <div class="sleep-stage">
+              <div class="stage-track">
+                <span>N1</span>
+                <span>N2</span>
+                <span>N3</span>
+                <span>REM</span>
+              </div>
+              <div class="stage-indicator" id="stageIndicator"></div>
+            </div>
+            <div class="sleep-controls">
+              <label>
+                <span>Volume</span>
+                <input id="volumeSlider" type="range" min="1" max="30" value="12">
+              </label>
+              <label>
+                <span>Haptic</span>
+                <input id="hapticSlider" type="range" min="0" max="20" value="6">
+              </label>
+              <label>
+                <span>Max cues</span>
+                <input id="maxCues" type="number" min="1" max="12" value="4">
+              </label>
+            </div>
+            <div class="action-row">
+              <button class="primary-button" type="button" id="startSleepBtn">
+                <i data-lucide="play"></i>
+                <span>Start Session</span>
+              </button>
+              <button class="tool-button danger" type="button" id="stopSleepBtn">
+                <i data-lucide="square"></i>
+                <span>Stop</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="panel session-panel">
+            <div class="panel-heading">
+              <h3>Session Log</h3>
+              <span class="metric-pill" id="cueCounter">0 cues</span>
+            </div>
+            <div class="log-list" id="sessionLog"></div>
+          </div>
+
+          <div class="panel locked-panel">
+            <div class="panel-heading">
+              <h3>Direct Injection</h3>
+              <span class="locked-pill">Locked</span>
+            </div>
+            <div class="lock-visual">
+              <i data-lucide="lock-keyhole"></i>
+            </div>
+            <p class="guard-copy">Sleep mode accepts only seeds approved while awake. Unapproved or unconscious-only injection stays blocked.</p>
+          </div>
+        </section>
+
+        <section class="view-grid" id="recallView" data-view-panel="recall">
+          <div class="panel recall-panel">
+            <div class="panel-heading">
+              <h3>Recall Check</h3>
+              <span class="metric-pill" id="recallScore">0%</span>
+            </div>
+            <div id="recallList" class="recall-list"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h3>Retention</h3>
+              <span class="metric-pill" id="retentionLabel">No run</span>
+            </div>
+            <div class="retention-meter">
+              <div id="retentionFill"></div>
+            </div>
+            <div class="retention-stats">
+              <div>
+                <strong id="totalSeedsStat">0</strong>
+                <span>Total</span>
+              </div>
+              <div>
+                <strong id="approvedStat">0</strong>
+                <span>Approved</span>
+              </div>
+              <div>
+                <strong id="cuedStat">0</strong>
+                <span>Cued</span>
+              </div>
+              <div>
+                <strong id="sessionCountStat">0</strong>
+                <span>Runs</span>
+              </div>
+              <div>
+                <strong id="cuedRecallStat">-</strong>
+                <span>Cued recall</span>
+              </div>
+              <div>
+                <strong id="uncuedRecallStat">-</strong>
+                <span>Uncued recall</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel session-history-panel">
+            <div class="panel-heading">
+              <h3>Study Sessions</h3>
+              <span class="metric-pill">Cued vs uncued</span>
+            </div>
+            <div class="session-list" id="sessionList"></div>
+          </div>
+        </section>
+
+        <section class="view-grid" id="ethicsView" data-view-panel="ethics">
+          <div class="panel guard-panel">
+            <div class="panel-heading">
+              <h3>Operating Rules</h3>
+              <span class="metric-pill">Prototype</span>
+            </div>
+            <div class="rule-grid">
+              <div class="rule-item">
+                <i data-lucide="check-circle"></i>
+                <span>User-selected content only</span>
+              </div>
+              <div class="rule-item">
+                <i data-lucide="check-circle"></i>
+                <span>Awake approval required</span>
+              </div>
+              <div class="rule-item">
+                <i data-lucide="check-circle"></i>
+                <span>Low-intensity cue limits</span>
+              </div>
+              <div class="rule-item">
+                <i data-lucide="check-circle"></i>
+                <span>Session audit trail</span>
+              </div>
+              <div class="rule-item">
+                <i data-lucide="check-circle"></i>
+                <span>Export only by user action</span>
+              </div>
+              <div class="rule-item">
+                <i data-lucide="check-circle"></i>
+                <span>Local browser storage</span>
+              </div>
+              <div class="rule-item blocked">
+                <i data-lucide="ban"></i>
+                <span>No hidden persuasion</span>
+              </div>
+              <div class="rule-item blocked">
+                <i data-lucide="ban"></i>
+                <span>No unconscious-only upload</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h3>Motive Translation</h3>
+              <span class="metric-pill">Buildable</span>
+            </div>
+            <div class="translation-grid">
+              <div>
+                <span class="small-label">Your motive</span>
+                <p>Information reaches the brain awake, asleep, or unconscious without body strain.</p>
+              </div>
+              <div>
+                <span class="small-label">Prototype form</span>
+                <p>Awake seeding, sleep reinforcement, low-load cueing, recall verification.</p>
+              </div>
+              <div>
+                <span class="small-label">Pilot data model</span>
+                <p>Seeds, awake consent status, study sessions, cue events, cued/uncued recall checks, and user-triggered exports.</p>
+              </div>
+              <div>
+                <span class="small-label">Future research</span>
+                <p>Wearable sleep staging, EEG timing, clinical studies, strict consent controls.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

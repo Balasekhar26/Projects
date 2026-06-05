@@ -1,0 +1,6 @@
+body { margin: 0; font-family: Segoe UI, system-ui, sans-serif; background: #0f172a; color: #e5eefb; }
+.shell { min-height: 100vh; padding: 32px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+.card { border: 1px solid #263751; border-radius: 8px; padding: 18px; background: #111d31; }
+.value { font-size: 30px; font-weight: 700; margin-top: 8px; }
+button { border: 1px solid #3b82f6; border-radius: 8px; background: #1d4ed8; color: white; padding: 10px 14px; }

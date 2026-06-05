@@ -1,0 +1,10 @@
+.env*
+!.env.example
+runtime/logs/*
+runtime/quarantine/*
+runtime/evidence/*
+reports/*
+!runtime/logs/.gitkeep
+!runtime/quarantine/.gitkeep
+!runtime/evidence/.gitkeep
+!reports/.gitkeep

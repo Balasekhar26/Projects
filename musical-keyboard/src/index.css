@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+}
+
+@layer components {
+  .key-button {
+    @apply relative flex items-center justify-center rounded-xl border-2 border-gray-300 bg-white p-4 text-lg font-semibold shadow-lg transition-all duration-150 active:scale-95 active:shadow-md;
+  }
+  
+  .key-button.active {
+    @apply bg-blue-500 text-white border-blue-600 shadow-blue-200;
+  }
+  
+  .key-button:hover {
+    @apply bg-gray-50 border-gray-400;
+  }
+  
+  .instrument-selector {
+    @apply rounded-2xl border-2 border-gray-300 px-6 py-3 text-lg font-semibold shadow-lg transition-all duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent;
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "universal-ai-system-exe",
+  "version": "1.0.0",
+  "description": "Universal AI System - Multi-Agent Coordination Desktop Application",
+  "main": "electron/main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev": "cd ai-assistant && npm run dev",
+    "build": "cd ai-assistant && npm run build",
+    "build:exe": "npm run build && electron-builder",
+    "build:all": "npm run build && electron-builder --win --x64 --publish=never",
+    "dist": "npm run build:all",
+    "start": "electron .",
+    "preview": "cd ai-assistant && npm run serve"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.8.0",
+    "@tanstack/react-query": "^4.24.4",
+    "lucide-react": "^0.263.1",
+    "clsx": "^1.2.1",
+    "tailwind-merge": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.27",
+    "@types/react-dom": "^18.0.10",
+    "@vitejs/plugin-react": "^3.1.0",
+    "typescript": "^4.9.3",
+    "vite": "^4.1.0",
+    "electron": "^22.0.0",
+    "electron-builder": "^23.6.0",
+    "tailwindcss": "^3.2.7",
+    "autoprefixer": "^10.4.13",
+    "postcss": "^8.4.21"
+  },
+  "build": {
+    "appId": "com.balasekhar.universal-ai-system",
+    "productName": "Universal AI System",
+    "directories": {
+      "output": "dist-exe"
+    },
+    "files": [
+      "ai-assistant/dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

@@ -1,0 +1,15 @@
+#!/bin/sh
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+DIST_DIR="$SCRIPT_DIR/.gradle-wrapper"
+ZIP_PATH="$DIST_DIR/gradle-8.10.2-bin.zip"
+GRADLE_HOME="$DIST_DIR/gradle-8.10.2"
+
+mkdir -p "$DIST_DIR"
+
+if [ ! -f "$GRADLE_HOME/bin/gradle" ]; then
+  echo "Downloading Gradle 8.10.2..."
+  curl -L "https://services.gradle.org/distributions/gradle-8.10.2-bin.zip" -o "$ZIP_PATH"
+  unzip -o "$ZIP_PATH" -d "$DIST_DIR"
+fi
+
+exec "$GRADLE_HOME/bin/gradle" "$@"

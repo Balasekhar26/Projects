@@ -1,0 +1,35 @@
+# ULT Translator — Python Dependencies
+
+# Speech-to-Text (offline, fast)
+faster-whisper==1.2.1
+
+# Offline translation engine
+argostranslate==1.11.0
+
+# Text-to-Speech — Google free, supports Telugu + 100 languages
+gtts>=2.3.0
+
+# Audio decode — MP3 to WAV conversion for gTTS output
+av>=12.0.0
+
+# Audio file I/O
+soundfile>=0.12.1
+
+# Numerical operations
+numpy>=1.26.4,<2.0.0
+
+# Scientific computing (used by librosa/audio processing)
+scipy>=1.11.0
+
+# Offline translation — MarianMT models
+transformers>=4.40.0
+sentencepiece>=0.1.99
+
+# Windows COM automation — persistent SAPI TTS worker
+comtypes>=1.2.0
+
+# Voice cloning (optional — activates automatically when voice sample captured)
+# TTS>=0.22.0
+
+# ElevenLabs (optional — requires API key)
+# elevenlabs>=0.2.26

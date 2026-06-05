@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export SHIELD_ROOT="$(cd "$BIN_DIR/.." && pwd)"
+
+. "$SHIELD_ROOT/lib/common.sh"
+load_config
+. "$SHIELD_ROOT/lib/honeypot.sh"
+. "$SHIELD_ROOT/lib/detector.sh"
+. "$SHIELD_ROOT/lib/containment.sh"
+. "$SHIELD_ROOT/lib/report.sh"
+
+usage() {
+  cat <<'USAGE'
+Balu Cyber Shield
+
+Usage:
+  balu-shield init
+  balu-shield scan
+  balu-shield watch [seconds]
+  balu-shield honeypot init
+  balu-shield honeypot check
+  balu-shield contain pid <pid>
+  balu-shield contain ip <ip>
+  balu-shield credential-plan
+  balu-shield report
+  balu-shield status
+  balu-shield self-test
+  balu-shield help
+USAGE
+}
+
+cmd_init() {
+  ensure_dirs
+  honeypot_init
+  log_event "info" "cli" "init_complete" "Shield initialized" "root=$SHIELD_ROOT"
+  echo "Initialized Balu Cyber Shield at $SHIELD_ROOT"
+}
+
+cmd_watch() {
+  local interval="${1:-$SCAN_INTERVAL_SECONDS}"
+  if ! is_number "$interval"; then
+    echo "watch interval must be a number of seconds" >&2
+    exit 2
+  fi
+
+  ensure_dirs
+  log_event "info" "cli" "watch_started" "Continuous monitoring started" "interval=$interval"
+  echo "Watching every $interval seconds. Press Ctrl+C to stop."
+
+  trap 'log_event "info" "cli" "watch_stopped" "Continuous monitoring stopped" ""; echo; exit 0' INT TERM
+  while true; do
+    run_scan
+    sleep "$interval"
+  done
+}
+
+cmd_honeypot() {
+  local sub="${1:-}"
+  case "$sub" in
+    init) honeypot_init ;;
+    check) honeypot_check ;;
+    *) echo "Usage: balu-shield honeypot init|check" >&2; exit 2 ;;
+  esac
+}
+
+cmd_contain() {
+  local target_type="${1:-}"
+  local target_value="${2:-}"
+
+  case "$target_type" in
+    pid)
+      [ -n "$target_value" ] || { echo "Usage: balu-shield contain pid <pid>" >&2; exit 2; }
+      contain_pid "$target_value"
+      ;;
+    ip)
+      [ -n "$target_value" ] || { echo "Usage: balu-shield contain ip <ip>" >&2; exit 2; }
+      contain_ip "$target_value"
+      ;;
+    *)
+      echo "Usage: balu-shield contain pid <pid> | contain ip <ip>" >&2
+      exit 2
+      ;;
+  esac
+}
+
+cmd_status() {
+  ensure_dirs
+  echo "Root: $SHIELD_ROOT"
+  echo "Runtime: $RUNTIME_DIR"
+  echo "Event log: $EVENT_LOG"
+  echo "Reports: $REPORTS_DIR"
+  echo "Blocklist: $BLOCKLIST_FILE"
+
+  if [ -f "$EVENT_LOG" ]; then
+    echo "Events: $(wc -l < "$EVENT_LOG" | tr -d ' ')"
+    echo "Recent alerts:"
+    grep -E '"level":"(warning|high|critical)"' "$EVENT_LOG" 2>/dev/null | tail -5 || true
+  else
+    echo "Events: 0"
+  fi
+}
+
+cmd_self_test() {
+  ensure_dirs
+  require_command date
+  require_command ps
+  require_command awk
+  require_command find
+  require_command cksum
+
+  honeypot_init >/dev/null
+  honeypot_check >/dev/null
+  run_scan >/dev/null
+  local report_file
+  report_file="$(generate_report)"
+
+  echo "Self-test passed."
+  echo "Report created: $report_file"
+}
+
+main() {
+  local command="${1:-help}"
+  shift || true
+
+  case "$command" in
+    init) cmd_init "$@" ;;
+    scan) ensure_dirs; run_scan ;;
+    watch) cmd_watch "$@" ;;
+    honeypot) cmd_honeypot "$@" ;;
+    contain) cmd_contain "$@" ;;
+    credential-plan) generate_credential_plan ;;
+    report) generate_report ;;
+    status) cmd_status ;;
+    self-test) cmd_self_test ;;
+    help|-h|--help) usage ;;
+    *) echo "Unknown command: $command" >&2; usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"
+

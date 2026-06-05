@@ -1,0 +1,28 @@
+models:
+  planner: qwen3:4b
+  coder: qwen2.5-coder:3b
+  fast: phi3
+  heavy_reasoning: deepseek-r1:8b
+
+memory:
+  persist_directory: memory/chroma
+  collection: ai_system_memory
+
+safety:
+  allow_shell: false
+  allow_desktop_control: false
+  allow_browser_control: true
+  max_task_steps: 8
+
+voice:
+  stt_model: small
+  tts_engine: piper
+  piper_voice_dir: voice/piper
+
+vision:
+  screenshots_dir: memory/screenshots
+  tesseract_cmd: ""
+
+server:
+  host: 127.0.0.1
+  port: 8765

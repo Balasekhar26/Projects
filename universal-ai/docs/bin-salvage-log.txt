@@ -1,0 +1,14 @@
+﻿docs: DESKTOP_APPS_GUIDE.md
+docs: ENHANCED_PROJECTS_GUIDE.md
+docs: EXE_BUILD_GUIDE.md
+docs: HOW_TO_OPEN_APPS.md
+docs: KLING_KIMI_INTEGRATION_GUIDE.md
+docs: N8N_INTEGRATION_GUIDE.md
+docs: PROJECTS_FINAL_STRUCTURE.md
+docs: PROJECTS_STATUS_REPORT.md
+docs: PROJECT_LAUNCH_GUIDE.md
+docs: PROJECT_SETUP_GUIDE.md
+docs: SETUP_GUIDE.md
+legacy-variant: ai_universal_system.py
+legacy-variant: ai_universal_system_chatgpt.py
+maintenance: move_locked_ai_system_after_reboot.bat

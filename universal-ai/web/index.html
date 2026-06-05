@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI_System</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <aside>
+      <h1>AI_System</h1>
+      <div id="status" class="status">Loading...</div>
+      <nav>
+        <button data-view="chat" class="active">Chat</button>
+        <button data-view="tasks">Tasks</button>
+        <button data-view="memory">Memory</button>
+        <button data-view="events">Events</button>
+      </nav>
+    </aside>
+    <main>
+      <section id="chat" class="view active">
+        <div id="messages" class="messages"></div>
+        <form id="ask-form" class="composer">
+          <select id="mode">
+            <option value="planner">Planner</option>
+            <option value="coder">Coder</option>
+            <option value="fast">Fast</option>
+          </select>
+          <textarea id="prompt" rows="3" placeholder="Ask the local AI..."></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </section>
+      <section id="tasks" class="view">
+        <form id="task-form" class="panel">
+          <textarea id="goal" rows="4" placeholder="Give the AI a goal to plan and execute..."></textarea>
+          <label><input id="execute-tools" type="checkbox" /> Allow safe tool routing</label>
+          <button type="submit">Run Task</button>
+        </form>
+        <div id="task-list" class="list"></div>
+      </section>
+      <section id="memory" class="view">
+        <form id="memory-form" class="panel">
+          <textarea id="memory-text" rows="3" placeholder="Store a memory..."></textarea>
+          <button type="submit">Remember</button>
+        </form>
+        <form id="recall-form" class="panel inline">
+          <input id="memory-query" placeholder="Search memory" />
+          <button type="submit">Recall</button>
+        </form>
+        <div id="memory-results" class="list"></div>
+      </section>
+      <section id="events" class="view">
+        <div id="event-list" class="list"></div>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

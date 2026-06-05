@@ -1,0 +1,12 @@
+.installed.flag
+.env*
+!.env.example
+.local/
+logs/*
+memory/*
+backups/*
+!logs/.gitkeep
+!memory/.gitkeep
+!backups/.gitkeep
+__pycache__/
+*.pyc

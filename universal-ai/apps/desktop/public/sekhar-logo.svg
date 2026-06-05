@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Sekhar AI OS logo">
+  <rect width="128" height="128" rx="24" fill="#111614"/>
+  <circle cx="64" cy="64" r="42" fill="none" stroke="#63c29d" stroke-width="8"/>
+  <path d="M36 67c10-22 46-28 58-2 3 7 2 17-5 24-10 10-29 8-36-4" fill="none" stroke="#e8f7f0" stroke-width="8" stroke-linecap="round"/>
+  <path d="M47 42h34M47 86h34" fill="none" stroke="#4b8ce8" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="91" cy="37" r="7" fill="#f0c15a"/>
+</svg>

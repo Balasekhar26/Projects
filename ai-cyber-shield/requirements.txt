@@ -1,0 +1,6 @@
+# Optional Python engine dependencies.
+# The ASA code works with standard-library fallbacks, but psutil improves process
+# and network visibility when Python is available on the machine.
+psutil>=5.9.0
+watchdog>=4.0.0
+

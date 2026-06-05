@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Instrument keyboard icon">
+  <rect width="512" height="512" rx="96" fill="#111827"/>
+  <rect x="70" y="134" width="372" height="244" rx="28" fill="#edf2f7"/>
+  <rect x="102" y="134" width="32" height="142" rx="10" fill="#1f2937"/>
+  <rect x="164" y="134" width="32" height="142" rx="10" fill="#1f2937"/>
+  <rect x="284" y="134" width="32" height="142" rx="10" fill="#1f2937"/>
+  <rect x="346" y="134" width="32" height="142" rx="10" fill="#1f2937"/>
+  <path d="M96 344h320" stroke="#64d2a7" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="118" cy="410" r="18" fill="#f4c95d"/>
+  <circle cx="256" cy="410" r="18" fill="#64d2a7"/>
+  <circle cx="394" cy="410" r="18" fill="#f4c95d"/>
+</svg>

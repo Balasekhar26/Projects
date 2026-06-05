@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Musical Keyboard</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #ffffff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 15px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 20px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #2196F3, #1976D2);
+            box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3);
+        }
+        
+        .btn-primary:hover {
+            box-shadow: 0 6px 20px rgba(33, 150, 243, 0.4);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #f44336, #d32f2f);
+            box-shadow: 0 4px 15px rgba(244, 67, 54, 0.3);
+        }
+        
+        .btn-danger:hover {
+            box-shadow: 0 6px 20px rgba(244, 67, 54, 0.4);
+        }
+        
+        .btn.active {
+            background: linear-gradient(135deg, #FF9800, #F57C00);
+            box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3);
+        }
+        
+        .btn.active {
+            background: linear-gradient(135deg, #f44336, #d32f2f);
+            box-shadow: 0 4px 15px rgba(244, 67, 54, 0.3);
+        }
+        
+        .keyboard-container {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .piano-keyboard {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 20px;
+        }
+        
+        .piano-key {
+            width: 50px;
+            height: 200px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 0 0 5px 5px;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 10px;
+            font-size: 12px;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .piano-key:hover {
+            background: #f0f0f0;
+        }
+        
+        .piano-key:active, .piano-key.active {
+            background: #4CAF50;
+            transform: translateY(2px);
+        }
+        
+        .black-key {
+            width: 30px;
+            height: 130px;
+            background: #333;
+            margin-left: -15px;
+            margin-right: -15px;
+            z-index: 2;
+            color: white;
+        }
+        
+        .black-key:hover {
+            background: #555;
+        }
+        
+        .black-key:active, .black-key.active {
+            background: #4CAF50;
+        }
+        
+        .instrument-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .instrument-btn {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .instrument-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .instrument-btn.active {
+            background: #4CAF50;
+            border-color: #4CAF50;
+        }
+        
+        .recording-indicator {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid #f44336;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .recording-indicator.active {
+            display: flex;
+        }
+        
+        .recording-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f44336;
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+        
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .volume-slider {
+            width: 200px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #4CAF50;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        .volume-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #4CAF50;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        
+        .info-panel {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        
+        .alert {
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid #f44336;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .alert.success {
+            background: rgba(76, 175, 80, 0.1);
+            border-color: #4CAF50;
+        }
+        
+        .alert.info {
+            background: rgba(33, 150, 243, 0.1);
+            border-color: #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">
+            <div class="status-indicator"></div>
+            <span>🎹 Musical Keyboard</span>
+        </div>
+        <div class="status">
+            <span id="status">Ready</span>
+            <span id="version">v1.0.0</span>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="controls">
+            <button class="btn" onclick="startRecording()">🔴 Record</button>
+            <button class="btn btn-danger" onclick="stopRecording()">⏹️ Stop</button>
+            <button class="btn btn-primary" onclick="playback()">▶️ Playback</button>
+            <button class="btn" onclick="saveRecording()">💾 Save</button>
+            <button class="btn" onclick="loadRecording()">📁 Load</button>
+            <button class="btn" id="keyboard-toggle" onclick="toggleKeyboard()">
+                <span id="keyboard-toggle-text">🔇 Keyboard ON</span>
+            </button>
+            <button class="btn" id="background-toggle" onclick="toggleBackgroundMode()">
+                <span id="background-toggle-text">🎵 Background OFF</span>
+            </button>
+            <button class="btn" style="opacity: 0.6; cursor: default;" title="Ctrl+K to toggle keyboard">
+                ⌨️ Ctrl+K
+            </button>
+            <button class="btn" style="opacity: 0.6; cursor: default;" title="Ctrl+B to toggle background mode">
+                🎵 Ctrl+B
+            </button>
+        </div>
+        
+        <div class="recording-indicator" id="recording-indicator">
+            <div class="recording-dot"></div>
+            <span>Recording...</span>
+        </div>
+        
+        <div class="instrument-selector">
+            <button class="instrument-btn active" onclick="selectInstrument('piano')">🎹 Piano</button>
+            <button class="instrument-btn" onclick="selectInstrument('guitar')">🎸 Guitar</button>
+            <button class="instrument-btn" onclick="selectInstrument('drums')">🥁 Drums</button>
+            <button class="instrument-btn" onclick="selectInstrument('synth')">🎛️ Synth</button>
+        </div>
+        
+        <div class="volume-control">
+            <span>🔊 Volume:</span>
+            <input type="range" class="volume-slider" id="volume-slider" min="0" max="100" value="70">
+            <span id="volume-value">70%</span>
+        </div>
+        
+        <div class="keyboard-container">
+            <div class="piano-keyboard">
+                <div class="piano-key" data-note="C4" onclick="playNote('C4')">C</div>
+                <div class="piano-key black-key" data-note="C#4" onclick="playNote('C#4')">C#</div>
+                <div class="piano-key" data-note="D4" onclick="playNote('D4')">D</div>
+                <div class="piano-key black-key" data-note="D#4" onclick="playNote('D#4')">D#</div>
+                <div class="piano-key" data-note="E4" onclick="playNote('E4')">E</div>
+                <div class="piano-key" data-note="F4" onclick="playNote('F4')">F</div>
+                <div class="piano-key black-key" data-note="F#4" onclick="playNote('F#4')">F#</div>
+                <div class="piano-key" data-note="G4" onclick="playNote('G4')">G</div>
+                <div class="piano-key black-key" data-note="G#4" onclick="playNote('G#4')">G#</div>
+                <div class="piano-key" data-note="A4" onclick="playNote('A4')">A</div>
+                <div class="piano-key black-key" data-note="A#4" onclick="playNote('A#4')">A#</div>
+                <div class="piano-key" data-note="B4" onclick="playNote('B4')">B</div>
+                <div class="piano-key" data-note="C5" onclick="playNote('C5')">C</div>
+            </div>
+            
+            <div class="info-panel">
+                <div><strong>Current Instrument:</strong> <span id="current-instrument">Piano</span></div>
+                <div><strong>Recording Status:</strong> <span id="recording-status">Not Recording</span></div>
+                <div><strong>Notes Played:</strong> <span id="notes-count">0</span></div>
+                <div><strong>Recording Time:</strong> <span id="recording-time">00:00</span></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Initialize app
+        let currentInstrument = 'piano';
+        let isRecording = false;
+        let recordedNotes = [];
+        let notesPlayed = 0;
+        let recordingStartTime = null;
+        let recordingInterval = null;
+        
+        // Audio context for sound generation
+        let audioContext = null;
+        
+        // Initialize audio context
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+        
+        // Play a note
+        function playNote(note) {
+            initAudio();
+            
+            // Visual feedback
+            const key = document.querySelector(`[data-note="${note}"]`);
+            if (key) {
+                key.classList.add('active');
+                setTimeout(() => key.classList.remove('active'), 200);
+            }
+            
+            // Generate sound (simplified)
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            // Set frequency based on note
+            const frequencies = {
+                'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13,
+                'E4': 329.63, 'F4': 349.23, 'F#4': 369.99, 'G4': 392.00,
+                'G#4': 415.30, 'A4': 440.00, 'A#4': 466.16, 'B4': 493.88,
+                'C5': 523.25
+            };
+            
+            oscillator.frequency.value = frequencies[note] || 440;
+            oscillator.type = getOscillatorType();
+            
+            const volume = document.getElementById('volume-slider').value / 100;
+            gainNode.gain.value = volume * 0.3;
+            
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.3);
+            
+            // Record if recording
+            if (isRecording) {
+                recordedNotes.push({
+                    note: note,
+                    time: Date.now() - recordingStartTime,
+                    instrument: currentInstrument
+                });
+            }
+            
+            // Update stats
+            notesPlayed++;
+            document.getElementById('notes-count').textContent = notesPlayed;
+        }
+        
+        // Get oscillator type based on instrument
+        function getOscillatorType() {
+            switch (currentInstrument) {
+                case 'piano': return 'triangle';
+                case 'guitar': return 'sawtooth';
+                case 'drums': return 'square';
+                case 'synth': return 'sine';
+                default: return 'triangle';
+            }
+        }
+        
+        // Select instrument
+        function selectInstrument(instrument) {
+            currentInstrument = instrument;
+            
+            // Update UI
+            document.querySelectorAll('.instrument-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            document.getElementById('current-instrument').textContent = 
+                instrument.charAt(0).toUpperCase() + instrument.slice(1);
+            
+            showNotification(`Switched to ${instrument}`, 'info');
+        }
+        
+        // Recording functions
+        function startRecording() {
+            if (isRecording) return;
+            
+            isRecording = true;
+            recordedNotes = [];
+            recordingStartTime = Date.now();
+            
+            document.getElementById('recording-indicator').classList.add('active');
+            document.getElementById('recording-status').textContent = 'Recording';
+            
+            // Update recording time
+            recordingInterval = setInterval(updateRecordingTime, 1000);
+            
+            showNotification('Recording started', 'info');
+        }
+        
+        function stopRecording() {
+            if (!isRecording) return;
+            
+            isRecording = false;
+            
+            document.getElementById('recording-indicator').classList.remove('active');
+            document.getElementById('recording-status').textContent = 'Not Recording';
+            
+            if (recordingInterval) {
+                clearInterval(recordingInterval);
+                recordingInterval = null;
+            }
+            
+            showNotification('Recording stopped', 'success');
+        }
+        
+        function playback() {
+            if (recordedNotes.length === 0) {
+                showNotification('No recording to playback', 'warning');
+                return;
+            }
+            
+            showNotification('Playing back recording...', 'info');
+            
+            recordedNotes.forEach(noteData => {
+                setTimeout(() => {
+                    playNote(noteData.note);
+                }, noteData.time);
+            });
+        }
+        
+        function saveRecording() {
+            if (recordedNotes.length === 0) {
+                showNotification('No recording to save', 'warning');
+                return;
+            }
+            
+            if (window.electronAPI) {
+                window.electronAPI.showSaveDialog({
+                    filters: [
+                        { name: 'JSON Files', extensions: ['json'] },
+                        { name: 'All Files', extensions: ['*'] }
+                    ]
+                }).then(result => {
+                    if (!result.canceled) {
+                        const data = JSON.stringify({
+                            notes: recordedNotes,
+                            instrument: currentInstrument,
+                            date: new Date().toISOString()
+                        }, null, 2);
+                        
+                        window.electronAPI.writeFile(result.filePath, data)
+                            .then(() => showNotification('Recording saved', 'success'))
+                            .catch(err => showNotification('Save failed: ' + err.error, 'error'));
+                    }
+                });
+            }
+        }
+        
+        function loadRecording() {
+            if (window.electronAPI) {
+                window.electronAPI.showOpenDialog({
+                    filters: [
+                        { name: 'JSON Files', extensions: ['json'] },
+                        { name: 'All Files', extensions: ['*'] }
+                    ]
+                }).then(result => {
+                    if (!result.canceled) {
+                        window.electronAPI.readFile(result.filePaths[0])
+                            .then(fileData => {
+                                if (fileData.success) {
+                                    const data = JSON.parse(fileData.data);
+                                    recordedNotes = data.notes || [];
+                                    currentInstrument = data.instrument || 'piano';
+                                    showNotification('Recording loaded', 'success');
+                                }
+                            })
+                            .catch(err => showNotification('Load failed: ' + err.error, 'error'));
+                    }
+                });
+            }
+        }
+        
+        function updateRecordingTime() {
+            if (!recordingStartTime) return;
+            
+            const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            
+            document.getElementById('recording-time').textContent = 
+                `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        // Volume control
+        document.getElementById('volume-slider').addEventListener('input', function(e) {
+            document.getElementById('volume-value').textContent = e.target.value + '%';
+        });
+        
+        // Keyboard support - only when app is focused and active element
+        let isAppFocused = true;
+        let isDocumentActive = true;
+        let keyboardEnabled = true; 
+        let backgroundMode = false; 
+        
+        window.addEventListener('focus', function() {
+            isAppFocused = true;
+            isDocumentActive = true;
+            console.log('App focused - keyboard enabled');
+        });
+        
+        window.addEventListener('blur', function() {
+            isAppFocused = false;
+            isDocumentActive = false;
+            console.log('App blurred - keyboard disabled');
+        });
+        
+        // Track document visibility
+        document.addEventListener('visibilitychange', function() {
+            isDocumentActive = !document.hidden;
+            isAppFocused = !document.hidden;
+            console.log('Document visibility changed:', !document.hidden);
+        });
+        
+        document.addEventListener('keydown', function(e) {
+            // Background mode: play music while typing anywhere
+            if (backgroundMode) {
+                console.log('Background mode is ON, key pressed:', e.key);
+                const keyMap = {
+                    'a': 'C4', 'w': 'C#4', 's': 'D4', 'e': 'D#4',
+                    'd': 'E4', 'f': 'F4', 't': 'F#4', 'g': 'G4',
+                    'y': 'G#4', 'h': 'A4', 'u': 'A#4', 'j': 'B4',
+                    'k': 'C5',
+                    'q': 'C4', 'r': 'D4', 't': 'E4', 'y': 'F4',
+                    'u': 'G4', 'i': 'A4', 'o': 'B4', 'p': 'C5',
+                    ' ': 'C4' // Space bar for rhythm
+                };
+                
+                if (keyMap[e.key] && !e.repeat) {
+                    console.log('Background mode - Playing note:', keyMap[e.key]);
+                    // Play music IMMEDIATELY in background mode
+                    playNote(keyMap[e.key]);
+                } else {
+                    console.log('Background mode - Key not mapped:', e.key);
+                }
+                return;
+            }
+            
+            // Normal mode: Check if keyboard is manually disabled
+            if (!keyboardEnabled) {
+                console.log('Keyboard disabled by user');
+                return;
+            }
+            
+            // Multiple checks to prevent global key capture
+            if (!isAppFocused || !isDocumentActive || document.hidden) {
+                console.log('Keyboard blocked - app not focused');
+                return;
+            }
+            
+            // Check if typing in any input-like element
+            const activeElement = document.activeElement;
+            if (activeElement && (
+                activeElement.tagName === 'INPUT' || 
+                activeElement.tagName === 'TEXTAREA' || 
+                activeElement.tagName === 'SELECT' ||
+                activeElement.contentEditable === 'true' ||
+                activeElement.isContentEditable
+            )) {
+                console.log('Keyboard blocked - typing in input field');
+                return;
+            }
+            
+            // Only allow specific keys for music
+            const keyMap = {
+                'a': 'C4', 'w': 'C#4', 's': 'D4', 'e': 'D#4',
+                'd': 'E4', 'f': 'F4', 't': 'F#4', 'g': 'G4',
+                'y': 'G#4', 'h': 'A4', 'u': 'A#4', 'j': 'B4',
+                'k': 'C5'
+            };
+            
+            if (keyMap[e.key] && !e.repeat) {
+                e.preventDefault(); // Prevent default browser behavior
+                e.stopPropagation(); // Stop event bubbling
+                console.log('Playing note:', keyMap[e.key]);
+                playNote(keyMap[e.key]);
+            } else {
+                console.log('Key ignored:', e.key);
+            }
+        });
+        
+        // Toggle keyboard function
+        function toggleKeyboard() {
+            keyboardEnabled = !keyboardEnabled;
+            const toggleBtn = document.getElementById('keyboard-toggle');
+            const toggleText = document.getElementById('keyboard-toggle-text');
+            
+            if (keyboardEnabled) {
+                toggleBtn.classList.remove('active');
+                toggleText.textContent = '🔇 Keyboard ON';
+                showNotification('Keyboard enabled - Press A-K to play notes', 'success');
+            } else {
+                toggleBtn.classList.add('active');
+                toggleText.textContent = '🔇 Keyboard OFF';
+                showNotification('Keyboard disabled - Type normally without music', 'info');
+            }
+        }
+        
+        // Toggle background mode function
+        function toggleBackgroundMode() {
+            backgroundMode = !backgroundMode;
+            const toggleBtn = document.getElementById('background-toggle');
+            const toggleText = document.getElementById('background-toggle-text');
+            
+            console.log('Background mode toggled to:', backgroundMode);
+            
+            if (backgroundMode) {
+                toggleBtn.classList.add('active');
+                toggleText.textContent = '🎵 Background ON';
+                showNotification('Background mode ON - Type anywhere to play music!', 'success');
+                console.log('Background mode is now ON');
+            } else {
+                toggleBtn.classList.remove('active');
+                toggleText.textContent = '🎵 Background OFF';
+                showNotification('Background mode OFF - Normal typing restored', 'info');
+                console.log('Background mode is now OFF');
+            }
+        }
+        
+        // Global keyboard shortcut (Ctrl+K) to toggle keyboard
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+K to toggle keyboard (global shortcut)
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleKeyboard();
+            }
+        });
+        
+        function showNotification(message, type = 'info') {
+            const alert = document.createElement('div');
+            alert.className = `alert ${type}`;
+            alert.textContent = message;
+            
+            const content = document.querySelector('.main-content');
+            content.insertBefore(alert, content.firstChild);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 3000);
+        }
+        
+        // Listen for events from main process
+        if (window.electronAPI) {
+            window.electronAPI.onNewRecording(() => {
+                startRecording();
+            });
+            
+            window.electronAPI.onRecord(() => {
+                startRecording();
+            });
+            
+            window.electronAPI.onStopRecording(() => {
+                stopRecording();
+            });
+            
+            window.electronAPI.onPlayback(() => {
+                playback();
+            });
+            
+            window.electronAPI.onQuickPlay(() => {
+                playNote('C4');
+            });
+            
+            window.electronAPI.onInstrument((event, instrument) => {
+                currentInstrument = instrument;
+                document.getElementById('current-instrument').textContent = 
+                    instrument.charAt(0).toUpperCase() + instrument.slice(1);
+            });
+            
+            window.electronAPI.onKeyboard(() => {
+                // Focus on keyboard view
+            });
+            
+            // Listen for focus events from main process
+            window.electronAPI.onFocus(() => {
+                isAppFocused = true;
+                isDocumentActive = true;
+                console.log('Window focused - keyboard enabled');
+            });
+            
+            window.electronAPI.onBlur(() => {
+                isAppFocused = false;
+                isDocumentActive = false;
+                console.log('Window blurred - keyboard disabled');
+            });
+            
+            // Listen for background mode events from main process
+            window.electronAPI.onToggleBackground(() => {
+                toggleBackgroundMode();
+            });
+            
+            window.electronAPI.onBackgroundNote((event, key) => {
+                if (backgroundMode) {
+                    const keyMap = {
+                        'a': 'C4', 's': 'D4', 'd': 'E4', 'f': 'F4',
+                        'g': 'G4', 'h': 'A4', 'j': 'B4', 'k': 'C5',
+                        'l': 'D5', 'q': 'C4', 'w': 'C#4', 'e': 'D#4',
+                        'r': 'E4', 't': 'F4', 'y': 'G4', 'u': 'G#4',
+                        'i': 'A4', 'o': 'B4', 'p': 'C5'
+                    };
+                    
+                    console.log('Global background note:', key);
+                    if (keyMap[key]) {
+                        playNote(keyMap[key]);
+                    }
+                }
+            });
+            
+            // Get app version
+            window.electronAPI.getVersion().then(version => {
+                document.getElementById('version').textContent = `v${version}`;
+            });
+        }
+        
+        // Initialize
+        initAudio();
+    </script>
+</body>
+</html>
