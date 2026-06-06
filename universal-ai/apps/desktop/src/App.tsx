@@ -96,6 +96,11 @@ function App() {
   const [launchStatus, setLaunchStatus] = useState("Opening Sekhar AI OS");
   const [launchComplete, setLaunchComplete] = useState(false);
   const [decidingApprovals, setDecidingApprovals] = useState<string[]>([]);
+  const [approvalNotice, setApprovalNotice] = useState<{
+    tone: "danger" | "working" | "ready";
+    title: string;
+    message: string;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -107,7 +112,11 @@ function App() {
 
   const refreshApprovals = async () => {
     try {
-      setApprovals(await fetchApprovals());
+      const items = await fetchApprovals();
+      setApprovals(items);
+      if (items.length > 0) {
+        setApprovalNotice(null);
+      }
     } catch {
       setApprovals([]);
     }
@@ -161,13 +170,19 @@ function App() {
   };
 
   const createNewChat = async () => {
-    const session = await createChatSession();
-    setCurrentSessionId(session.id);
-    currentSessionRef.current = session.id;
     setMessages(initialMessages());
     setActivePanel("Chat");
-    await refreshChatSessions();
-    return session.id;
+    try {
+      const session = await createChatSession();
+      setCurrentSessionId(session.id);
+      currentSessionRef.current = session.id;
+      await refreshChatSessions();
+      return session.id;
+    } catch {
+      setCurrentSessionId(null);
+      currentSessionRef.current = null;
+      return null;
+    }
   };
 
   const ensureChatSession = async () => currentSessionRef.current ?? createNewChat();
@@ -289,6 +304,15 @@ function App() {
     const timer = window.setTimeout(() => setLaunchComplete(true), 450);
     return () => window.clearTimeout(timer);
   }, [connected, launchComplete]);
+
+  useEffect(() => {
+    if (launchComplete) return;
+    const timer = window.setTimeout(() => {
+      setLaunchStatus("Chat opened");
+      setLaunchComplete(true);
+    }, 5200);
+    return () => window.clearTimeout(timer);
+  }, [launchComplete]);
 
   const runSelfEvolutionCycle = async () => {
     if (evolutionRunning) return;
@@ -417,11 +441,24 @@ function App() {
   const sendMessage = async () => {
     const text = input.trim();
     if (!text) return;
-    const sessionId = await ensureChatSession();
     const userMessage: Message = { role: "user", content: text };
     setMessages((prev) => [...prev, userMessage]);
-    persistChatMessage(sessionId, userMessage);
     setInput("");
+
+    const sessionId = currentSessionRef.current;
+    if (sessionId) {
+      persistChatMessage(sessionId, userMessage);
+    } else {
+      void createChatSession()
+        .then((session) => {
+          setCurrentSessionId(session.id);
+          currentSessionRef.current = session.id;
+          persistChatMessage(session.id, userMessage);
+          refreshChatSessions();
+        })
+        .catch(() => undefined);
+    }
+
     const routedText = `[operator mode: ${operatorMode}]\n${text}`;
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(routedText);
@@ -430,7 +467,7 @@ function App() {
 
     setMessages((prev) => [...prev, { role: "progress", content: "WebSocket offline. Using HTTP chat fallback..." }]);
     try {
-      const data = await sendChatMessage(routedText);
+      const data = await sendChatMessage(routedText, sessionId ?? undefined);
       const assistantMessage: Message = {
         role: "assistant",
         content: data.response ?? "No response returned.",
@@ -459,6 +496,11 @@ function App() {
     try {
       await decideApprovalRequest(approvalId, status);
       if (status === "approved") {
+        setApprovalNotice({
+          tone: "working",
+          title: "Approved",
+          message: "Approval accepted. The approved task is running or being checked now.",
+        });
         const installData = await runApprovedInstallJob(approvalId);
         if (installData.status !== "not_install_job") {
           setInstallResult(installData);
@@ -474,11 +516,28 @@ function App() {
             { role: "system", content: `Tool adoption ${adoptionData.status}: ${approvalId}` },
           ]);
         }
+        setApprovalNotice({
+          tone: "ready",
+          title: "Completed",
+          message: "The approved task finished or no install/adoption work was required.",
+        });
+      } else {
+        setApprovalNotice({
+          tone: "danger",
+          title: "Rejected",
+          message: "The task was rejected and nothing risky will run.",
+        });
       }
       setMessages((prev) => [
         ...prev,
         { role: "system", content: `Approval ${status}: ${approvalId}` },
       ]);
+    } catch {
+      setApprovalNotice({
+        tone: "danger",
+        title: "Action Failed",
+        message: "The approval decision was sent, but the follow-up task did not complete.",
+      });
     } finally {
       setDecidingApprovals((current) => current.filter((id) => id !== approvalId));
       refreshApprovals();
@@ -488,9 +547,10 @@ function App() {
 
   const visibleApprovals = approvals.filter((approval) => !decidingApprovals.includes(approval.id));
   const activeApproval = visibleApprovals[0];
+  const showRightPanel = activePanel !== "Chat" || Boolean(activeApproval || approvalNotice);
 
   return (
-    <div className="app">
+    <div className={showRightPanel ? "app" : "app chatOnly"}>
       <Sidebar
         panels={PANELS}
         activePanel={activePanel}
@@ -502,7 +562,7 @@ function App() {
         onSelectPanel={setActivePanel}
       />
 
-      <main className="chat">
+      <main className={activePanel === "Chat" ? "chat" : "chat panelMain"}>
         {activePanel === "Chat" ? (
           <ChatPanel
             messages={messages}
@@ -566,16 +626,19 @@ function App() {
         )}
       </main>
 
-      <RightPanel
-        operatorMode={operatorMode}
-        onOperatorModeChange={setOperatorMode}
-        agentStatus={agentStatus}
-        health={health}
-        freeStack={freeStack}
-        capabilityLadder={capabilityLadder}
-        activeApproval={activeApproval}
-        onDecideApproval={decideApproval}
-      />
+      {showRightPanel && (
+        <RightPanel
+          operatorMode={operatorMode}
+          onOperatorModeChange={setOperatorMode}
+          agentStatus={agentStatus}
+          health={health}
+          freeStack={freeStack}
+          capabilityLadder={capabilityLadder}
+          activeApproval={activeApproval}
+          approvalNotice={approvalNotice}
+          onDecideApproval={decideApproval}
+        />
+      )}
       {latestVisualGuidance && <DesktopGuidanceOverlay guidance={latestVisualGuidance} />}
       {!launchComplete && (
         <div className="launchOverlay" role="status" aria-live="polite">

@@ -9,6 +9,11 @@ type RightPanelProps = {
   freeStack: FreeStack | null;
   capabilityLadder: CapabilityLadder | null;
   activeApproval?: Approval;
+  approvalNotice?: {
+    tone: "danger" | "working" | "ready";
+    title: string;
+    message: string;
+  } | null;
   onDecideApproval: (approvalId: string, status: "approved" | "rejected") => void;
 };
 
@@ -20,6 +25,7 @@ export function RightPanel({
   freeStack,
   capabilityLadder,
   activeApproval,
+  approvalNotice,
   onDecideApproval,
 }: RightPanelProps) {
   return (
@@ -46,7 +52,7 @@ export function RightPanel({
         <dd>{capabilityLadder ? `${capabilityLadder.maturity_percent}%` : "Checking"}</dd>
       </dl>
       <OperatorModeSelector operatorMode={operatorMode} onChange={onOperatorModeChange} compact />
-      <div className="approvalBox">
+      <div className={`approvalBox ${activeApproval ? "danger" : approvalNotice?.tone ?? "ready"}`}>
         <h3>Approval Panel</h3>
         {activeApproval ? (
           <>
@@ -55,15 +61,23 @@ export function RightPanel({
               <dt>Risk</dt>
               <dd>{activeApproval.risk}</dd>
               <dt>Status</dt>
-              <dd>{activeApproval.status}</dd>
+              <dd>Needs approval</dd>
             </dl>
             <div className="approvalActions">
               <button onClick={() => onDecideApproval(activeApproval.id, "approved")}>Approve</button>
               <button onClick={() => onDecideApproval(activeApproval.id, "rejected")}>Reject</button>
             </div>
           </>
+        ) : approvalNotice ? (
+          <>
+            <strong className="approvalStateTitle">{approvalNotice.title}</strong>
+            <p>{approvalNotice.message}</p>
+          </>
         ) : (
-          <p>No pending risky actions. Anything dangerous will pause here for review.</p>
+          <>
+            <strong className="approvalStateTitle">All Clear</strong>
+            <p>No actions are waiting for approval. Risky actions will pause here before they run.</p>
+          </>
         )}
       </div>
     </aside>

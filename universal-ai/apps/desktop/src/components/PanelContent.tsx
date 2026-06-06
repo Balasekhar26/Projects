@@ -339,7 +339,11 @@ function ToolsPanel({
     <section className="panelView">
       <h2>Tools</h2>
       {freeStack && (
-        <p>{freeStack.ready_count}/{freeStack.total_count} free/local capabilities detected.</p>
+        <p>
+          {freeStack.ready_count === freeStack.total_count
+            ? "All free/local capabilities are ready."
+            : `${freeStack.ready_count}/${freeStack.total_count} capabilities are ready. Setup-needed items are highlighted red.`}
+        </p>
       )}
       {sourcePolicy && (
         <div className="policyPanel">
@@ -352,7 +356,7 @@ function ToolsPanel({
           </ul>
         </div>
       )}
-      <button onClick={onRequestMissingInstalls}>Check Missing & Request Install Approval</button>
+      <button onClick={onRequestMissingInstalls}>Check Tools & Request Install Approval</button>
       <button onClick={onRunManualToolScout}>Run Free Tool Scout</button>
       {toolScout && (
         <div className="scoutPanel">
@@ -360,7 +364,7 @@ function ToolsPanel({
           <p>{toolScout.copying_rule}</p>
           <div className="scoutList">
             {toolScout.reports.length ? toolScout.reports.map((report) => (
-              <article key={report.id} className="scoutItem">
+              <article key={report.id} className={`scoutItem ${statusTone(report.status)}`}>
                 <header>
                   <strong>{report.capability}</strong>
                   <span>{report.status}</span>
@@ -379,7 +383,7 @@ function ToolsPanel({
               <h3>Adoption Pipeline</h3>
               <div className="scoutList">
                 {toolAdoptions.map((job) => (
-                  <article key={job.id} className="scoutItem">
+                  <article key={job.id} className={`scoutItem ${statusTone(job.status)}`}>
                     <header>
                       <strong>{job.status}</strong>
                       <span>{job.updated_at}</span>
@@ -396,14 +400,14 @@ function ToolsPanel({
       )}
       {installResult && (
         <div className="installPanel">
-          <h3>Install Status</h3>
+          <h3>Setup Status</h3>
           <p>{installResult.message ?? installResult.status}</p>
           {installResult.plan && <p>{installResult.plan.summary}</p>}
-          {installResult.approval_id && <small>Approval: {installResult.approval_id}</small>}
+          {installResult.approval_id && <small>Approval state: {installResult.approval_id}</small>}
           {installResult.results?.length ? (
             <div className="installList">
               {installResult.results.map((item, index) => (
-                <article key={index} className={`installItem ${item.status}`}>
+                <article key={index} className={`installItem ${statusTone(item.status)}`}>
                   <strong>{item.label}</strong>
                   <span>{item.status}</span>
                   {item.message && <small>{item.message}</small>}
@@ -438,7 +442,7 @@ function ToolsPanel({
           {freeStack.capabilities.map((item) => (
             <article key={item.key} className={item.installed ? "capability ready" : "capability missing"}>
               <strong>{item.name}</strong>
-              <span>{item.installed ? "Ready" : "Missing"}</span>
+              <span>{item.installed ? "Ready" : "Needs setup"}</span>
               <p>{item.role}</p>
             </article>
           ))}
@@ -504,10 +508,10 @@ function AgentsPanel({
           <p>{capabilityLadder.maturity_percent}% assistant maturity using free/local components.</p>
           <div className="ladderList">
             {capabilityLadder.levels.map((level) => (
-              <article key={level.key} className={`ladderItem ${level.status}`}>
+              <article key={level.key} className={`ladderItem ${statusTone(level.status)}`}>
                 <header>
                   <strong>{level.key} {level.name}</strong>
-                  <span>{level.status}</span>
+                  <span>{statusLabel(level.status)}</span>
                 </header>
                 <p>{level.description}</p>
                 <small>{level.evidence}</small>
@@ -519,10 +523,10 @@ function AgentsPanel({
       <h3>Skill Library</h3>
       <div className="skillList">
         {skills.length ? skills.map((skill) => (
-          <article key={skill.id} className={`skillItem ${skill.trust}`}>
+          <article key={skill.id} className={`skillItem ${statusTone(skill.trust)}`}>
             <header>
               <strong>{skill.name}</strong>
-              <span>{skill.trust}</span>
+              <span>{statusLabel(skill.trust)}</span>
             </header>
             <p>{skill.trigger}</p>
             <small>{skill.success_count} success / {skill.failure_count} failure - {skill.risk} risk</small>
@@ -552,10 +556,10 @@ function SkillTrustActions({
     );
   }
   if (skill.trust === "approved") {
-    return <span className="actionStatus">Approved</span>;
+    return <span className="actionStatus working">Approved</span>;
   }
   if (skill.trust === "trusted") {
-    return <span className="actionStatus">Trusted</span>;
+    return <span className="actionStatus ready">Trusted</span>;
   }
   return <button onClick={() => onSetSkillTrust(skill.id, "draft")}>Restore</button>;
 }
@@ -673,7 +677,7 @@ function ProjectsPanel({ projectEcosystem, projectIndex, health, onRefreshHealth
                 {projectIndex.important_files.map((item) => (
                   <article key={item.path} className={item.exists ? "ready" : "missing"}>
                     <strong>{item.path}</strong>
-                    <span>{item.exists ? item.role : "missing"}</span>
+                    <span>{item.exists ? item.role : "Not found"}</span>
                   </article>
                 ))}
               </div>
@@ -715,4 +719,20 @@ function ProjectsPanel({ projectEcosystem, projectIndex, health, onRefreshHealth
       <button onClick={onRefreshHealth}>Refresh Workspace</button>
     </section>
   );
+}
+
+function statusTone(status: string) {
+  const value = status.toLowerCase();
+  if (["ready", "done", "completed", "success", "trusted", "installed", "supported"].includes(value)) return "ready";
+  if (["approved", "running", "active", "paused", "partial", "degraded", "in_progress", "requested"].includes(value)) return "working";
+  if (["pending", "draft", "missing", "needs_dependency", "failed", "blocked", "error", "rejected"].includes(value)) return "missing";
+  return "working";
+}
+
+function statusLabel(status: string) {
+  const value = status.toLowerCase();
+  if (value === "missing" || value === "needs_dependency") return "Needs setup";
+  if (value === "pending") return "Needs approval";
+  if (value === "partial" || value === "degraded" || value === "in_progress") return "In progress";
+  return status.replace(/_/g, " ");
 }

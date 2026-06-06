@@ -34,7 +34,7 @@ export function SystemDiagnostics() {
   return (
     <section className="panelView">
       <h2>System Diagnostics</h2>
-      <p>Installer and setup checks for this machine: platform support, adapter readiness, hardware fit, and missing dependencies.</p>
+      <p>Installer and setup checks for this machine: platform support, adapter readiness, hardware fit, and dependency gaps.</p>
       <div className="taskControls">
         <button onClick={refresh} disabled={loading}>{loading ? "Checking..." : "Refresh Diagnostics"}</button>
       </div>
@@ -60,8 +60,8 @@ export function SystemDiagnostics() {
 
           <div className="diagnosticSummary">
             <StatusCount label="Ready" count={grouped.ready.length} className="ready" />
-            <StatusCount label="Missing" count={grouped.missing.length} className="missing" />
-            <StatusCount label="Degraded" count={grouped.degraded.length} className="degraded" />
+            {grouped.missing.length > 0 && <StatusCount label="Needs setup" count={grouped.missing.length} className="missing" />}
+            {grouped.degraded.length > 0 && <StatusCount label="In progress" count={grouped.degraded.length} className="degraded" />}
           </div>
 
           <h3>Adapters</h3>
@@ -173,7 +173,7 @@ function statusClass(status: string) {
 }
 
 function statusLabel(status: string) {
-  if (status === "needs_dependency") return "Missing dependency";
+  if (status === "needs_dependency") return "Needs setup";
   if (status === "supported") return "Ready";
   if (status === "disabled") return "Disabled";
   return formatName(status);

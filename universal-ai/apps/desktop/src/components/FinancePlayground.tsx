@@ -123,7 +123,7 @@ export function FinancePlayground() {
         {status ? (
           <div className="statusGrid">
             <article className={status.installed ? "ready" : "missing"}>
-              <strong>{status.installed ? "Installed" : "Missing"}</strong>
+              <strong>{status.installed ? "Installed" : "Needs setup"}</strong>
               <span>{status.path}</span>
             </article>
             <article className={status.ready_for_real_kronos ? "ready" : "missing"}>
