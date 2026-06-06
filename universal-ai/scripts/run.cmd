@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions
-cd /d "%~dp0"
+for %%I in ("%~dp0..") do set "PROJECT_ROOT=%%~fI"
+cd /d "%PROJECT_ROOT%"
 if not exist "runtime" mkdir runtime
 if not exist "logs" mkdir logs
 
@@ -58,7 +59,7 @@ exit /b %errorlevel%
 :backend_foreground
 call :ensure_setup
 if errorlevel 1 exit /b 1
-"%~dp0ai_system_env\Scripts\python.exe" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+"%PROJECT_ROOT%\ai_system_env\Scripts\python.exe" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 exit /b %errorlevel%
 
 :ui
@@ -66,7 +67,7 @@ call :start_web_ui
 exit /b %errorlevel%
 
 :ui_foreground
-cd /d "%~dp0apps\desktop"
+cd /d "%PROJECT_ROOT%\apps\desktop"
 npm run dev
 exit /b %errorlevel%
 
@@ -76,7 +77,7 @@ if errorlevel 1 exit /b 1
 call :start_ollama_if_available
 call :ensure_backend
 if errorlevel 1 exit /b 1
-cd /d "%~dp0apps\desktop"
+cd /d "%PROJECT_ROOT%\apps\desktop"
 set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 npm run tauri:dev
 exit /b %errorlevel%
@@ -84,7 +85,7 @@ exit /b %errorlevel%
 :build
 call :ensure_setup
 if errorlevel 1 exit /b 1
-cd /d "%~dp0apps\desktop"
+cd /d "%PROJECT_ROOT%\apps\desktop"
 set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 npm install
 npm run tauri:build:windows-msi
@@ -92,11 +93,14 @@ exit /b %errorlevel%
 
 :status
 echo Checking Kattappa AI OS backend...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-RestMethod -Uri 'http://127.0.0.1:8000/ready' -TimeoutSec 3 | Out-Null; Write-Host 'Backend ready at http://127.0.0.1:8000' } catch { Write-Host 'Backend is not reachable at http://127.0.0.1:8000'; exit 1 }; try { $r=Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 15; $r | ConvertTo-Json -Depth 5 } catch { Write-Host 'Detailed health is slow or unavailable; backend readiness passed.' }"
-exit /b %errorlevel%
+if exist "setup.bat" (echo setup.bat: ready) else (echo setup.bat: missing & exit /b 1)
+if exist "run.exe" (echo run.exe: ready) else (echo run.exe: missing & exit /b 1)
+if exist "ai_system_env\Scripts\python.exe" (echo python env: ready) else (echo python env: missing - run setup.bat)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-RestMethod -Uri 'http://127.0.0.1:8000/ready' -TimeoutSec 3 | Out-Null; Write-Host 'backend: online at http://127.0.0.1:8000'; try { $r=Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 15; $r | ConvertTo-Json -Depth 5 } catch { Write-Host 'backend: ready, detailed health slow' } } catch { Write-Host 'backend: offline (normal if app is not running)' }"
+exit /b 0
 
 :stop
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\Shutdown_Sekhar_AI_OS.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_ROOT%\scripts\Shutdown_Sekhar_AI_OS.ps1"
 exit /b %errorlevel%
 
 :help
@@ -105,14 +109,14 @@ echo Kattappa AI OS Windows launcher
 echo.
 echo Supported commands:
 echo   setup.bat         First setup only
-echo   run.bat           Run app
-echo   run.bat services  Start backend/services only
-echo   run.bat backend   Start backend only
-echo   run.bat ui        Open browser desktop UI
-echo   run.bat dev       Start backend + Tauri dev app
-echo   run.bat build     Build native Windows desktop app
-echo   run.bat status    Check backend health
-echo   run.bat stop      Stop Kattappa AI OS services
+echo   run.exe           Run app
+echo   run.exe services  Start backend/services only
+echo   run.exe backend   Start backend only
+echo   run.exe ui        Open browser desktop UI
+echo   run.exe dev       Start backend + Tauri dev app
+echo   run.exe build     Build native Windows desktop app
+echo   run.exe status    Check launcher/backend health
+echo   run.exe stop      Stop Kattappa AI OS services
 echo.
 exit /b 0
 
@@ -121,7 +125,7 @@ if exist "ai_system_env\Scripts\python.exe" (
   if exist "backend\.env" exit /b 0
 )
 echo First run setup required. Installing Kattappa AI OS for this machine...
-call "%~dp0setup.bat" --setup-only
+call "%PROJECT_ROOT%\setup.bat" --setup-only
 if errorlevel 1 exit /b 1
 exit /b 0
 
@@ -137,7 +141,7 @@ if not errorlevel 1 (
   exit /b 0
 )
 echo Starting Ollama...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$runtime='%~dp0runtime'; if(!(Test-Path $runtime)){New-Item -ItemType Directory -Path $runtime | Out-Null}; $p=Start-Process -WindowStyle Hidden -FilePath 'ollama' -ArgumentList 'serve' -PassThru; Set-Content -LiteralPath (Join-Path $runtime 'ollama.pid') -Value $p.Id; Set-Content -LiteralPath (Join-Path $runtime 'ollama-started-by-kattappa.flag') -Value (Get-Date -Format o)"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$runtime='%PROJECT_ROOT%\runtime'; if(!(Test-Path $runtime)){New-Item -ItemType Directory -Path $runtime | Out-Null}; $p=Start-Process -WindowStyle Hidden -FilePath 'ollama' -ArgumentList 'serve' -PassThru; Set-Content -LiteralPath (Join-Path $runtime 'ollama.pid') -Value $p.Id; Set-Content -LiteralPath (Join-Path $runtime 'ollama-started-by-kattappa.flag') -Value (Get-Date -Format o)"
 exit /b 0
 
 :ensure_backend
@@ -153,9 +157,9 @@ if not exist "ai_system_env\Scripts\python.exe" (
 )
 echo Starting backend...
 if exist "ai_system_env\Scripts\pythonw.exe" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%~dp0ai_system_env\Scripts\pythonw.exe' -ArgumentList '%~dp0backend\run_server.py' -PassThru; Set-Content -LiteralPath '%~dp0runtime\backend.pid' -Value $p.Id"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%PROJECT_ROOT%\ai_system_env\Scripts\pythonw.exe' -ArgumentList '%PROJECT_ROOT%\backend\run_server.py' -PassThru; Set-Content -LiteralPath '%PROJECT_ROOT%\runtime\backend.pid' -Value $p.Id"
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%~dp0ai_system_env\Scripts\python.exe' -ArgumentList '%~dp0backend\run_server.py' -PassThru; Set-Content -LiteralPath '%~dp0runtime\backend.pid' -Value $p.Id"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%PROJECT_ROOT%\ai_system_env\Scripts\python.exe' -ArgumentList '%PROJECT_ROOT%\backend\run_server.py' -PassThru; Set-Content -LiteralPath '%PROJECT_ROOT%\runtime\backend.pid' -Value $p.Id"
 )
 exit /b 0
 
@@ -180,7 +184,7 @@ exit /b 1
 :open_app
 if exist "apps\desktop\src-tauri\target\release\kattappa-ai-os-desktop.exe" (
   echo Opening native desktop app...
-  start "" "%~dp0apps\desktop\src-tauri\target\release\kattappa-ai-os-desktop.exe"
+  start "" "%PROJECT_ROOT%\apps\desktop\src-tauri\target\release\kattappa-ai-os-desktop.exe"
   exit /b 0
 )
 echo Native desktop app is not built yet. Opening browser desktop UI instead.
@@ -197,10 +201,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$listen=Get-NetTCPConnec
 if errorlevel 1 (
   if not exist "apps\desktop\node_modules" (
     echo Installing desktop UI packages...
-    cd /d "%~dp0apps\desktop"
+    cd /d "%PROJECT_ROOT%\apps\desktop"
     npm install
     if errorlevel 1 exit /b 1
-    cd /d "%~dp0"
+    cd /d "%PROJECT_ROOT%"
   )
   echo Starting browser desktop UI...
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -WindowStyle Hidden -FilePath $env:ComSpec -ArgumentList '/c', '\"%~f0\" ui-foreground'"

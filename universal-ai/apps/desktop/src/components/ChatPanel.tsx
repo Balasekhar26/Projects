@@ -38,6 +38,8 @@ type ChatPanelProps = {
   onSendMessage: () => void;
   onVoiceCommand: (command: string) => void;
   onVoiceWake: () => void;
+  isWorking: boolean;
+  queuedCount: number;
 };
 
 export function ChatPanel({
@@ -50,6 +52,8 @@ export function ChatPanel({
   onSendMessage,
   onVoiceCommand,
   onVoiceWake,
+  isWorking,
+  queuedCount,
 }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -298,6 +302,9 @@ export function ChatPanel({
         </div>
         <div className="composerFooter">
           <OperatorModeSelector operatorMode={operatorMode} onChange={onOperatorModeChange} />
+          <span className={`turnStatus ${isWorking ? "working" : "ready"}`}>
+            {isWorking ? `Working${queuedCount ? ` / ${queuedCount} queued` : ""}` : "Ready"}
+          </span>
         </div>
       </div>
     </>

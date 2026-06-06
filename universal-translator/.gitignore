@@ -57,6 +57,8 @@ Include/
 pyvenv.cfg
 venv/
 .venv/
+!/lib/
+!/lib/*.ts
 __pycache__/
 *.py[cod]
 .pytest_cache/

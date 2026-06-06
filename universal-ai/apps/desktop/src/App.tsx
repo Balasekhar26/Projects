@@ -92,6 +92,9 @@ function App() {
   const [researchResult, setResearchResult] = useState<ResearchResult | null>(null);
   const [simulationDraft, setSimulationDraft] = useState({ seed: "", horizon: "short" });
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
+  const [assistantWorking, setAssistantWorking] = useState(false);
+  const [queuedCount, setQueuedCount] = useState(0);
+  const [hiddenGuidanceKey, setHiddenGuidanceKey] = useState<string | null>(null);
   const [launchProgress, setLaunchProgress] = useState(8);
   const [launchStatus, setLaunchStatus] = useState("Opening Kattappa AI OS");
   const [launchComplete, setLaunchComplete] = useState(false);
@@ -105,6 +108,8 @@ function App() {
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const currentSessionRef = useRef<string | null>(null);
+  const assistantWorkingRef = useRef(false);
+  const messageQueueRef = useRef<string[]>([]);
 
   useEffect(() => {
     currentSessionRef.current = currentSessionId;
@@ -392,10 +397,12 @@ function App() {
         persistChatMessage(currentSessionRef.current, message);
         if (data.selected_agent) setAgentStatus(`${data.selected_agent} / ${data.risk_level}`);
         if (data.approval_required) refreshApprovals();
+        if (data.type === "assistant") finishAssistantTurn();
       } catch {
         const message: Message = { role: "assistant", content: event.data };
         setMessages((prev) => [...prev, message]);
         persistChatMessage(currentSessionRef.current, message);
+        finishAssistantTurn();
       }
     };
   };
@@ -428,23 +435,71 @@ function App() {
     }
   }, [messages, activePanel]);
 
-  const latestVisualGuidance = useMemo(
-    () =>
-      messages
-        .slice()
-        .reverse()
-        .map((message) => message.operatorPlan?.visual_guidance)
-        .find((guidance): guidance is VisualGuidance => Boolean(guidance?.enabled && guidance.target)),
-    [messages],
-  );
+  const latestVisualGuidanceItem = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const guidance = messages[index].operatorPlan?.visual_guidance;
+      if (guidance?.enabled && guidance.target) {
+        return {
+          guidance,
+          key: `${index}:${guidance.target.label}:${guidance.target.x}:${guidance.target.y}`,
+        };
+      }
+    }
+    return null;
+  }, [messages]);
+
+  useEffect(() => {
+    if (!latestVisualGuidanceItem) return;
+    setHiddenGuidanceKey(null);
+    const timer = window.setTimeout(() => {
+      setHiddenGuidanceKey(latestVisualGuidanceItem.key);
+    }, 6500);
+    return () => window.clearTimeout(timer);
+  }, [latestVisualGuidanceItem?.key]);
+
+  const latestVisualGuidance =
+    latestVisualGuidanceItem && latestVisualGuidanceItem.key !== hiddenGuidanceKey
+      ? latestVisualGuidanceItem.guidance
+      : null;
+
+  const setWorking = (value: boolean) => {
+    assistantWorkingRef.current = value;
+    setAssistantWorking(value);
+  };
+
+  const finishAssistantTurn = () => {
+    const next = messageQueueRef.current.shift();
+    setQueuedCount(messageQueueRef.current.length);
+    if (next) {
+      window.setTimeout(() => {
+        void sendMessageText(next, true);
+      }, 150);
+      return;
+    }
+    setWorking(false);
+  };
 
   const sendMessage = async () => {
     await sendMessageText(input);
   };
 
-  const sendMessageText = async (rawText: string) => {
+  const sendMessageText = async (rawText: string, fromQueue = false) => {
     const text = rawText.trim();
     if (!text) return;
+    if (assistantWorkingRef.current && !fromQueue) {
+      messageQueueRef.current.push(text);
+      setQueuedCount(messageQueueRef.current.length);
+      setInput("");
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "system",
+          content: `Queued message ${messageQueueRef.current.length}: ${text}`,
+        },
+      ]);
+      return;
+    }
+    setWorking(true);
     const userMessage: Message = { role: "user", content: text };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
@@ -486,6 +541,7 @@ function App() {
       if (data.state?.selected_agent) setAgentStatus(`${data.state.selected_agent} / ${data.state.risk_level}`);
       if (data.state?.approval_required) refreshApprovals();
       connectSocket();
+      finishAssistantTurn();
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -496,6 +552,7 @@ function App() {
             "I am ready in the interface, but the local backend is not reachable yet. Start Kattappa AI OS with run.exe, then send the message again and I will route it through the local agent stack.",
         },
       ]);
+      finishAssistantTurn();
     }
   };
 
@@ -594,6 +651,8 @@ function App() {
             onSendMessage={sendMessage}
             onVoiceCommand={sendMessageText}
             onVoiceWake={acknowledgeVoiceWake}
+            isWorking={assistantWorking}
+            queuedCount={queuedCount}
           />
         ) : (
           <PanelContent

@@ -37,7 +37,7 @@ CORE_PYTHON_PACKAGES = [
     "httpx",
     "psutil",
     "pytest",
-    "pandas==2.2.2",
+    "pandas>=2.2.3,<3",
     "torch>=2.0.0",
     "einops==0.8.1",
     "huggingface_hub==0.33.1",
@@ -112,6 +112,7 @@ def main() -> int:
         install_playwright_browser(python_exe)
     if not args.no_npm:
         install_desktop_deps()
+    create_desktop_shortcut()
 
     print("\nSetup complete.")
     print("Configured models:")
@@ -351,13 +352,14 @@ def install_python_deps(python_exe: Path) -> None:
 
 
 def install_desktop_deps() -> None:
-    if shutil.which("npm") is None:
+    npm = "npm.cmd" if platform.system().lower() == "windows" else "npm"
+    if shutil.which(npm) is None:
         print(
             "npm not found; skipping desktop package install. Install Node.js for the desktop UI."
         )
         return
     print("Installing desktop UI dependencies...")
-    run(["npm", "install"], cwd=DESKTOP_DIR)
+    run([npm, "install"], cwd=DESKTOP_DIR)
 
 
 def install_playwright_browser(python_exe: Path) -> None:
@@ -368,6 +370,35 @@ def install_playwright_browser(python_exe: Path) -> None:
         print(
             "Playwright Chromium install failed. Kattappa AI OS will still run; browser automation can be repaired later."
         )
+
+
+def create_desktop_shortcut() -> None:
+    if platform.system().lower() != "windows":
+        return
+    launcher = ROOT / "run.exe"
+    if not launcher.exists():
+        print("Skipping shortcut: run.exe is missing.")
+        return
+    try:
+        desktop = Path(os.environ.get("USERPROFILE", str(ROOT))) / "Desktop"
+        desktop.mkdir(parents=True, exist_ok=True)
+        shortcut = desktop / "Kattappa AI OS.lnk"
+        ps = (
+            "$shell = New-Object -ComObject WScript.Shell; "
+            f"$shortcut = $shell.CreateShortcut('{shortcut}'); "
+            f"$shortcut.TargetPath = '{launcher}'; "
+            f"$shortcut.WorkingDirectory = '{ROOT}'; "
+            "$shortcut.Arguments = ''; "
+            "$shortcut.Description = 'Kattappa AI OS Assistant'; "
+            "$shortcut.Save()"
+        )
+        subprocess.check_call(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            cwd=ROOT,
+        )
+        print(f"Desktop shortcut ready: {shortcut}")
+    except Exception as exc:
+        print(f"Shortcut repair skipped: {exc}")
 
 
 def launch(python_exe: Path) -> int:

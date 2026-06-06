@@ -30,6 +30,7 @@ from backend.core.operator import build_operator_plan
 from backend.core.platform_support import platform_support_report
 from backend.core.project_indexer import build_project_index, search_project_index
 from backend.core.project_blueprint import project_ecosystem
+from backend.core.project_improvement_agents import project_improvement_agents
 from backend.core.self_evolution import run_self_evolution_cycle
 from backend.core.source_policy import source_first_policy
 from backend.core.task_resume import resume_long_task
@@ -438,6 +439,11 @@ def project_index_search(q: str, limit: int = 30) -> dict[str, object]:
 @app.get("/projects/ecosystem")
 def get_project_ecosystem() -> dict[str, object]:
     return project_ecosystem()
+
+
+@app.get("/projects/improvement-agents")
+def get_project_improvement_agents() -> dict[str, object]:
+    return project_improvement_agents()
 
 
 @app.post("/chat")

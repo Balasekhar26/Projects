@@ -1,0 +1,60 @@
+{
+  "mode": "approval_gated_git_synced_improvement_agents",
+  "shared_registry": "universal-ai/docs/SHARED_IMPROVEMENTS.md",
+  "rule": "Every project may observe its own setup, run, test, build, UI, and workflow signals, but improvements are proposals until approved. Approved sanitized improvements can be published to Git. Incoming Git improvements are checked and require local approval before adoption.",
+  "publish_never_include": [
+    "raw chat history",
+    "private task context",
+    "approval private notes",
+    "credentials",
+    "secrets",
+    "sensitive local files",
+    "raw audio",
+    "private security footage",
+    "medical or personal learning data"
+  ],
+  "projects": {
+    "universal-ai": {
+      "name": "Kattappa AI OS Assistant",
+      "agent": "backend.agents.self_improver + backend.core.self_evolution",
+      "policy_doc": "universal-ai/docs/self_improvement_protocol.md",
+      "checks": ["setup", "run", "backend health", "frontend build", "approval queue", "shared improvements"]
+    },
+    "pcb-doctor": {
+      "name": "PCB Doctor",
+      "agent": "Kattappa-managed project improvement agent",
+      "policy_doc": "pcb-doctor/docs/SELF_IMPROVING_AGENT.md",
+      "checks": ["setup", "run", "board schema", "diagnostics", "report UI"]
+    },
+    "ai-cyber-shield": {
+      "name": "AI Cyber Shield",
+      "agent": "Kattappa-managed project improvement agent",
+      "policy_doc": "ai-cyber-shield/docs/SELF_IMPROVING_AGENT.md",
+      "checks": ["setup", "run", "scan output", "alert quality", "defensive safety"]
+    },
+    "universal-translator": {
+      "name": "Universal Translator",
+      "agent": "Kattappa-managed project improvement agent",
+      "policy_doc": "universal-translator/docs/SELF_IMPROVING_AGENT.md",
+      "checks": ["setup", "run", "latency", "audio routing", "offline STT", "offline translation", "offline TTS"]
+    },
+    "musical-keyboard": {
+      "name": "Musical Keyboard",
+      "agent": "Kattappa-managed project improvement agent",
+      "policy_doc": "musical-keyboard/docs/SELF_IMPROVING_AGENT.md",
+      "checks": ["setup", "run", "audio unlock", "input latency", "PWA build"]
+    },
+    "dews": {
+      "name": "DEWS",
+      "agent": "Kattappa-managed project improvement agent",
+      "policy_doc": "dews/docs/SELF_IMPROVING_AGENT.md",
+      "checks": ["setup", "run", "simulation", "safety boundary", "reporting"]
+    },
+    "neuroseed": {
+      "name": "NeuroSeed",
+      "agent": "Kattappa-managed project improvement agent",
+      "policy_doc": "07-NeuroSeed/docs/SELF_IMPROVING_AGENT.md",
+      "checks": ["setup", "run", "consent boundary", "recall checks", "prototype UX"]
+    }
+  }
+}

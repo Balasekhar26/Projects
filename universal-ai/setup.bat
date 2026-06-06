@@ -20,14 +20,14 @@ if not errorlevel 1 (
   exit /b %errorlevel%
 )
 
-echo Python 3 is required to install Universal AI.
+echo Python 3 is required to install Kattappa AI OS.
 echo Install Python from https://www.python.org/downloads/ and tick "Add python.exe to PATH".
 pause
 exit /b 1
 
 :help
 echo.
-echo Universal AI Windows installer
+echo Kattappa AI OS Windows installer
 echo.
 echo Usage:
 echo   setup.bat
