@@ -116,7 +116,9 @@ def test_free_tools_decision_endpoint() -> None:
     assert "gitkraken" in data["blocked"]
     assert "sourcetree" in data["blocked"]
     assert "hyperspace_pods" in data["blocked"]
+    assert "n8n" in data["blocked"]
     assert data["counts"]["project_count"] == 7
+    assert data["counts"]["ecosystem_topics"] == 34
     assert data["counts"]["project_unique_tools"] >= 20
     assert "neuroseed" in data["project_applications"]
     assert "unabyss_mcp" not in data["project_applications"]["universal-ai"]
@@ -126,11 +128,20 @@ def test_free_tools_decision_endpoint() -> None:
     assert "github_desktop" in data["project_applications"]["universal-ai"]
     assert "exo_local_ai_cluster" in data["project_applications"]["universal-ai"]
     assert "ray_local_cluster" in data["project_applications"]["universal-ai"]
+    assert "node_red" in data["project_applications"]["universal-ai"]
+    assert "n8n" not in data["project_applications"]["universal-ai"]
     assert "cosmos3" in data["project_applications"]["dews"]
     assert "piezoelectric_sensors" in data["project_unique_tools"]
+    topic_audit = data["ai_ecosystem_topic_audit"]
+    assert len(topic_audit["topics"]) == 34
+    assert any(
+        topic["topic"] == "n8n" and topic["free_replacements"] == ["node_red"]
+        for topic in topic_audit["topics"]
+    )
     replacement_policy = data["paid_tool_replacement_policy"]
     assert "search for a fully free/open-source/local-first alternative" in replacement_policy["rule"]
     assert replacement_policy["known_replacements"]["gitreverse"] == ["local_repo_prompt_exporter"]
+    assert replacement_policy["known_replacements"]["n8n"] == ["node_red"]
     assert "exo_local_ai_cluster" in replacement_policy["known_replacements"]["hyperspace_pods"]
     blocked = set(data["blocked"])
     for tools in data["project_applications"].values():

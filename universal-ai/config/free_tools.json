@@ -50,12 +50,14 @@
       "status": "optional_adapter",
       "adapter": "future.backend.tools.local_transfer"
     },
-    "obsidian": {
-      "purpose": "knowledge vault source for notes, project memory, and learning maps",
-      "license": "proprietary_free_personal",
+    "foam_markdown_vault": {
+      "purpose": "fully free/open Markdown knowledge vault source for notes, project memory, and learning maps",
+      "license": "MIT",
       "network_required": false,
       "status": "optional_vault_source",
-      "adapter": "future.backend.tools.knowledge_vault"
+      "adapter": "future.backend.tools.knowledge_vault.foam",
+      "source": "https://github.com/foambubble/foam",
+      "replaces": ["obsidian"]
     },
     "local_repo_prompt_exporter": {
       "purpose": "free local GitReverse-style repo architecture summarizer that turns selected project files into AI-readable context",
@@ -288,11 +290,13 @@
       "network_required": true,
       "status": "optional_research_adapter"
     },
-    "n8n": {
-      "purpose": "workflow automation layer for agent-triggered tasks with approval gates",
-      "license": "fair-code",
+    "node_red": {
+      "purpose": "fully free/open workflow automation layer for local event-driven project tasks with approval gates",
+      "license": "Apache-2.0",
       "network_required": false,
-      "status": "optional_workflow_adapter"
+      "status": "optional_workflow_adapter",
+      "source": "https://github.com/node-red/node-red",
+      "replaces": ["n8n"]
     },
     "mirofish": {
       "purpose": "multi-agent simulation and prediction lab",
@@ -487,7 +491,7 @@
       "airllm",
       "mirofish",
       "kronos_finance",
-      "n8n",
+      "node_red",
       "localsend",
       "local_repo_prompt_exporter",
       "homebrew",
@@ -716,6 +720,9 @@
         "google_ai_edge_gallery",
         "faster_whisper"
       ],
+      "n8n": [
+        "node_red"
+      ],
       "terafab": [
         "open_source_alternative_directories",
         "local_b2b_playbook"
@@ -829,6 +836,7 @@
     "gemini_canvas",
     "perplexity_ai",
     "notebooklm",
+    "n8n",
     "openrouter_paid_models",
     "kimi_webbridge",
     "comet_browser",
@@ -901,6 +909,7 @@
       "deepseek_r1_local",
       "chromadb",
       "local_eval_harness",
+      "node_red",
       "ragas_or_deepeval_local",
       "mermaid",
       "excalidraw",
@@ -920,6 +929,7 @@
     ],
     "blocked_or_replaced": [
       "terafab",
+      "n8n",
       "blackbox_ai",
       "graphify/grafyfy if closed",
       "claude_ai",

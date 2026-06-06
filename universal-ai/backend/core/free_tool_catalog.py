@@ -19,8 +19,17 @@ def free_tool_catalog() -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=1)
+def ai_ecosystem_topic_audit() -> dict[str, Any]:
+    path = load_config().root / "config" / "ai_ecosystem_topic_audit.json"
+    if not path.exists():
+        return {"topics": [], "source_evidence": {}}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def free_tool_decision_report() -> dict[str, Any]:
     catalog = free_tool_catalog()
+    topic_audit = ai_ecosystem_topic_audit()
     core_tools = catalog.get("allowed_core_tools", {})
     optional_labs = catalog.get("optional_labs", {})
     learning_sources = catalog.get("learning_sources", {})
@@ -77,8 +86,10 @@ def free_tool_decision_report() -> dict[str, Any]:
             "hardware_topics": len(hardware_topics),
             "project_unique_tools": len(project_unique_tools),
             "project_count": len(project_applications),
+            "ecosystem_topics": len(topic_audit.get("topics", [])),
         },
         "project_applications": project_applications,
         "project_unique_tools": project_unique_tools,
+        "ai_ecosystem_topic_audit": topic_audit,
         "catalog": catalog,
     }

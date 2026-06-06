@@ -27,7 +27,7 @@ PROJECT_BLUEPRINTS: list[dict[str, Any]] = [
             "airllm",
             "mirofish",
             "kronos_finance",
-            "n8n",
+            "node_red",
             "localsend",
             "local_repo_prompt_exporter",
             "homebrew",
