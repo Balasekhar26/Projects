@@ -7,6 +7,7 @@ Last verification pass: 2026-06-06.
 Rule: only fully free, open, local-first, or Kattappa-built capabilities can be added to core project plans. Paid, freemium, quota-limited, cloud-metered, closed, or unknown-license tools stay blocked until a license/source review proves they are safe enough.
 
 Machine-readable registry: `universal-ai/config/ai_ecosystem_topic_audit.json`.
+Developer-toolbox registry: `universal-ai/config/developer_toolbox_audit.json`.
 
 ## Added Free Capabilities
 
@@ -69,6 +70,27 @@ Machine-readable registry: `universal-ai/config/ai_ecosystem_topic_audit.json`.
 ## Complete Topic Decisions
 
 The exact 34-topic decision table is tracked in `universal-ai/config/ai_ecosystem_topic_audit.json` and exposed through `/free-tools` under `ai_ecosystem_topic_audit`. That registry is the canonical machine-readable source for Kattappa's future tool-scouting and self-improvement checks.
+
+## Developer Toolbox Pass
+
+The later 7-tool batch is tracked separately in `universal-ai/config/developer_toolbox_audit.json` and exposed through `/free-tools` under `developer_toolbox_audit`.
+
+| Topic | Decision | Free replacement added |
+| --- | --- | --- |
+| Google Antigravity 2.0 | Do not depend on account/cloud agent platform. Keep the useful agent-manager pattern local. | `local_multi_agent_orchestrator`, `opencode_local_coding_loop` |
+| Supabase | Useful self-hosted idea, but Docker/service setup is not default. | `sqlite_builtin_backend`, `pocketbase_optional_backend` |
+| Stripe | Blocked from core because payments are not fully free. | `manual_export_billing_playbook` |
+| PostHog | Avoid cloud tracking and heavy default self-hosting. | `local_product_analytics` |
+| Inngest | Avoid core dependency because server/CLI licensing is not the clean fully-free baseline. | `local_workflow_queue`, `node_red` |
+| TurboQuant / TurnoQuant | Unknown/commercial orchestration idea only. | `local_multi_agent_orchestrator`, `local_eval_harness` |
+| PewDiePie's Odysseus | Do not copy code without license review; rebuild useful workspace pattern locally. | `local_multi_agent_orchestrator`, `chromadb`, `local_repo_prompt_exporter` |
+
+Project additions from this pass:
+
+- All seven projects get `local_product_analytics`, `local_workflow_queue`, and `local_multi_agent_orchestrator`.
+- Kattappa AI OS, PCB Doctor, Cyber Shield, Universal Translator, DEWS, and NeuroSeed get `sqlite_builtin_backend` and `pocketbase_optional_backend`.
+- Musical Keyboard stays lighter: no backend service by default, only local analytics/workflow/orchestration hooks.
+- Stripe is not added to any runtime path; Kattappa gets only `manual_export_billing_playbook` for future product planning.
 
 Key corrections from this pass:
 

@@ -119,6 +119,7 @@ def test_free_tools_decision_endpoint() -> None:
     assert "n8n" in data["blocked"]
     assert data["counts"]["project_count"] == 7
     assert data["counts"]["ecosystem_topics"] == 34
+    assert data["counts"]["developer_toolbox_topics"] == 7
     assert data["counts"]["project_unique_tools"] >= 20
     assert "neuroseed" in data["project_applications"]
     assert "unabyss_mcp" not in data["project_applications"]["universal-ai"]
@@ -129,8 +130,16 @@ def test_free_tools_decision_endpoint() -> None:
     assert "exo_local_ai_cluster" in data["project_applications"]["universal-ai"]
     assert "ray_local_cluster" in data["project_applications"]["universal-ai"]
     assert "node_red" in data["project_applications"]["universal-ai"]
+    assert "sqlite_builtin_backend" in data["project_applications"]["universal-ai"]
+    assert "pocketbase_optional_backend" in data["project_applications"]["universal-ai"]
+    assert "local_product_analytics" in data["project_applications"]["universal-ai"]
+    assert "local_workflow_queue" in data["project_applications"]["universal-ai"]
+    assert "local_multi_agent_orchestrator" in data["project_applications"]["universal-ai"]
+    assert "manual_export_billing_playbook" in data["project_applications"]["universal-ai"]
     assert "n8n" not in data["project_applications"]["universal-ai"]
     assert "cosmos3" in data["project_applications"]["dews"]
+    assert "local_product_analytics" in data["project_applications"]["musical-keyboard"]
+    assert "pocketbase_optional_backend" not in data["project_applications"]["musical-keyboard"]
     assert "piezoelectric_sensors" in data["project_unique_tools"]
     topic_audit = data["ai_ecosystem_topic_audit"]
     assert len(topic_audit["topics"]) == 34
@@ -143,7 +152,17 @@ def test_free_tools_decision_endpoint() -> None:
     assert replacement_policy["known_replacements"]["gitreverse"] == ["local_repo_prompt_exporter"]
     assert replacement_policy["known_replacements"]["n8n"] == ["node_red"]
     assert "exo_local_ai_cluster" in replacement_policy["known_replacements"]["hyperspace_pods"]
+    developer_toolbox = data["developer_toolbox_audit"]
+    assert len(developer_toolbox["topics"]) == 7
+    assert "pocketbase_optional_backend" in developer_toolbox["free_capabilities"]
+    assert any(
+        topic["topic"] == "Stripe" and topic["free_replacements"] == ["manual_export_billing_playbook"]
+        for topic in developer_toolbox["topics"]
+    )
     blocked = set(data["blocked"])
+    assert "stripe" in blocked
+    assert "inngest_core_dependency" in blocked
+    assert "google_antigravity_core_dependency" in blocked
     for tools in data["project_applications"].values():
         assert "git_cli_safety_workflow" in tools
         assert "github_desktop" in tools
@@ -418,6 +437,9 @@ def test_project_ecosystem_endpoint() -> None:
     assert "must be fully free" in data["free_tool_rule"]
     assert "search for a similar fully free replacement" in data["free_tool_rule"]
     assert data["projects"][0]["free_tools"]
+    universal_ai = data["projects"][0]
+    assert "local_multi_agent_orchestrator" in universal_ai["free_tools"]
+    assert "pocketbase_optional_backend" in universal_ai["free_tools"]
 
 
 def test_builder_agent_route() -> None:

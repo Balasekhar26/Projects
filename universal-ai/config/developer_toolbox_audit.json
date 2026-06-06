@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "verified_on": "2026-06-07",
+  "policy": "Add only fully free/open/local-first capabilities to the seven-project core. Paid, rate-limited, account-dependent, unknown-license, or heavy setup tools are blocked from core and replaced with Kattappa-built local behavior or a small optional adapter.",
+  "source_evidence": {
+    "google_antigravity": "https://www.antigravity.google/",
+    "google_antigravity_pricing": "https://antigravity.google/pricing",
+    "supabase_self_hosting": "https://supabase.com/docs/guides/self-hosting",
+    "stripe_pricing": "https://stripe.com/pricing",
+    "posthog_github": "https://github.com/PostHog/posthog",
+    "inngest_github": "https://github.com/inngest/inngest",
+    "pocketbase": "https://pocketbase.io/"
+  },
+  "free_capabilities": {
+    "sqlite_builtin_backend": {
+      "purpose": "Default local database/backend state for every project without another service or Docker stack.",
+      "license": "SQLite public-domain style plus Kattappa-built local schema code",
+      "network_required": false,
+      "status": "add_now",
+      "replaces": ["supabase_core_runtime_when_a_project_only_needs_local_state"]
+    },
+    "pocketbase_optional_backend": {
+      "purpose": "Optional one-file open-source backend with realtime database, auth, files, and admin UI when a project outgrows plain SQLite.",
+      "license": "MIT",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "source": "https://pocketbase.io/",
+      "replaces": ["supabase_for_small_self_hosted_apps"],
+      "guardrails": [
+        "not installed by default",
+        "one optional binary only",
+        "approval required before enabling user accounts, network listeners, or file sharing"
+      ]
+    },
+    "local_product_analytics": {
+      "purpose": "Local SQLite event, error, funnel, and feature-usage logs for product improvement without PostHog cloud or heavy self-hosting.",
+      "license": "Kattappa-built local analytics workflow",
+      "network_required": false,
+      "status": "add_now",
+      "replaces": ["posthog_cloud", "posthog_heavy_default_self_host"]
+    },
+    "local_workflow_queue": {
+      "purpose": "SQLite-backed jobs, retries, schedules, and approval checkpoints for background workflows without Inngest cloud or license complexity.",
+      "license": "Kattappa-built local workflow queue",
+      "network_required": false,
+      "status": "add_now",
+      "replaces": ["inngest_cloud", "inngest_restricted_core_dependency"]
+    },
+    "local_multi_agent_orchestrator": {
+      "purpose": "Approval-gated manager-worker agent routing, evidence capture, task queueing, and test-before-apply loops inspired by Antigravity/TurboQuant/Odysseus patterns.",
+      "license": "Kattappa-built local orchestration workflow",
+      "network_required": false,
+      "status": "add_now",
+      "replaces": ["google_antigravity_core_dependency", "turboquant", "odysseus_unknown_license_copying"]
+    },
+    "manual_export_billing_playbook": {
+      "purpose": "No-payment default: CSV exports, manual invoices, and local product-readiness notes until a project explicitly needs payments.",
+      "license": "Kattappa-built local business workflow",
+      "network_required": false,
+      "status": "add_now",
+      "replaces": ["stripe_core_dependency"]
+    }
+  },
+  "topics": [
+    {
+      "id": 1,
+      "topic": "Google Antigravity 2.0",
+      "decision": "Do not add as a core dependency because it is an account/cloud agent platform with usage tiers. Add the useful pattern locally: manager-worker coding agents, browser evidence, approval gates, test logs, and resumable tasks.",
+      "free_replacements": ["local_multi_agent_orchestrator", "opencode_local_coding_loop", "local_repo_prompt_exporter", "local_eval_harness"],
+      "projects": ["universal-ai", "neuroseed"]
+    },
+    {
+      "id": 2,
+      "topic": "Supabase",
+      "decision": "Self-hosted Supabase is useful but adds Docker/service complexity, so it is not default core. Keep SQLite as default and allow PocketBase as the one-file open-source backend adapter when realtime/auth/file storage are actually needed.",
+      "free_replacements": ["sqlite_builtin_backend", "pocketbase_optional_backend"],
+      "projects": ["universal-ai", "pcb-doctor", "ai-cyber-shield", "universal-translator", "dews", "neuroseed"]
+    },
+    {
+      "id": 3,
+      "topic": "Stripe",
+      "decision": "Blocked from core because payments are not fully free. No project gets payment processing until the user explicitly asks for monetization.",
+      "free_replacements": ["manual_export_billing_playbook"],
+      "projects": ["universal-ai"]
+    },
+    {
+      "id": 4,
+      "topic": "PostHog",
+      "decision": "Do not add cloud tracking or heavy default self-hosting. Add local product analytics so every project can improve from usage/error events without sending data away.",
+      "free_replacements": ["local_product_analytics"],
+      "projects": ["all"]
+    },
+    {
+      "id": 5,
+      "topic": "Inngest",
+      "decision": "Do not add as a core dependency because the current server/CLI licensing is not the clean fully-free baseline for these projects. Use the existing SQLite workflow queue and optional Node-RED adapter.",
+      "free_replacements": ["local_workflow_queue", "node_red"],
+      "projects": ["all"]
+    },
+    {
+      "id": 6,
+      "topic": "TurboQuant / TurnoQuant",
+      "decision": "Treat as an unknown/commercial multi-agent idea, not a dependency. Add the free local orchestration pattern instead.",
+      "free_replacements": ["local_multi_agent_orchestrator", "local_eval_harness", "project_improvement_agents"],
+      "projects": ["all"]
+    },
+    {
+      "id": 7,
+      "topic": "PewDiePie's Odysseus",
+      "decision": "Do not copy repo code unless license/source review approves it. Keep the useful idea as a local AI workspace pattern using Kattappa memory, project index, local model profiles, and approved adapters.",
+      "free_replacements": ["local_multi_agent_orchestrator", "chromadb", "local_repo_prompt_exporter", "opencode_local_coding_loop"],
+      "projects": ["universal-ai", "neuroseed"]
+    }
+  ],
+  "free_project_applications_patch": {
+    "universal-ai": [
+      "sqlite_builtin_backend",
+      "pocketbase_optional_backend",
+      "local_product_analytics",
+      "local_workflow_queue",
+      "local_multi_agent_orchestrator",
+      "manual_export_billing_playbook"
+    ],
+    "pcb-doctor": [
+      "sqlite_builtin_backend",
+      "pocketbase_optional_backend",
+      "local_product_analytics",
+      "local_workflow_queue",
+      "local_multi_agent_orchestrator"
+    ],
+    "ai-cyber-shield": [
+      "sqlite_builtin_backend",
+      "pocketbase_optional_backend",
+      "local_product_analytics",
+      "local_workflow_queue",
+      "local_multi_agent_orchestrator"
+    ],
+    "universal-translator": [
+      "sqlite_builtin_backend",
+      "pocketbase_optional_backend",
+      "local_product_analytics",
+      "local_workflow_queue",
+      "local_multi_agent_orchestrator"
+    ],
+    "musical-keyboard": [
+      "local_product_analytics",
+      "local_workflow_queue",
+      "local_multi_agent_orchestrator"
+    ],
+    "dews": [
+      "sqlite_builtin_backend",
+      "pocketbase_optional_backend",
+      "local_product_analytics",
+      "local_workflow_queue",
+      "local_multi_agent_orchestrator"
+    ],
+    "neuroseed": [
+      "sqlite_builtin_backend",
+      "pocketbase_optional_backend",
+      "local_product_analytics",
+      "local_workflow_queue",
+      "local_multi_agent_orchestrator"
+    ]
+  },
+  "blocked_or_restricted": [
+    "google_antigravity_core_dependency",
+    "stripe",
+    "posthog_cloud_tracking",
+    "posthog_heavy_default_self_host",
+    "inngest_core_dependency",
+    "turboquant",
+    "turnoquant",
+    "odysseus_repo_until_license_reviewed",
+    "supabase_default_docker_stack"
+  ]
+}

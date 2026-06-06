@@ -119,6 +119,62 @@ CATALOG = [
         ),
     ),
     ToolCandidate(
+        capability="one-file backend",
+        tool="SQLite default with optional PocketBase adapter",
+        source="https://pocketbase.io/",
+        license_note=(
+            "PocketBase is an MIT one-file backend candidate. Keep SQLite as the default source of truth and "
+            "enable PocketBase only after approval when realtime/auth/files are truly needed."
+        ),
+        best_for=("supabase", "firebase", "backend", "auth", "realtime", "database", "files"),
+        build_own_plan=(
+            "Use the existing SQLite project state first. If a project needs realtime/auth/file APIs, add a "
+            "PocketBase adapter boundary without replacing the one setup file or one run executable rule."
+        ),
+    ),
+    ToolCandidate(
+        capability="local product analytics",
+        tool="SQLite event, error, funnel, and feature-usage logs",
+        source="local implementation inspired by PostHog-style product analytics",
+        license_note=(
+            "Do not send telemetry to cloud services. Store local product events in SQLite and expose summaries "
+            "only to the local improvement agent."
+        ),
+        best_for=("posthog", "analytics", "session replay", "feature flag", "usage", "funnel", "tracking"),
+        build_own_plan=(
+            "Build a local analytics table for events, errors, feature flags, and funnels. Summarize counts for "
+            "self-improvement proposals without recording private chat content."
+        ),
+    ),
+    ToolCandidate(
+        capability="local workflow queue",
+        tool="SQLite job queue with approvals and retries",
+        source="local implementation inspired by workflow orchestration patterns",
+        license_note=(
+            "Avoid cloud queues and restricted core dependencies. Node-RED can stay optional; the default queue "
+            "is Kattappa-built and local."
+        ),
+        best_for=("inngest", "workflow", "background job", "queue", "schedule", "retry", "automation"),
+        build_own_plan=(
+            "Use SQLite jobs with status, retry count, next_run_at, logs, and approval checkpoints. Expose each "
+            "workflow through the existing setup/run path."
+        ),
+    ),
+    ToolCandidate(
+        capability="local multi-agent orchestration",
+        tool="Kattappa manager-worker loop",
+        source="local implementation inspired by Antigravity, TurboQuant, and Odysseus workspace patterns",
+        license_note=(
+            "Do not copy unknown agent-workspace code or depend on account/cloud platforms. Keep manager-worker "
+            "routing, evidence logs, and test gates local."
+        ),
+        best_for=("antigravity", "turboquant", "turnoquant", "odysseus", "multi-agent", "agent manager"),
+        build_own_plan=(
+            "Route tasks to specialist workers, record evidence, queue follow-up work, run tests, and ask approval "
+            "before applying or publishing improvements."
+        ),
+    ),
+    ToolCandidate(
         capability="portable AI context layer",
         tool="Local MCP context bridge",
         source="https://modelcontextprotocol.io/",
