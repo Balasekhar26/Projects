@@ -58,6 +58,11 @@ import type {
   WritingResult,
 } from "./types";
 
+type QueuedTurn = {
+  text: string;
+  operatorMode: OperatorMode;
+};
+
 function App() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [activePanel, setActivePanel] = useState("Chat");
@@ -109,7 +114,8 @@ function App() {
   const reconnectTimer = useRef<number | null>(null);
   const currentSessionRef = useRef<string | null>(null);
   const assistantWorkingRef = useRef(false);
-  const messageQueueRef = useRef<string[]>([]);
+  const messageQueueRef = useRef<QueuedTurn[]>([]);
+  const turnTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     currentSessionRef.current = currentSessionId;
@@ -191,6 +197,19 @@ function App() {
   };
 
   const ensureChatSession = async () => currentSessionRef.current ?? createNewChat();
+
+  const ensureMessageSession = async () => {
+    if (currentSessionRef.current) return currentSessionRef.current;
+    try {
+      const session = await createChatSession();
+      setCurrentSessionId(session.id);
+      currentSessionRef.current = session.id;
+      refreshChatSessions();
+      return session.id;
+    } catch {
+      return null;
+    }
+  };
 
   const loadChatSession = async (sessionId: string) => {
     const stored = await fetchChatSessionMessages(sessionId);
@@ -378,6 +397,16 @@ function App() {
     socket.onclose = () => {
       setConnected(false);
       setAgentStatus("Disconnected");
+      if (assistantWorkingRef.current) {
+        const message: Message = {
+          role: "assistant",
+          agent: "Kattappa AI",
+          content: "The live connection dropped before the reply finished. I kept the chat usable and will continue with the next queued message.",
+        };
+        setMessages((prev) => [...prev, message]);
+        persistChatMessage(currentSessionRef.current, message);
+        finishAssistantTurn();
+      }
       reconnectTimer.current = window.setTimeout(connectSocket, 1500);
     };
     socket.onerror = () => socket.close();
@@ -467,12 +496,35 @@ function App() {
     setAssistantWorking(value);
   };
 
+  const clearTurnTimeout = () => {
+    if (turnTimeoutRef.current) {
+      window.clearTimeout(turnTimeoutRef.current);
+      turnTimeoutRef.current = null;
+    }
+  };
+
+  const startTurnTimeout = () => {
+    clearTurnTimeout();
+    turnTimeoutRef.current = window.setTimeout(() => {
+      if (!assistantWorkingRef.current) return;
+      const message: Message = {
+        role: "assistant",
+        agent: "Kattappa AI",
+        content: "This reply is taking too long, so I released the composer and kept any next messages queued. Send again if you want me to retry the last request.",
+      };
+      setMessages((prev) => [...prev, message]);
+      persistChatMessage(currentSessionRef.current, message);
+      finishAssistantTurn();
+    }, 120000);
+  };
+
   const finishAssistantTurn = () => {
+    clearTurnTimeout();
     const next = messageQueueRef.current.shift();
     setQueuedCount(messageQueueRef.current.length);
     if (next) {
       window.setTimeout(() => {
-        void sendMessageText(next, true);
+        void sendMessageText(next.text, true, next.operatorMode);
       }, 150);
       return;
     }
@@ -483,11 +535,11 @@ function App() {
     await sendMessageText(input);
   };
 
-  const sendMessageText = async (rawText: string, fromQueue = false) => {
+  const sendMessageText = async (rawText: string, fromQueue = false, turnMode: OperatorMode = operatorMode) => {
     const text = rawText.trim();
     if (!text) return;
     if (assistantWorkingRef.current && !fromQueue) {
-      messageQueueRef.current.push(text);
+      messageQueueRef.current.push({ text, operatorMode: turnMode });
       setQueuedCount(messageQueueRef.current.length);
       setInput("");
       setMessages((prev) => [
@@ -500,25 +552,17 @@ function App() {
       return;
     }
     setWorking(true);
+    startTurnTimeout();
     const userMessage: Message = { role: "user", content: text };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
 
-    const sessionId = currentSessionRef.current;
+    const sessionId = await ensureMessageSession();
     if (sessionId) {
       persistChatMessage(sessionId, userMessage);
-    } else {
-      void createChatSession()
-        .then((session) => {
-          setCurrentSessionId(session.id);
-          currentSessionRef.current = session.id;
-          persistChatMessage(session.id, userMessage);
-          refreshChatSessions();
-        })
-        .catch(() => undefined);
     }
 
-    const routedText = `[operator mode: ${operatorMode}]\n${text}`;
+    const routedText = `[operator mode: ${turnMode}]\n${text}`;
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(routedText);
       return;

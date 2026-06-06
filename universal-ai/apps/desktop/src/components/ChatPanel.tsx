@@ -231,7 +231,7 @@ export function ChatPanel({
                   {message.approvalId && <span>{message.approvalId}</span>}
                 </header>
                 {message.routingReason && <small className="routingReason">{message.routingReason}</small>}
-                <p>{message.content}</p>
+                <MessageContent content={message.content} />
                 {message.operatorPlan && (
                   <div className="operatorPlan">
                     <div className="planHeader">
@@ -290,7 +290,7 @@ export function ChatPanel({
             value={input}
             rows={1}
             onChange={(event) => onInputChange(event.target.value)}
-            placeholder="Message Kattappa AI"
+            placeholder={isWorking ? "Message Kattappa AI - your next message will queue" : "Message Kattappa AI"}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -309,6 +309,46 @@ export function ChatPanel({
       </div>
     </>
   );
+}
+
+function MessageContent({ content }: { content: string }) {
+  const blocks = splitCodeBlocks(content);
+  return (
+    <div className="messageText">
+      {blocks.map((block, index) =>
+        block.kind === "code" ? (
+          <pre key={index} className="codeBlock">
+            <code>{block.text}</code>
+          </pre>
+        ) : (
+          block.text
+            .split(/\n{2,}/)
+            .filter((paragraph) => paragraph.trim())
+            .map((paragraph, paragraphIndex) => (
+              <p key={`${index}-${paragraphIndex}`}>{paragraph.trim()}</p>
+            ))
+        ),
+      )}
+    </div>
+  );
+}
+
+function splitCodeBlocks(content: string): { kind: "text" | "code"; text: string }[] {
+  const parts: { kind: "text" | "code"; text: string }[] = [];
+  const pattern = /```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(content))) {
+    if (match.index > lastIndex) {
+      parts.push({ kind: "text", text: content.slice(lastIndex, match.index) });
+    }
+    parts.push({ kind: "code", text: match[1].trimEnd() });
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < content.length) {
+    parts.push({ kind: "text", text: content.slice(lastIndex) });
+  }
+  return parts.length ? parts : [{ kind: "text", text: content }];
 }
 
 function speak(text: string) {
