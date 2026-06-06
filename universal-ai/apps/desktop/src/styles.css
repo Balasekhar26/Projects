@@ -1,7 +1,7 @@
 :root {
   font-family: "Segoe UI", system-ui, sans-serif;
   color: #ececf1;
-  background: #202123;
+  background: #212121;
 }
 
 * { box-sizing: border-box; }
@@ -10,16 +10,16 @@ body { margin: 0; }
 
 .app {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  grid-template-columns: 280px minmax(0, 1fr) 300px;
   height: 100vh;
 }
 
 .app.chatOnly {
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
 }
 
 .sidebar, .rightPanel {
-  padding: 18px;
+  padding: 14px;
   background: #171717;
   border-color: #2f2f2f;
 }
@@ -36,7 +36,7 @@ h1, h2, h3 { margin: 0 0 14px; }
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .brandMark img {
@@ -46,7 +46,7 @@ h1, h2, h3 { margin: 0 0 14px; }
 
 .brandMark h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.15;
 }
 
@@ -65,14 +65,17 @@ h1, h2, h3 { margin: 0 0 14px; }
 
 .newChatButton {
   width: 100%;
-  margin-top: 14px;
+  margin-top: 12px;
+  border-color: #3f3f46;
+  background: #202020;
+  text-align: left;
 }
 
 .chatHistory {
-  margin-top: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid #2f2f2f;
-  max-height: 230px;
+  margin-top: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #2a2a2a;
+  max-height: 260px;
   overflow-y: auto;
 }
 
@@ -102,20 +105,20 @@ h1, h2, h3 { margin: 0 0 14px; }
 
 nav {
   display: grid;
-  gap: 8px;
-  margin-top: 18px;
+  gap: 4px;
+  margin-top: 14px;
 }
 
 button {
   border: 1px solid #3a3a3a;
   border-radius: 8px;
-  background: #212121;
+  background: transparent;
   color: #f7f7f8;
-  padding: 10px 12px;
+  padding: 9px 10px;
   cursor: pointer;
 }
 
-button:hover { background: #2f2f2f; }
+button:hover { background: #2b2b2b; }
 button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
@@ -141,29 +144,55 @@ button.active {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 54px;
-  border-bottom: 1px solid #2f2f2f;
+  min-height: 56px;
+  border-bottom: 0;
   background: rgba(33, 33, 33, 0.94);
+  backdrop-filter: blur(14px);
 }
 
-.chatTopbar > div {
+.chatHeaderInner {
   width: min(100%, 820px);
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 0 22px;
+  padding: 0 18px;
 }
 
-.chatTopbar strong {
-  font-size: 15px;
+.modelButton {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: #f4f4f5;
+}
+
+.modelButton span {
+  font-size: 18px;
   font-weight: 650;
 }
 
-.chatTopbar span {
+.modelButton strong {
   color: #b4b4b4;
   font-size: 13px;
+  font-weight: 500;
   text-transform: capitalize;
+}
+
+.chatHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.privacyBadge {
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #b4b4b4;
+  font-size: 12px;
 }
 
 .messages {
@@ -184,16 +213,16 @@ button.active {
 .chatWelcome {
   width: min(100%, 820px);
   margin: auto;
-  padding: 56px 22px 28px;
+  padding: 74px 18px 34px;
   text-align: center;
 }
 
 .welcomeMark {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
-  margin: 0 auto 18px;
+  margin: 0 auto 22px;
   border-radius: 50%;
   background: #10a37f;
   color: #ffffff;
@@ -203,8 +232,31 @@ button.active {
 .chatWelcome h2 {
   margin: 0;
   color: #f7f7f8;
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 600;
+}
+
+.promptGrid {
+  width: min(100%, 640px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 28px auto 0;
+}
+
+.promptGrid button {
+  min-height: 52px;
+  border-color: #3f3f46;
+  border-radius: 14px;
+  background: #262626;
+  color: #d4d4d8;
+  text-align: left;
+  line-height: 1.35;
+}
+
+.promptGrid button:hover {
+  border-color: #52525b;
+  background: #2f2f2f;
 }
 
 .message {
@@ -215,23 +267,23 @@ button.active {
   border: 0;
   border-radius: 0;
   background: transparent;
-  padding: 24px max(22px, calc((100% - 820px) / 2));
+  padding: 16px max(18px, calc((100% - 820px) / 2));
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .message.user {
   grid-template-columns: minmax(0, 1fr) 34px;
-  background: #212121;
+  background: transparent;
 }
 
 .message.assistant {
-  background: #2f2f2f;
+  background: transparent;
 }
 
 .message.system,
 .message.progress {
-  background: #262626;
+  background: transparent;
   color: #d1d5db;
 }
 
@@ -250,7 +302,7 @@ button.active {
 .message.user .messageAvatar {
   grid-column: 2;
   grid-row: 1;
-  background: #5f6368;
+  display: none;
 }
 
 .message.assistant .messageAvatar {
@@ -265,14 +317,34 @@ button.active {
 .message.user .messageBody {
   grid-column: 1;
   justify-self: end;
-  max-width: min(680px, 100%);
-  border-radius: 18px;
+  max-width: min(620px, calc(100% - 44px));
+  border-radius: 20px;
   background: #303030;
-  padding: 12px 14px;
+  padding: 11px 15px;
 }
 
 .message.user header {
   display: none;
+}
+
+.message.system .messageAvatar,
+.message.progress .messageAvatar {
+  display: none;
+}
+
+.message.system,
+.message.progress {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.message.system .messageBody,
+.message.progress .messageBody {
+  justify-self: center;
+  max-width: min(760px, 100%);
+  border: 1px solid #3f3f46;
+  border-radius: 14px;
+  background: #262626;
+  padding: 10px 12px;
 }
 
 .message header {
@@ -300,7 +372,7 @@ button.active {
 .message p {
   margin: 0;
   color: #ececf1;
-  line-height: 1.68;
+  line-height: 1.64;
 }
 
 .routingReason {
@@ -1126,14 +1198,14 @@ button.active {
 .inputBar {
   position: sticky;
   bottom: 0;
-  padding: 12px 22px 20px;
-  border-top: 1px solid #2f2f2f;
-  background: linear-gradient(180deg, rgba(33, 33, 33, 0.82), #212121 22%);
+  padding: 12px 18px 18px;
+  border-top: 0;
+  background: linear-gradient(180deg, rgba(33, 33, 33, 0), #212121 28%);
 }
 
 .modeSelector {
-  width: min(100%, 820px);
-  margin: 0 auto 9px;
+  width: min(100%, 760px);
+  margin: 0 auto;
   display: flex;
   justify-content: center;
   gap: 6px;
@@ -1149,9 +1221,9 @@ button.active {
 .modeSelector button {
   min-width: 0;
   border-radius: 999px;
-  padding: 7px 11px;
-  color: #d1d5db;
-  font-size: 12px;
+  padding: 5px 9px;
+  color: #b4b4b4;
+  font-size: 11px;
   text-transform: capitalize;
 }
 
@@ -1161,28 +1233,29 @@ button.active {
 }
 
 .composer {
-  width: min(100%, 820px);
+  width: min(100%, 760px);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
   gap: 8px;
-  align-items: center;
+  align-items: end;
   border: 1px solid #4a4a4a;
-  border-radius: 22px;
-  background: #2f2f2f;
+  border-radius: 26px;
+  background: #303030;
   padding: 8px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.25);
 }
 
 .composer textarea {
   width: 100%;
   max-height: 180px;
+  min-height: 36px;
   resize: none;
   border: 0;
-  border-radius: 16px;
+  border-radius: 14px;
   background: transparent;
   color: #f7f7f8;
-  padding: 9px 10px;
+  padding: 8px 4px;
   font: inherit;
   line-height: 1.45;
   outline: none;
@@ -1192,23 +1265,51 @@ button.active {
   color: #a7a7a7;
 }
 
-.composer button {
-  min-width: 72px;
-  height: 38px;
-  border: 0;
-  border-radius: 18px;
-  background: #f7f7f8;
-  color: #111827;
-  font-weight: 650;
+.composerToolButton,
+.sendButton {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
 }
 
-.composer button:hover {
+.composerToolButton {
+  border: 1px solid #6b7280;
+  color: #d4d4d8;
+}
+
+.sendButton {
+  border: 0;
+  background: #f7f7f8;
+  color: #111827;
+}
+
+.sendButton::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-top: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: translateY(3px) rotate(45deg);
+}
+
+.sendButton:hover {
   background: #ffffff;
 }
 
-.composer button:disabled {
+.sendButton:disabled {
   background: #565869;
   color: #a7a7a7;
+}
+
+.composerFooter {
+  width: min(100%, 760px);
+  margin: 8px auto 0;
 }
 
 textarea {

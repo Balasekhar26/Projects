@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import type { Message, OperatorMode } from "../types";
 import { OperatorModeSelector } from "./OperatorModeSelector";
 
@@ -21,10 +21,18 @@ export function ChatPanel({
   onOperatorModeChange,
   onSendMessage,
 }: ChatPanelProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const visibleMessages = messages.filter(
     (message, index) => !(index === 0 && message.role === "system" && message.content === "Sekhar AI OS ready."),
   );
   const canSend = input.trim().length > 0;
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+  }, [input]);
 
   const getMessageName = (message: Message) => {
     if (message.role === "user") return "You";
@@ -43,17 +51,34 @@ export function ChatPanel({
   return (
     <>
       <div className="chatTopbar">
-        <div>
-          <strong>Sekhar AI</strong>
-          <span>{operatorMode} mode</span>
+        <div className="chatHeaderInner">
+          <button className="modelButton" type="button" aria-label="Current assistant mode">
+            <span>Sekhar AI</span>
+            <strong>{operatorMode}</strong>
+          </button>
+          <div className="chatHeaderActions">
+            <span className="privacyBadge">Local-first</span>
+          </div>
         </div>
       </div>
       <div className="messages">
         <div className="messageStack">
           {visibleMessages.length === 0 && (
             <section className="chatWelcome" aria-label="Chat ready">
-              <div className="welcomeMark">AI</div>
-              <h2>How can I help?</h2>
+              <div className="welcomeMark">S</div>
+              <h2>What can I help with?</h2>
+              <div className="promptGrid" aria-label="Starter prompts">
+                {[
+                  "Make this project production ready",
+                  "Check what is missing",
+                  "Improve the Universal AI interface",
+                  "Plan the next safe step",
+                ].map((prompt) => (
+                  <button key={prompt} type="button" onClick={() => onInputChange(prompt)}>
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </section>
           )}
           {visibleMessages.map((message, index) => (
@@ -118,13 +143,14 @@ export function ChatPanel({
         </div>
       </div>
       <div className="inputBar">
-        <OperatorModeSelector operatorMode={operatorMode} onChange={onOperatorModeChange} />
         <div className="composer">
+          <button className="composerToolButton" type="button" aria-label="Attach or add context">+</button>
           <textarea
+            ref={textareaRef}
             value={input}
             rows={1}
             onChange={(event) => onInputChange(event.target.value)}
-            placeholder="Ask Sekhar AI OS..."
+            placeholder="Message Sekhar AI"
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -132,7 +158,10 @@ export function ChatPanel({
               }
             }}
           />
-          <button onClick={onSendMessage} disabled={!canSend}>Send</button>
+          <button className="sendButton" onClick={onSendMessage} disabled={!canSend} aria-label="Send message" />
+        </div>
+        <div className="composerFooter">
+          <OperatorModeSelector operatorMode={operatorMode} onChange={onOperatorModeChange} />
         </div>
       </div>
     </>

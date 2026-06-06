@@ -485,7 +485,12 @@ function App() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "system", content: "Backend is not reachable. Run run.exe." },
+        {
+          role: "assistant",
+          agent: "Sekhar AI",
+          content:
+            "I am ready in the interface, but the local backend is not reachable yet. Start Universal AI with run.exe, then send the message again and I will route it through the local agent stack.",
+        },
       ]);
     }
   };
