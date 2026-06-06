@@ -23,7 +23,9 @@ function getCoreConfig(overrides = {}) {
     normalizeString(env.ULT_RUNTIME_ROOT_DIR) ||
     packagedRuntimeDir ||
     workspaceRootDir;
-  const scriptsDir = normalizeString(overrides.scriptsDir) || resolveDirectory(runtimeRootDir, ["Scripts", "scripts"]);
+  const scriptsDir =
+    normalizeString(overrides.scriptsDir) ||
+    resolveDirectory(runtimeRootDir, process.platform === "win32" ? ["Scripts", "scripts"] : ["scripts", "Scripts"]);
   const modelsDir = normalizeString(overrides.modelsDir) || path.join(runtimeRootDir, "models");
   const dataDir =
     normalizeString(overrides.dataDir) ||
@@ -58,7 +60,7 @@ function getCoreConfig(overrides = {}) {
     soxPath:
       normalizeString(overrides.soxPath) ||
       normalizeString(env.SOX_PATH) ||
-      path.join(runtimeRootDir, fs.existsSync(path.join(runtimeRootDir, "sox")) ? "sox" : "sox-14.4.2", "sox.exe"),
+      resolveSoxPath(runtimeRootDir),
     whisperWorkerPath:
       normalizeString(overrides.whisperWorkerPath) ||
       normalizeString(env.WHISPER_WORKER_PATH) ||
@@ -204,8 +206,8 @@ function getPythonEnv(configInput = {}) {
   const env = { ...process.env };
 
   if (config.venvDir && fs.existsSync(config.venvDir)) {
-    const venvScripts = path.join(config.venvDir, "Scripts");
-    env.PATH = venvScripts + ";" + (env.PATH || "");
+    const venvScripts = process.platform === "win32" ? path.join(config.venvDir, "Scripts") : path.join(config.venvDir, "bin");
+    env.PATH = venvScripts + path.delimiter + (env.PATH || "");
     env.VIRTUAL_ENV = config.venvDir;
     delete env.PYTHONHOME;
   }
@@ -215,15 +217,20 @@ function getPythonEnv(configInput = {}) {
 
 function resolvePythonPath({ venvDir, scriptsDir }) {
   if (venvDir && fs.existsSync(path.join(venvDir, "pyvenv.cfg"))) {
-    const venvPython = path.join(venvDir, "Scripts", "python.exe");
+    const venvPython =
+      process.platform === "win32" ? path.join(venvDir, "Scripts", "python.exe") : path.join(venvDir, "bin", "python");
     if (isRunnablePython(venvPython)) {
       return venvPython;
     }
   }
 
-  const scriptsPython = path.join(scriptsDir, "python.exe");
+  const scriptsPython = process.platform === "win32" ? path.join(scriptsDir, "python.exe") : path.join(scriptsDir, "python");
   if (isRunnablePython(scriptsPython)) {
     return scriptsPython;
+  }
+
+  if (isRunnablePython("python3")) {
+    return "python3";
   }
 
   if (isRunnablePython("python")) {
@@ -235,6 +242,14 @@ function resolvePythonPath({ venvDir, scriptsDir }) {
   }
 
   return scriptsPython;
+}
+
+function resolveSoxPath(runtimeRootDir) {
+  if (process.platform !== "win32") {
+    return "sox";
+  }
+
+  return path.join(runtimeRootDir, fs.existsSync(path.join(runtimeRootDir, "sox")) ? "sox" : "sox-14.4.2", "sox.exe");
 }
 
 function isRunnablePython(command) {

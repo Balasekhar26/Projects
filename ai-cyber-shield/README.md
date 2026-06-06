@@ -53,6 +53,21 @@ setup.bat
 run.exe
 ```
 
+macOS/Linux/Windows development flow:
+
+```bash
+npm run setup
+npm run app
+```
+
+Native packaging commands:
+
+```bash
+npm run build:windows
+npm run build:mac
+npm run build:linux
+```
+
 Python ASA flow from this folder:
 
 ```bash

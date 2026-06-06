@@ -36,6 +36,7 @@ let sttMic = null;
 let whisperReady = false;
 const MIC_WAKE_ENERGY_THRESHOLD = 0.01;
 const MIC_STANDBY_TIMEOUT_MS = 1500;
+const IS_WINDOWS = process.platform === "win32";
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -449,12 +450,18 @@ ipcMain.handle("translator:start", async (_event, payload) => {
 
     const routingCheck = validateRouteProfile({
       request: {
-        platform: "windows",
+        platform: process.platform,
         sessionKind: "desktop_runtime",
-        routeProfileId: "windows-desktop-runtime",
+        routeProfileId: IS_WINDOWS ? "windows-desktop-runtime" : "browser-debug",
       },
       topology,
     });
+
+    if (!IS_WINDOWS) {
+      throw new Error(
+        "Desktop audio interception is currently Windows-only. This build opens on this OS, but live fail-closed routing needs a native audio adapter before translation can start."
+      );
+    }
 
     if (!routingCheck.ok) {
       throw new Error(routingCheck.diagnostics.join(" "));

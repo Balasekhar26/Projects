@@ -11,7 +11,14 @@ run.exe
 
 Or manually:
 
-```bat
+```bash
+npm run setup
+npm run app
+```
+
+For direct development:
+
+```bash
 npm install
 npm run dev
 ```
@@ -20,7 +27,7 @@ Open `http://localhost:5173`.
 
 ## Build
 
-```bat
+```bash
 npm run build
 ```
 
@@ -32,6 +39,15 @@ The Electron desktop wrapper lives in `electron`.
 
 ```bat
 run.exe
+```
+
+Cross-platform Electron packaging commands live under `electron`:
+
+```bash
+cd electron
+npm run dist:windows
+npm run dist:mac
+npm run dist:linux
 ```
 
 ## Features

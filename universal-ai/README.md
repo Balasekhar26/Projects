@@ -1,6 +1,6 @@
 # Universal AI / Sekhar AI OS Max
 
-Fully free, local-first Windows desktop AI OS.
+Fully free, local-first AI OS with a Windows packaged desktop launcher and a cross-platform Python/backend development path.
 
 ## Supported Windows Launch Path
 
@@ -38,6 +38,28 @@ run.exe build      # build native Windows desktop app
 run.exe status     # backend health
 run.exe stop       # stop services started by Universal AI
 ```
+
+## macOS/Linux Development Launch
+
+The native Windows `run.exe` remains the canonical packaged launcher. On macOS
+and Linux, use the existing Python installer directly:
+
+```bash
+python3 installer/setup_universal_ai.py --accept-agreement
+python3 installer/setup_universal_ai.py --accept-agreement --launch
+```
+
+The backend runs on `http://127.0.0.1:8000` and the React desktop UI runs from
+`apps/desktop` with:
+
+```bash
+cd apps/desktop
+npm install
+npm run dev
+```
+
+Native Tauri packages must be built on the target OS because Windows `.exe`,
+macOS `.app`/`.dmg`, and Linux AppImage/deb/rpm bundles are OS-specific.
 
 Older root-level wrappers were removed so this project has one setup file and one run executable.
 

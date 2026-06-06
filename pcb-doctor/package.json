@@ -5,10 +5,15 @@
   "main": "electron/main.js",
   "homepage": "./",
   "scripts": {
+    "setup": "node scripts/prepare-runtime.mjs",
+    "app": "node scripts/launch.mjs",
     "dev": "cd pcb-diagnostic && npm run dev",
     "build": "cd pcb-diagnostic && npm run build",
     "build:exe": "npm run build && electron-builder",
-    "build:all": "npm run build && electron-builder --win --x64 --publish=never",
+    "build:all": "npm run build && electron-builder --publish=never",
+    "build:windows": "npm run build && electron-builder --win --x64 --publish=never",
+    "build:mac": "npm run build && electron-builder --mac --publish=never",
+    "build:linux": "npm run build && electron-builder --linux --publish=never",
     "dist": "npm run build:all",
     "start": "electron .",
     "preview": "cd pcb-diagnostic && npm run preview"

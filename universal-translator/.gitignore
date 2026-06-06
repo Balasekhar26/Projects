@@ -54,7 +54,6 @@ next-env.d.ts
 # Python virtual environment
 Lib/
 Include/
-Scripts/
 pyvenv.cfg
 venv/
 .venv/

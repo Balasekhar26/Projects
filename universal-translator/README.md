@@ -146,9 +146,23 @@ run.exe
 ### Development
 
 ```bash
-npm install
-npm run electron
+npm run setup
+npm run app
 ```
+
+Native packaging commands:
+
+```bash
+npm run package:current
+npm run package:windows
+npm run package:mac
+npm run package:linux
+```
+
+Windows is still the only full fail-closed desktop audio interception runtime.
+On macOS/Linux, the Electron app opens and reports the limited routing status
+instead of failing during startup; full speaker interception needs a native
+audio adapter for that OS.
 
 ## Verification
 

@@ -21,6 +21,12 @@ setup.bat
 run.exe
 ```
 
+macOS/Linux can open the same local prototype directly:
+
+```bash
+python3 -m webbrowser prototype/index.html
+```
+
 ## Core Positioning
 
 NeuroSeed should be framed as memory reinforcement, not direct brain upload.

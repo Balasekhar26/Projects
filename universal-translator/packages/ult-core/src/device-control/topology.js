@@ -4,6 +4,21 @@ const { getCoreConfig } = require("../config");
 const { inferRouteProfiles } = require("../audio-routing/route-profiles");
 
 function listDeviceTopology(config = getCoreConfig()) {
+  if (process.platform !== "win32") {
+    const topology = {
+      platform: process.platform,
+      inputDevices: [],
+      outputDevices: [],
+      systemVoices: [],
+      diagnostics: [
+        "Native desktop audio routing probe is Windows-only today. The app can open on this OS, but fail-closed speaker interception requires an OS adapter.",
+      ],
+    };
+    topology.routeProfiles = inferRouteProfiles(topology);
+    topology.defaultRouteProfileId = "browser-debug";
+    return Promise.resolve(topology);
+  }
+
   return new Promise((resolve, reject) => {
     const child = spawn("powershell", [
       "-NoProfile",

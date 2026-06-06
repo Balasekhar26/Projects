@@ -4,6 +4,8 @@
   "description": "Cross-platform instrument keyboard app with real samples and PWA support",
   "main": "index.js",
   "scripts": {
+    "setup": "node scripts/prepare-runtime.mjs",
+    "app": "node scripts/launch.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

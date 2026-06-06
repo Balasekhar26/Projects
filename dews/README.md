@@ -75,6 +75,21 @@ setup.bat
 run.exe
 ```
 
+For macOS/Linux/Windows development app flow:
+
+```bash
+npm run setup
+npm run app
+```
+
+Native packaging commands:
+
+```bash
+npm run build:windows
+npm run build:mac
+npm run build:linux
+```
+
 ## Production Gate
 
 - Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
