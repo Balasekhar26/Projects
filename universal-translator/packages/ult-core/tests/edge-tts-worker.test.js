@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const path = require("path");
+const fs = require("fs");
 const { spawn } = require("child_process");
 
 const { resolveCoreConfig } = require("../src/config");
@@ -18,7 +18,11 @@ test("edge_tts_worker resamples decoded PCM to the requested runtime sample rate
     return;
   }
 
-  const workerPath = path.join(config.workspaceRootDir, "Scripts", "edge_tts_worker.py");
+  const workerPath = config.edgeTtsWorkerPath;
+  if (!fs.existsSync(workerPath)) {
+    t.skip(`Optional Edge TTS worker missing: ${workerPath}`);
+    return;
+  }
   const pythonScript = [
     "import importlib.util, json, math, os, soundfile as sf, tempfile, numpy as np",
     `worker_path = r'''${workerPath}'''`,

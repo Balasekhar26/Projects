@@ -491,21 +491,22 @@ def test_improvement_lifecycle() -> None:
     assert decision_response.json()["publish"]["published"] is False
 
 
-def test_project_improvement_agents_observe_and_check_shared() -> None:
+def test_project_improvement_agents_observe_and_check_local_registry() -> None:
     client = TestClient(app)
     registry_response = client.get("/projects/improvement-agents")
     assert registry_response.status_code == 200
     registry = registry_response.json()
-    assert registry["mode"] == "approval_gated_git_synced_improvement_agents"
-    assert len(registry["projects"]) == 7
-    assert registry["projects"]["universal-translator"]["policy_doc"].endswith("SELF_IMPROVING_AGENT.md")
+    assert registry["mode"] == "standalone_approval_gated_improvement_agent"
+    assert registry["local_registry"] == "docs/IMPROVEMENT_REGISTRY.md"
+    assert list(registry["projects"]) == ["kattappa"]
 
     observe_response = client.post("/projects/improvement-agents/observe", json={"run_status": False})
     assert observe_response.status_code == 200
     observation = observe_response.json()
-    assert observation["observed_projects"] == 7
+    assert observation["observed_projects"] == 1
     assert observation["approval_required_before_apply"] is True
     assert observation["auto_apply"] is False
+    assert observation["publish_after_approval"] == "docs/IMPROVEMENT_REGISTRY.md"
     assert all("checks" in item for item in observation["observations"])
 
     shared_response = client.post("/projects/improvement-agents/check-shared")
@@ -514,6 +515,7 @@ def test_project_improvement_agents_observe_and_check_shared() -> None:
     assert shared["checked"] is True
     assert shared["auto_apply"] is False
     assert shared["approval_required_before_adoption"] is True
+    assert "local_entries" in shared
 
 
 def test_skill_reflection_and_evolution_lifecycle() -> None:
@@ -558,16 +560,16 @@ def test_skill_reflection_and_evolution_lifecycle() -> None:
     cycle = evolution_response.json()
     assert cycle["fully_free_only"] is True
     assert cycle["cycle"] == "read_execute_reflect_write"
-    assert cycle["cluster_sync"]["auto_share_with_paired_nodes"] is True
+    assert cycle["cluster_sync"]["auto_share_with_paired_nodes"] is False
     assert cycle["cluster_sync"]["auto_apply_on_receiving_nodes"] is False
-    assert cycle["cluster_sync"]["canonical_distribution"] == "git_repo"
-    assert "write_to_docs_shared_improvements" in cycle["cluster_sync"]["publish_flow"]
+    assert cycle["cluster_sync"]["canonical_distribution"] == "local_project_registry"
+    assert "write_to_docs_improvement_registry" in cycle["cluster_sync"]["publish_flow"]
     assert "approved_skills" in cycle["cluster_sync"]["shared_data"]
     assert "raw_user_chat_history" in cycle["cluster_sync"]["never_auto_share"]
     assert "ask_local_approval" in cycle["cluster_sync"]["receiving_node_flow"]
-    assert cycle["cluster_sync"]["git_repo_distribution"]["enabled"] is True
-    assert cycle["cluster_sync"]["git_repo_distribution"]["path"] == "docs/SHARED_IMPROVEMENTS.md"
-    assert cycle["cluster_sync"]["git_repo_distribution"]["applies_to"] == "paired_and_unpaired_systems"
+    assert cycle["cluster_sync"]["git_repo_distribution"]["enabled"] is False
+    assert cycle["cluster_sync"]["git_repo_distribution"]["path"] == "docs/IMPROVEMENT_REGISTRY.md"
+    assert cycle["cluster_sync"]["git_repo_distribution"]["applies_to"] == "local_kattappa_project_only"
     assert cycle["cluster_sync"]["git_repo_distribution"]["direct_push_to_other_systems"] is False
     assert cycle["cluster_sync"]["git_repo_distribution"]["unpaired_check_policy"]["default_interval_hours"] == 24
     assert cycle["cluster_sync"]["git_repo_distribution"]["unpaired_check_policy"]["if_new_data_found"] == "ask_local_approval"

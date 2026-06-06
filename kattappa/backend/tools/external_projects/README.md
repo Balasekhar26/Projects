@@ -1,10 +1,10 @@
 # External Project Tools
 
-Kattappa should use these as optional project-aware tools:
+Kattappa can use these as optional standalone external tools:
 
-- `wifi-csi` -> DEWS Wi-Fi sensing module.
-- `animal-meaning` -> Universal Translator animal meaning module.
-- `tiny-gpu` -> PCB Doctor HDL lab.
+- `wifi-csi` -> Wi-Fi CSI movement and activity sensing reference.
+- `animal-meaning` -> Bioacoustic sound classification reference.
+- `tiny-gpu` -> SystemVerilog GPU learning and HDL debugging reference.
 - `kronos-finance` -> Kattappa Finance Brain OHLCV/K-line forecasting reference.
 
 The upstream repositories are usually downloaded under:
@@ -19,4 +19,5 @@ If the workspace has been cleaned, Kattappa also looks under:
 <Projects root>\bin\external-projects
 ```
 
-Kattappa should read reports and launch approved commands, but the related project must remain usable on its own.
+These tools must not make sibling project folders required. Every project must
+remain installable and runnable from its own folder.

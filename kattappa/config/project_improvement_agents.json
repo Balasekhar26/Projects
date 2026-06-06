@@ -1,11 +1,11 @@
 {
-  "mode": "approval_gated_git_synced_improvement_agents",
-  "shared_registry": "kattappa/docs/SHARED_IMPROVEMENTS.md",
-  "rule": "Every project may observe its own setup, run, test, build, UI, and workflow signals, but improvements are proposals until approved. Approved sanitized improvements can be published to Git. Incoming Git improvements are checked and require local approval before adoption.",
+  "mode": "standalone_approval_gated_improvement_agent",
+  "local_registry": "docs/IMPROVEMENT_REGISTRY.md",
+  "rule": "Kattappa observes only its own setup, run, test, build, UI, and workflow signals. Improvements are proposals until approved. Approved sanitized improvements stay in the local project registry unless the user explicitly asks to publish them.",
   "runtime_endpoints": {
     "registry": "GET /projects/improvement-agents",
     "observe_projects": "POST /projects/improvement-agents/observe",
-    "check_git_shared_improvements": "POST /projects/improvement-agents/check-shared",
+    "check_local_improvements": "POST /projects/improvement-agents/check-shared",
     "approve_or_reject_proposal": "POST /improvements/{improvement_id}",
     "list_proposals": "GET /improvements"
   },
@@ -13,10 +13,10 @@
     "observe project signals",
     "create pending improvement proposal",
     "wait for local approval",
-    "publish approved sanitized proposal to kattappa/docs/SHARED_IMPROVEMENTS.md",
-    "commit/push through the normal Git workflow",
-    "receiving projects check Git shared improvements",
-    "receiving projects create pending proposal",
+    "write approved sanitized proposal to docs/IMPROVEMENT_REGISTRY.md",
+    "keep the proposal local unless user explicitly requests Git publication",
+    "check local improvements",
+    "create pending proposal only when local review finds a new item",
     "adopt only after local approval"
   ],
   "auto_apply": false,
@@ -36,43 +36,7 @@
       "name": "Kattappa AI OS Assistant",
       "agent": "backend.agents.self_improver + backend.core.self_evolution",
       "policy_doc": "kattappa/docs/self_improvement_protocol.md",
-      "checks": ["setup", "run", "backend health", "frontend build", "approval queue", "shared improvements"]
-    },
-    "pcb-doctor": {
-      "name": "PCB Doctor",
-      "agent": "Kattappa-managed project improvement agent",
-      "policy_doc": "pcb-doctor/docs/SELF_IMPROVING_AGENT.md",
-      "checks": ["setup", "run", "board schema", "diagnostics", "report UI"]
-    },
-    "ai-cyber-shield": {
-      "name": "AI Cyber Shield",
-      "agent": "Kattappa-managed project improvement agent",
-      "policy_doc": "ai-cyber-shield/docs/SELF_IMPROVING_AGENT.md",
-      "checks": ["setup", "run", "scan output", "alert quality", "defensive safety"]
-    },
-    "universal-translator": {
-      "name": "Universal Translator",
-      "agent": "Kattappa-managed project improvement agent",
-      "policy_doc": "universal-translator/docs/SELF_IMPROVING_AGENT.md",
-      "checks": ["setup", "run", "latency", "audio routing", "offline STT", "offline translation", "offline TTS"]
-    },
-    "musical-keyboard": {
-      "name": "Musical Keyboard",
-      "agent": "Kattappa-managed project improvement agent",
-      "policy_doc": "musical-keyboard/docs/SELF_IMPROVING_AGENT.md",
-      "checks": ["setup", "run", "audio unlock", "input latency", "PWA build"]
-    },
-    "dews": {
-      "name": "DEWS",
-      "agent": "Kattappa-managed project improvement agent",
-      "policy_doc": "dews/docs/SELF_IMPROVING_AGENT.md",
-      "checks": ["setup", "run", "simulation", "safety boundary", "reporting"]
-    },
-    "neuroseed": {
-      "name": "NeuroSeed",
-      "agent": "Kattappa-managed project improvement agent",
-      "policy_doc": "07-NeuroSeed/docs/SELF_IMPROVING_AGENT.md",
-      "checks": ["setup", "run", "consent boundary", "recall checks", "prototype UX"]
+      "checks": ["setup", "run", "backend health", "frontend build", "approval queue", "local improvements"]
     }
   }
 }

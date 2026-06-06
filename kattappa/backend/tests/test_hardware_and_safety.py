@@ -58,22 +58,22 @@ def test_cluster_plan_is_consent_based_and_capability_aware() -> None:
     assert "paired_high_spec_node_is_online" in data["auto_connect_policy"]["connect_when"]
     assert "model_inference" in data["auto_connect_policy"]["run_without_extra_prompt"]
     assert "assigned_work_is_complete" in data["auto_connect_policy"]["disconnect_when"]
-    assert data["improvement_sync_policy"]["auto_share_with_paired_nodes"] is True
+    assert data["improvement_sync_policy"]["auto_share_with_paired_nodes"] is False
     assert data["improvement_sync_policy"]["auto_apply_on_receiving_nodes"] is False
     assert "approved_skills" in data["improvement_sync_policy"]["shared_data"]
     assert "raw_user_chat_history" in data["improvement_sync_policy"]["never_auto_share"]
     assert "request_local_user_or_manager_approval" in data["improvement_sync_policy"]["receiving_node_flow"]
-    assert data["improvement_sync_policy"]["canonical_distribution"] == "git_repo"
-    assert "write_proposal_to_git_repo_registry" in data["improvement_sync_policy"]["publish_flow"]
+    assert data["improvement_sync_policy"]["canonical_distribution"] == "local_project_registry"
+    assert "write_proposal_to_local_project_registry" in data["improvement_sync_policy"]["publish_flow"]
     repo_distribution = data["improvement_sync_policy"]["git_repo_distribution"]
     assert repo_distribution["enabled"] is True
-    assert repo_distribution["path"] == "docs/SHARED_IMPROVEMENTS.md"
-    assert repo_distribution["applies_to"] == "paired_and_unpaired_systems"
+    assert repo_distribution["path"] == "docs/IMPROVEMENT_REGISTRY.md"
+    assert repo_distribution["applies_to"] == "local_kattappa_project_only"
     assert repo_distribution["direct_push_to_other_systems"] is False
-    assert repo_distribution["unpaired_check_policy"]["enabled"] is True
+    assert repo_distribution["unpaired_check_policy"]["enabled"] is False
     assert repo_distribution["unpaired_check_policy"]["default_interval_hours"] == 24
     assert repo_distribution["unpaired_check_policy"]["if_new_data_found"] == "request_local_user_or_manager_approval"
-    assert repo_distribution["paired_check_policy"]["enabled"] is True
+    assert repo_distribution["paired_check_policy"]["enabled"] is False
     assert repo_distribution["paired_check_policy"]["default_interval_hours"] == 24
     assert data["capability_policy"]["no_unlimited_node"] is True
     assert data["capability_policy"]["manager_must_check_capability_before_assignment"] is True
@@ -86,16 +86,16 @@ def test_cluster_plan_is_consent_based_and_capability_aware() -> None:
     assert "delegate_when_needed" in data
     assert data["storage_policy"]["source_of_truth"] == "manager_node"
     assert data["storage_policy"]["chat_history_location"] == "task_origin_main_system"
-    assert data["storage_policy"]["only_durable_cross_system_shared_data"] == "approved_sanitized_improvement_data"
+    assert data["storage_policy"]["only_durable_cross_system_shared_data"] == "none_by_default"
     assert data["storage_policy"]["worker_persistent_chat_storage"] is False
     assert data["storage_policy"]["worker_persistent_task_storage"] is False
     assert data["storage_policy"]["worker_task_context_delete_after_completion"] is True
     assert data["storage_policy"]["worker_task_context_delete_on_failure_or_cancel"] is True
     assert data["storage_policy"]["worker_result_flow"] == "return_result_to_manager_then_discard_task_context"
-    assert data["workspace_policy"]["shared_workspace"] is True
+    assert data["workspace_policy"]["shared_workspace"] is False
     assert data["workspace_policy"]["shared_workspace_is_not_shared_private_data"] is True
-    assert data["workspace_policy"]["durable_shared_workspace_data"] == "approved_sanitized_improvement_data_only"
-    assert "approved_sanitized_improvement_proposals" in data["workspace_policy"]["shared_items"]
+    assert data["workspace_policy"]["durable_shared_workspace_data"] == "none_by_default"
+    assert "approved_sanitized_local_improvement_proposals" in data["workspace_policy"]["shared_items"]
     assert "project_task_payloads" in data["workspace_policy"]["not_shared_as_workspace_data"]
     assert "raw_chat_history" in data["workspace_policy"]["not_shared_as_workspace_data"]
     assert data["free_cluster_tools"]["inference"] == "exo_local_ai_cluster"
@@ -122,16 +122,14 @@ def test_installation_agreement_mentions_cluster_consent() -> None:
     assert "Raw user chat history" in text
 
 
-def test_shared_improvements_registry_blocks_private_data() -> None:
-    registry = setup_kattappa.ROOT / "docs" / "SHARED_IMPROVEMENTS.md"
+def test_local_improvements_registry_blocks_private_data() -> None:
+    registry = setup_kattappa.ROOT / "docs" / "IMPROVEMENT_REGISTRY.md"
     text = registry.read_text(encoding="utf-8")
-    assert "Git-repo distribution point" in text
-    assert "paired or unpaired" in text
-    assert "any system may publish approved, sanitized improvement proposals" in text
-    assert "Default check interval: once every 24 hours" in text
-    assert "must not directly push improvement data to other systems" in text
-    assert "raw user chat history" in text
-    assert "credentials, tokens, keys, or secrets" in text
+    assert "Kattappa Improvement Registry" in text
+    assert "Keep this project runnable without any sibling project" in text
+    assert "Ask approval before applying any change" in text
+    assert "raw chats" in text
+    assert "credentials" in text
 
 
 def test_installer_writes_cluster_safety_defaults(tmp_path, monkeypatch) -> None:
@@ -158,7 +156,7 @@ def test_installer_writes_cluster_safety_defaults(tmp_path, monkeypatch) -> None
     assert "KATTAPPA_UNPAIRED_IMPROVEMENT_CHECK_INTERVAL_HOURS=24" in text
     assert "KATTAPPA_PAIRED_IMPROVEMENT_CHECK_ENABLED=true" in text
     assert "KATTAPPA_PAIRED_IMPROVEMENT_CHECK_INTERVAL_HOURS=24" in text
-    assert "KATTAPPA_SHARED_IMPROVEMENT_REPO_PATH=docs/SHARED_IMPROVEMENTS.md" in text
+    assert "KATTAPPA_SHARED_IMPROVEMENT_REPO_PATH=docs/IMPROVEMENT_REGISTRY.md" in text
     assert "KATTAPPA_SHARED_IMPROVEMENT_AUTO_APPLY=false" in text
 
 

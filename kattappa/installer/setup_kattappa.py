@@ -253,7 +253,7 @@ def write_backend_env(profile: MachineProfile) -> None:
             "KATTAPPA_PAIRED_IMPROVEMENT_CHECK_INTERVAL_HOURS", "24"
         ),
         "KATTAPPA_SHARED_IMPROVEMENT_REPO_PATH": existing.get(
-            "KATTAPPA_SHARED_IMPROVEMENT_REPO_PATH", "docs/SHARED_IMPROVEMENTS.md"
+            "KATTAPPA_SHARED_IMPROVEMENT_REPO_PATH", "docs/IMPROVEMENT_REGISTRY.md"
         ),
         "KATTAPPA_SHARED_IMPROVEMENT_AUTO_APPLY": existing.get(
             "KATTAPPA_SHARED_IMPROVEMENT_AUTO_APPLY", "false"

@@ -16,7 +16,7 @@ class ExternalProject:
     key: str
     name: str
     upstream_path: Path
-    primary_local_project: Path
+    primary_local_project: Path | None
     purpose: str
 
 
@@ -25,21 +25,21 @@ EXTERNAL_PROJECTS: tuple[ExternalProject, ...] = (
         key="wifi-csi",
         name="CSI-Sense-Zero",
         upstream_path=EXTERNAL_PROJECTS_ROOT / "CSI-Sense-Zero",
-        primary_local_project=PROJECTS_ROOT / "dews",
+        primary_local_project=None,
         purpose="Wi-Fi CSI movement and activity sensing for safe sensor fusion.",
     ),
     ExternalProject(
         key="animal-meaning",
         name="BirdNET-Analyzer",
         upstream_path=EXTERNAL_PROJECTS_ROOT / "BirdNET-Analyzer",
-        primary_local_project=PROJECTS_ROOT / "universal-translator",
+        primary_local_project=None,
         purpose="Animal/bioacoustic sound classification and meaning estimation.",
     ),
     ExternalProject(
         key="tiny-gpu",
         name="tiny-gpu",
         upstream_path=EXTERNAL_PROJECTS_ROOT / "tiny-gpu",
-        primary_local_project=PROJECTS_ROOT / "pcb-doctor",
+        primary_local_project=None,
         purpose="SystemVerilog GPU learning lab and HDL debugging reference.",
     ),
     ExternalProject(

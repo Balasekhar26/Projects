@@ -9,7 +9,7 @@ Local `main` diverged from `origin/main` after the local cleanup commits:
 
 - ULT feature work, setup docs, sync tooling, app/runtime code, tests, and package metadata under `universal-translator/`.
 - Cyber Shield source, dashboard, policy/config, tests, honeypot seed files, and launch scripts under `ai-cyber-shield/`.
-- Universal AI source, desktop app, backend, docs, tests, and launcher scripts under `universal-ai/`.
+- Kattappa source, desktop app, backend, docs, tests, and launcher scripts now live under its own standalone `kattappa/` project folder.
 - Existing top-level project structure for `pcb-doctor/` and `musical-keyboard/`.
 - Workspace-level README, project index, and check script using canonical top-level project paths.
 

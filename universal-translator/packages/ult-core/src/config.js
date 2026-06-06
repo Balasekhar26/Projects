@@ -25,7 +25,7 @@ function getCoreConfig(overrides = {}) {
     workspaceRootDir;
   const scriptsDir =
     normalizeString(overrides.scriptsDir) ||
-    resolveDirectory(runtimeRootDir, process.platform === "win32" ? ["Scripts", "scripts"] : ["scripts", "Scripts"]);
+    resolveDirectory(runtimeRootDir, ["scripts", "Scripts"]);
   const modelsDir = normalizeString(overrides.modelsDir) || path.join(runtimeRootDir, "models");
   const dataDir =
     normalizeString(overrides.dataDir) ||

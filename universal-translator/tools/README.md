@@ -1,13 +1,10 @@
 # Tools
 
-This folder keeps ULT-specific helper scripts only. Workspace companion projects live as top-level project folders.
+This folder keeps Universal Translator helper scripts only.
 
-## Companion Project Locations
-
-- `../ai-cyber-shield/` - defensive autonomous security agent prototype.
-- `../universal-ai/` - local multi-agent AI assistant prototype.
-- `../pcb-doctor/` - board diagnostics project.
-- `../musical-keyboard/` - instrument keyboard project.
+Do not store or reference other project trees here. Universal Translator must
+install, run, test, and package from this folder without requiring any sibling
+project to exist.
 
 ## What Is Tracked
 

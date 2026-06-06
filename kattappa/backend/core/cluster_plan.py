@@ -80,9 +80,9 @@ def cluster_plan() -> dict[str, Any]:
             ),
         },
         "improvement_sync_policy": {
-            "auto_share_with_paired_nodes": True,
+            "auto_share_with_paired_nodes": False,
             "auto_apply_on_receiving_nodes": False,
-            "canonical_distribution": "git_repo",
+            "canonical_distribution": "local_project_registry",
             "sync_after": [
                 "approved_self_improvement",
                 "trusted_skill_update",
@@ -110,43 +110,42 @@ def cluster_plan() -> dict[str, Any]:
                 "system_generates_improvement",
                 "local_user_or_manager_approves_improvement",
                 "sanitize_shared_improvement_payload",
-                "write_proposal_to_git_repo_registry",
-                "commit_or_stage_for_push_to_configured_remote",
+                "write_proposal_to_local_project_registry",
             ],
             "sync_direction": "each_system_publishes_to_git_repo_and_all_systems_pull_from_git_repo",
             "git_repo_distribution": {
                 "enabled": True,
-                "path": "docs/SHARED_IMPROVEMENTS.md",
-                "applies_to": "paired_and_unpaired_systems",
-                "share_with_all_systems": "via_git_clone_fetch_or_pull",
+                "path": "docs/IMPROVEMENT_REGISTRY.md",
+                "applies_to": "local_kattappa_project_only",
+                "share_with_all_systems": "disabled",
                 "direct_push_to_other_systems": False,
                 "publish_to_configured_git_remote": "allowed_for_approved_sanitized_improvement_proposals",
                 "export_format": "approved_sanitized_improvement_proposals",
                 "unpaired_check_policy": {
-                    "enabled": True,
+                    "enabled": False,
                     "default_interval_hours": 24,
                     "check_jitter_minutes": 30,
                     "manual_check_supported": True,
                     "network_required": True,
-                    "check_action": "git_fetch_or_pull_shared_improvements",
+                    "check_action": "read_local_improvement_registry",
                     "if_new_data_found": "request_local_user_or_manager_approval",
                     "if_no_approval": "store_as_pending_proposal_only",
                     "adopt_after": "local_approval_and_compatibility_checks",
                 },
                 "paired_check_policy": {
-                    "enabled": True,
+                    "enabled": False,
                     "default_interval_hours": 24,
                     "check_jitter_minutes": 30,
                     "manual_check_supported": True,
-                    "check_action": "git_fetch_or_pull_shared_improvements",
+                    "check_action": "read_local_improvement_registry",
                     "if_new_data_found": "request_local_user_or_manager_approval",
                     "if_no_approval": "store_as_pending_proposal_only",
                     "adopt_after": "local_approval_and_compatibility_checks",
                 },
                 "receiving_unpaired_system_flow": [
                     "wait_until_next_scheduled_check_or_manual_check",
-                    "pull_or_clone_git_repo",
-                    "read_shared_improvement_proposal",
+                    "read_local_improvement_registry",
+                    "read_local_improvement_proposal",
                     "verify_free_tool_policy_and_safety_scope",
                     "run_local_compatibility_checks",
                     "request_local_user_or_manager_approval",
@@ -154,8 +153,8 @@ def cluster_plan() -> dict[str, Any]:
                 ],
                 "receiving_paired_system_flow": [
                     "wait_until_next_scheduled_check_or_manual_check",
-                    "fetch_or_pull_git_repo",
-                    "read_shared_improvement_proposal",
+                    "read_local_improvement_registry",
+                    "read_local_improvement_proposal",
                     "verify_free_tool_policy_and_safety_scope",
                     "run_local_compatibility_checks",
                     "request_local_user_or_manager_approval",
@@ -163,7 +162,7 @@ def cluster_plan() -> dict[str, Any]:
                 ],
             },
             "receiving_node_flow": [
-                "fetch_improvement_proposal_from_git_repo",
+                "read_improvement_proposal_from_local_registry",
                 "verify_origin_metadata_and_signature_if_present",
                 "check_free_tool_policy_and_safety_scope",
                 "run_local_compatibility_checks",
@@ -171,9 +170,8 @@ def cluster_plan() -> dict[str, Any]:
                 "adopt_only_after_local_approval",
             ],
             "conflict_rule": (
-                "An improvement approved on one node may be published to the Git repo, but every receiving "
-                "node treats it as a proposal. Local approval is required before that node activates the "
-                "skill, tool rule, or behavior."
+                "An improvement approved on this project stays local by default. Local approval is required "
+                "before Kattappa activates the skill, tool rule, or behavior."
             ),
         },
         "approval_policy": {
@@ -195,7 +193,7 @@ def cluster_plan() -> dict[str, Any]:
             "chat_history_location": "task_origin_main_system",
             "task_history_location": "task_origin_main_system",
             "approval_history_location": "task_origin_main_system",
-            "only_durable_cross_system_shared_data": "approved_sanitized_improvement_data",
+            "only_durable_cross_system_shared_data": "none_by_default",
             "worker_persistent_chat_storage": False,
             "worker_persistent_task_storage": False,
             "worker_context_retention": "temporary_for_task_only",
@@ -209,13 +207,13 @@ def cluster_plan() -> dict[str, Any]:
             ),
         },
         "workspace_policy": {
-            "shared_workspace": True,
+            "shared_workspace": False,
             "shared_workspace_is_not_shared_private_data": True,
-            "durable_shared_workspace_data": "approved_sanitized_improvement_data_only",
-            "workspace_source": "git_repo_and_project_index",
+            "durable_shared_workspace_data": "none_by_default",
+            "workspace_source": "local_project_index",
             "shared_items": [
-                "approved_shared_improvement_registry",
-                "approved_sanitized_improvement_proposals",
+                "approved_local_improvement_registry",
+                "approved_sanitized_local_improvement_proposals",
             ],
             "not_shared_as_workspace_data": [
                 "project_task_payloads",
@@ -228,7 +226,7 @@ def cluster_plan() -> dict[str, Any]:
                 "machine_private_memory",
             ],
             "worker_workspace_flow": [
-                "checkout_or_pull_project_repo",
+                "open_local_project",
                 "read_project_index_and_task_context_from_manager",
                 "work_only_on_assigned_files_or_tasks",
                 "return_patch_result_or_artifact_to_manager",
@@ -248,7 +246,7 @@ def cluster_plan() -> dict[str, Any]:
             "Auto-connect to already paired high-spec nodes only when a task needs them.",
             "Allow multiple paired workers to be active at the same time when tasks and capacity require it.",
             "Auto-disconnect or idle paired workers after assigned work completes.",
-            "Publish approved sanitized self-improvement data to the Git repo and have every system pull proposals from there.",
+            "Store approved sanitized self-improvement data in the local project registry.",
             "Keep chat, task, approval, and long-term memory on the task-origin manager node.",
             "Make worker nodes return results and discard task context after completion.",
         ],

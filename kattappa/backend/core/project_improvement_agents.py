@@ -16,7 +16,7 @@ def project_improvement_agents() -> dict[str, Any]:
     if not path.exists():
         return {
             "mode": "missing_registry",
-            "shared_registry": "docs/SHARED_IMPROVEMENTS.md",
+            "local_registry": "docs/IMPROVEMENT_REGISTRY.md",
             "projects": {},
         }
     return json.loads(path.read_text(encoding="utf-8"))
@@ -35,8 +35,7 @@ def observe_project_improvement_agents(run_status: bool = False) -> dict[str, An
     }
 
     for project_id, project in registry.get("projects", {}).items():
-        rel_path = "07-NeuroSeed" if project_id == "neuroseed" else project_id
-        project_root = projects_root / rel_path
+        project_root = projects_root / project_id
         checks = _project_checks(project_root, project, run_status=run_status)
         observations.append(
             {
@@ -61,13 +60,13 @@ def observe_project_improvement_agents(run_status: bool = False) -> dict[str, An
         existing_titles.add(title)
 
     return {
-        "mode": registry.get("mode", "approval_gated_git_synced_improvement_agents"),
+        "mode": registry.get("mode", "standalone_approval_gated_improvement_agent"),
         "observed_projects": len(observations),
         "created_pending_proposals": created,
         "observations": observations,
         "approval_required_before_apply": True,
         "auto_apply": False,
-        "publish_after_approval": "docs/SHARED_IMPROVEMENTS.md",
+        "publish_after_approval": "docs/IMPROVEMENT_REGISTRY.md",
     }
 
 
@@ -75,9 +74,9 @@ def publish_approved_improvement(item: dict[str, str]) -> dict[str, Any]:
     if item.get("status") != "approved":
         return {"published": False, "reason": "improvement_not_approved"}
     config = load_config()
-    registry_path = config.root / "docs" / "SHARED_IMPROVEMENTS.md"
+    registry_path = config.root / "docs" / "IMPROVEMENT_REGISTRY.md"
     registry_path.parent.mkdir(parents=True, exist_ok=True)
-    text = registry_path.read_text(encoding="utf-8") if registry_path.exists() else "# Shared Kattappa AI OS Improvements\n"
+    text = registry_path.read_text(encoding="utf-8") if registry_path.exists() else "# Kattappa Improvement Registry\n"
     marker = f"improvement:{item['id']}"
     if marker in text:
         return {"published": False, "reason": "already_published", "path": str(registry_path)}
@@ -88,12 +87,12 @@ def publish_approved_improvement(item: dict[str, str]) -> dict[str, Any]:
 
 def check_git_shared_improvements() -> dict[str, Any]:
     config = load_config()
-    registry_path = config.root / "docs" / "SHARED_IMPROVEMENTS.md"
+    registry_path = config.root / "docs" / "IMPROVEMENT_REGISTRY.md"
     text, source, remote_status = _read_shared_registry_text(registry_path)
     if not text:
         return {
             "checked": False,
-            "reason": "shared_registry_missing",
+            "reason": "local_registry_missing",
             "created_pending_proposals": [],
             "remote_status": remote_status,
         }
@@ -106,14 +105,14 @@ def check_git_shared_improvements() -> dict[str, Any]:
         source_id = entry["marker"].removeprefix("improvement:")
         if source_id in existing_ids:
             continue
-        title = f"Adopt shared improvement {entry['marker']}"
+        title = f"Review local improvement {entry['marker']}"
         if title in existing_titles:
             continue
         improvement_id = memory.create_improvement(
             title=title,
-            motive="A sanitized improvement was found in the Git-backed shared registry.",
+            motive="A sanitized improvement was found in the local project registry.",
             proposal=(
-                "Review the shared improvement below. Verify source, free-tool policy, local compatibility, "
+                "Review the local improvement below. Verify source, free-tool policy, local compatibility, "
                 "tests, and rollback. Adopt only after local approval.\n\n"
                 + entry["body"][:1500]
             ),
@@ -125,7 +124,7 @@ def check_git_shared_improvements() -> dict[str, Any]:
         "checked": True,
         "source": source,
         "remote_status": remote_status,
-        "shared_entries": len(entries),
+        "local_entries": len(entries),
         "created_pending_proposals": created,
         "auto_apply": False,
         "approval_required_before_adoption": True,
@@ -215,7 +214,7 @@ def _shared_registry_entry(item: dict[str, str], marker: str) -> str:
         f"- Motive: {motive}\n\n"
         "Proposal:\n\n"
         f"{proposal}\n\n"
-        "Receiving systems must verify policy, compatibility, tests, and rollback, then ask local approval before adopting."
+        "Kattappa must verify policy, compatibility, tests, and rollback, then ask local approval before adopting."
     )
 
 
@@ -231,38 +230,7 @@ def _parse_shared_entries(text: str) -> list[dict[str, str]]:
 
 
 def _read_shared_registry_text(registry_path: Path) -> tuple[str, str, dict[str, Any]]:
-    repo_root = load_config().root.parent
-    remote_ref = "origin/main:kattappa/docs/SHARED_IMPROVEMENTS.md"
-    remote_status: dict[str, Any] = {"checked": False}
-    try:
-        fetch = subprocess.run(
-            ["git", "fetch", "--quiet", "origin"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        show = subprocess.run(
-            ["git", "show", remote_ref],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        remote_status = {
-            "checked": True,
-            "fetch_exit_code": fetch.returncode,
-            "show_exit_code": show.returncode,
-        }
-        if fetch.returncode == 0 and show.returncode == 0 and show.stdout.strip():
-            local_text = registry_path.read_text(encoding="utf-8") if registry_path.exists() else ""
-            if local_text.strip() and local_text != show.stdout:
-                return show.stdout + "\n\n" + local_text, f"{remote_ref} + {registry_path}", remote_status
-            return show.stdout, remote_ref, remote_status
-    except Exception as exc:
-        remote_status = {"checked": True, "error": str(exc)}
+    remote_status: dict[str, Any] = {"checked": False, "reason": "standalone_local_registry"}
     if registry_path.exists():
         return registry_path.read_text(encoding="utf-8"), str(registry_path), remote_status
     return "", str(registry_path), remote_status
