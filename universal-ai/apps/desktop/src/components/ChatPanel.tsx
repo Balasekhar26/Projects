@@ -70,7 +70,7 @@ export function ChatPanel({
               <div className="promptGrid" aria-label="Starter prompts">
                 {[
                   "Make this project production ready",
-                  "Check what is missing",
+                  "Check what is ready",
                   "Improve the Universal AI interface",
                   "Plan the next safe step",
                 ].map((prompt) => (

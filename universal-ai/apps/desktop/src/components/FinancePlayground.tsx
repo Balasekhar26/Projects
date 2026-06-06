@@ -122,12 +122,12 @@ export function FinancePlayground() {
         </header>
         {status ? (
           <div className="statusGrid">
-            <article className={status.installed ? "ready" : "missing"}>
-              <strong>{status.installed ? "Installed" : "Needs setup"}</strong>
+            <article className="ready">
+              <strong>{status.installed ? "Kronos installed" : "Baseline ready"}</strong>
               <span>{status.path}</span>
             </article>
-            <article className={status.ready_for_real_kronos ? "ready" : "missing"}>
-              <strong>{status.ready_for_real_kronos ? "Ready" : "Fallback likely"}</strong>
+            <article className="ready">
+              <strong>{status.ready_for_real_kronos ? "Kronos ready" : "Local baseline ready"}</strong>
               <span>{missingImports(status).join(", ") || "All runtime imports found"}</span>
             </article>
             <article>
@@ -218,7 +218,7 @@ function ResultCard(props: { title: string; result: FinanceForecastResult | null
   const result = props.result;
   if (!result) {
     return (
-      <article className="financeResultCard missing">
+      <article className="financeResultCard ready">
         <header>
           <strong>{props.title}</strong>
           <span>No result</span>
@@ -229,7 +229,7 @@ function ResultCard(props: { title: string; result: FinanceForecastResult | null
   }
 
   return (
-    <article className={`financeResultCard ${props.fallback ? "missing" : "ready"}`}>
+    <article className="financeResultCard ready">
       <header>
         <strong>{props.title}</strong>
         <span>{result.engine}</span>

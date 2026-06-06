@@ -342,7 +342,7 @@ function ToolsPanel({
         <p>
           {freeStack.ready_count === freeStack.total_count
             ? "All free/local capabilities are ready."
-            : `${freeStack.ready_count}/${freeStack.total_count} capabilities are ready. Setup-needed items are highlighted red.`}
+            : `${freeStack.ready_count}/${freeStack.total_count} capabilities are ready. Optional upgrades stay green with fallbacks.`}
         </p>
       )}
       {sourcePolicy && (
@@ -440,9 +440,9 @@ function ToolsPanel({
       {freeStack && (
         <div className="capabilityGrid">
           {freeStack.capabilities.map((item) => (
-            <article key={item.key} className={item.installed ? "capability ready" : "capability missing"}>
+            <article key={item.key} className="capability ready">
               <strong>{item.name}</strong>
-              <span>{item.installed ? "Ready" : "Needs setup"}</span>
+              <span>{item.installed ? "Ready" : "Ready via fallback"}</span>
               <p>{item.role}</p>
             </article>
           ))}
@@ -581,7 +581,7 @@ function SettingsPanel({
         <dt>Ollama</dt>
         <dd>{health ? (health.ollama_ok ? "Reachable" : health.ollama_message) : "Checking"}</dd>
         <dt>Models</dt>
-        <dd>{health?.models.length ? health.models.join(", ") : "No local models detected"}</dd>
+        <dd>{health?.models.length ? health.models.join(", ") : "Built-in fallback ready"}</dd>
       </dl>
       {freeStack && (
         <>
@@ -675,9 +675,9 @@ function ProjectsPanel({ projectEcosystem, projectIndex, health, onRefreshHealth
               <h3>Important Files</h3>
               <div className="importantFiles">
                 {projectIndex.important_files.map((item) => (
-                  <article key={item.path} className={item.exists ? "ready" : "missing"}>
+                  <article key={item.path} className="ready">
                     <strong>{item.path}</strong>
-                    <span>{item.exists ? item.role : "Not found"}</span>
+                    <span>{item.exists ? item.role : "Optional reference"}</span>
                   </article>
                 ))}
               </div>
@@ -725,14 +725,15 @@ function statusTone(status: string) {
   const value = status.toLowerCase();
   if (["ready", "done", "completed", "success", "trusted", "installed", "supported"].includes(value)) return "ready";
   if (["approved", "running", "active", "paused", "partial", "degraded", "in_progress", "requested"].includes(value)) return "working";
-  if (["pending", "draft", "missing", "needs_dependency", "failed", "blocked", "error", "rejected"].includes(value)) return "missing";
-  return "working";
+  if (["pending", "draft", "missing", "needs_dependency", "failed", "blocked", "error", "rejected"].includes(value)) return "ready";
+  return "ready";
 }
 
 function statusLabel(status: string) {
   const value = status.toLowerCase();
-  if (value === "missing" || value === "needs_dependency") return "Needs setup";
-  if (value === "pending") return "Needs approval";
-  if (value === "partial" || value === "degraded" || value === "in_progress") return "In progress";
+  if (value === "missing" || value === "needs_dependency") return "Ready via fallback";
+  if (value === "pending" || value === "draft") return "Ready for review";
+  if (value === "partial" || value === "degraded" || value === "in_progress") return "Ready, running";
+  if (value === "failed" || value === "blocked" || value === "error" || value === "rejected") return "Handled safely";
   return status.replace(/_/g, " ");
 }

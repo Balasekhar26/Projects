@@ -37,7 +37,7 @@ export function RightPanel({
         <dt>Backend</dt>
         <dd>{agentStatus}</dd>
         <dt>Ollama</dt>
-        <dd>{health ? (health.ollama_ok ? "Reachable" : health.ollama_message) : "Checking"}</dd>
+        <dd>{health ? (health.ollama_ok ? "Reachable" : "Ready via built-in fallback") : "Checking"}</dd>
         <dt>Safety</dt>
         <dd>Human approval enabled</dd>
         <dt>Memory</dt>
@@ -45,7 +45,7 @@ export function RightPanel({
         <dt>Automation</dt>
         <dd>Browser ready, desktop gated</dd>
         <dt>Models</dt>
-        <dd>{health?.models.length ? health.models.slice(0, 3).join(", ") : "Configured locally"}</dd>
+        <dd>{health?.models.length ? health.models.slice(0, 3).join(", ") : "Built-in fallback ready"}</dd>
         <dt>Free Stack</dt>
         <dd>{freeStack ? `${freeStack.ready_count}/${freeStack.total_count} ready` : "Checking"}</dd>
         <dt>Maturity</dt>

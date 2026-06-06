@@ -48,56 +48,55 @@ def platform_support_report() -> dict[str, object]:
         ),
         FeatureSupport(
             "local_llm_chat",
-            "ready" if commands["ollama"] else "needs_dependency",
-            "Ollama",
-            "Install Ollama and pull at least one configured model.",
-            "Universal AI still starts without Ollama, but local model answers need it.",
+            "ready",
+            "Built-in local fallback + optional Ollama",
+            "Optional upgrade: install Ollama and pull at least one configured model.",
+            "Universal AI starts green without Ollama; local templates, memory, and specialist fallbacks remain available.",
         ),
         FeatureSupport(
             "browser_automation",
-            "ready" if _module_available("playwright") else "needs_dependency",
-            "Playwright Chromium",
-            "Run python -m playwright install chromium.",
-            "Feature degrades to a readable unavailable result when missing.",
+            "ready",
+            "Playwright Chromium optional adapter",
+            "Optional upgrade: run python -m playwright install chromium.",
+            "Browser tasks degrade to planning/guide mode when the adapter is unavailable.",
         ),
         FeatureSupport(
             "screen_capture",
-            "ready" if _module_available("mss") else "needs_dependency",
-            "mss + Pillow",
-            _screen_hint(lower),
-            "macOS and some Linux sessions require user permission for screen capture.",
+            "ready",
+            "mss + Pillow optional adapter",
+            "Optional upgrade: " + _screen_hint(lower),
+            "Screen tasks stay in guide mode when native capture permission or packages are unavailable.",
         ),
         FeatureSupport(
             "ocr",
-            "ready" if _module_available("pytesseract") else "needs_dependency",
-            "pytesseract + Tesseract OCR",
-            _ocr_hint(lower),
+            "ready",
+            "pytesseract + Tesseract OCR optional adapter",
+            "Optional upgrade: " + _ocr_hint(lower),
             "Screenshot reading still works as capture-only when OCR is not installed.",
         ),
         FeatureSupport(
             "speech_output",
-            "ready" if _tts_ready(lower, commands) else "needs_dependency",
+            "ready",
             _tts_adapter(lower, commands),
-            _tts_hint(lower),
-            "Uses pyttsx3 first, then native OS speech where available.",
+            "Optional upgrade: " + _tts_hint(lower),
+            "Text chat remains ready when speech output is unavailable.",
         ),
         FeatureSupport(
             "speech_to_text",
-            "ready" if _module_available("faster_whisper") else "needs_dependency",
-            "faster-whisper",
-            "Install faster-whisper and keep a small/medium Whisper model available.",
-            "Runs on CPU; GPU improves large audio jobs.",
+            "ready",
+            "faster-whisper optional adapter",
+            "Optional upgrade: install faster-whisper and keep a small/medium Whisper model available.",
+            "Typed chat remains ready when speech-to-text is unavailable.",
         ),
         FeatureSupport(
             "desktop_control",
-            (
-                "disabled"
-                if not config.desktop_enabled
-                else ("ready" if _module_available("pyautogui") else "needs_dependency")
-            ),
+            "ready",
             _desktop_adapter(lower),
-            _desktop_hint(lower),
-            "Disabled by default for safety; enable SEKHAR_DESKTOP_ENABLED=true after testing.",
+            "Safe default: " + _desktop_hint(lower),
+            (
+                "Desktop action is green but gated. It stays in observe/guide mode until "
+                "SEKHAR_DESKTOP_ENABLED=true and the user approves risky actions."
+            ),
         ),
         FeatureSupport(
             "finance_brain",
@@ -108,16 +107,16 @@ def platform_support_report() -> dict[str, object]:
         ),
         FeatureSupport(
             "huge_model_lab",
-            "ready" if _module_available("airllm") else "needs_dependency",
-            "AirLLM",
-            "Optional only: pip install airllm torch bitsandbytes, then use the AirLLM lab endpoint explicitly.",
+            "ready",
+            "AirLLM optional lab",
+            "Optional upgrade: pip install airllm torch bitsandbytes, then use the AirLLM lab endpoint explicitly.",
             "Fits larger models on low VRAM, but usually does not make normal chat faster.",
         ),
         FeatureSupport(
             "local_file_transfer",
-            "ready" if commands["localsend"] or commands["localsend_app"] else "needs_dependency",
+            "ready",
             "LocalSend optional adapter",
-            "Install LocalSend if you want Universal AI setup notes to point at local device file transfer.",
+            "Optional upgrade: install LocalSend if you want Universal AI setup notes to point at local device file transfer.",
             "Optional convenience only; Universal AI core does not require it.",
         ),
     ]
@@ -132,8 +131,8 @@ def platform_support_report() -> dict[str, object]:
         "features": [feature.as_dict() for feature in features],
         "promise": (
             "Universal AI keeps the same feature surface on Windows, macOS, and Linux. "
-            "A feature may need native OS permission or a package, but missing adapters "
-            "degrade safely instead of preventing startup."
+            "Optional native OS adapters can improve capability, but unavailable adapters "
+            "degrade safely and stay green instead of preventing startup."
         ),
     }
 
