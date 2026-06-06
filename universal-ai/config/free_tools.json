@@ -141,6 +141,135 @@
       "adapter": "backend.core.tool_scout",
       "run_mode": "cloud research source",
       "source": "https://benchlm.ai/about"
+    },
+    "deepseek_r1_local": {
+      "purpose": "local reasoning and coding model profile for Second Brain, GOAT-style planning, and agent review without paid API dependency",
+      "provider": "Ollama, llama.cpp, vLLM, or Transformers using open-weight DeepSeek R1/distill models",
+      "license": "MIT for DeepSeek-R1 code/models per official release; verify chosen checkpoint license before install",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "adapter": "future.backend.ai_engine.providers.deepseek_r1_local",
+      "replaces": [
+        "deepseek_api",
+        "claude_ai",
+        "xai_grok",
+        "blackbox_ai_for_reasoning"
+      ],
+      "guardrails": [
+        "local model only by default",
+        "do not send private project data to DeepSeek API",
+        "route through existing model approval/profile controls"
+      ]
+    },
+    "chromadb": {
+      "purpose": "local vector database for Second Brain, project memory, RAG evaluation datasets, and NeuroSeed study memory",
+      "license": "Apache-2.0",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.core.memory"
+    },
+    "local_eval_harness": {
+      "purpose": "fully local retrieval, generation, end-to-end, and production regression evaluation without SaaS eval platforms",
+      "license": "Kattappa-built local test/evaluation workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "future.backend.evals.local_eval_harness",
+      "covers": [
+        "retrieval_evaluation",
+        "generation_evaluation",
+        "end_to_end_evaluation",
+        "production_evaluation"
+      ]
+    },
+    "ragas_or_deepeval_local": {
+      "purpose": "optional open-source evaluation libraries for RAG quality checks when local eval metrics need more depth",
+      "license": "verify package license before pinning; keep as optional replaceable adapter",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "adapter": "future.backend.evals.rag_quality_adapter"
+    },
+    "mermaid": {
+      "purpose": "free diagram-as-code replacement for Napkin AI, Graphify/Grafyfy-style visuals, architecture maps, PCB workflows, and project docs",
+      "license": "MIT",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "adapter": "future.backend.tools.diagram_generator.mermaid"
+    },
+    "excalidraw": {
+      "purpose": "free/open visual sketching replacement for Napkin AI-style concept boards and system diagrams",
+      "license": "MIT",
+      "network_required": false,
+      "status": "optional_adapter",
+      "adapter": "future.backend.tools.diagram_generator.excalidraw"
+    },
+    "argos_translate": {
+      "purpose": "offline text translation for Universal Translator and Indian-language experiments without Sarvam/BHASHINI paid API dependency",
+      "license": "MIT/open-source package ecosystem; verify language package license before bundling",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "adapter": "future.universal_translator.pipeline.argos_translate"
+    },
+    "vosk": {
+      "purpose": "offline speech-to-text option for Universal Translator and Kattappa voice commands on weak machines",
+      "license": "Apache-2.0 toolkit; verify model license before bundling",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "adapter": "future.universal_translator.pipeline.vosk_stt"
+    },
+    "faster_whisper": {
+      "purpose": "local speech-to-text for voice commands, meeting notes, Universal Translator, and BHASHINI/Sarvam STT replacement",
+      "license": "MIT",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "adapter": "future.backend.tools.voice.faster_whisper"
+    },
+    "piper_tts": {
+      "purpose": "local neural text-to-speech for Kattappa voice responses and Universal Translator output without Bulbul/Sarvam paid TTS dependency",
+      "license": "MIT",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "adapter": "future.backend.tools.voice.piper_tts"
+    },
+    "openwakeword": {
+      "purpose": "offline wake-word engine for Kattappa, Mama, Kittu, and Universal Translator hands-free mode",
+      "license": "Apache-2.0",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "adapter": "future.backend.tools.voice.openwakeword"
+    },
+    "opencode_local_coding_loop": {
+      "purpose": "free local Claude Code/EEC-style coding workflow: inspect repo, plan, patch, test, and summarize with approval gates",
+      "license": "Kattappa-built local workflow using Git, local models, and existing file tools",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.core.builder_brain",
+      "replaces": [
+        "claude_code",
+        "blackbox_ai",
+        "merlin_ai",
+        "everything_claude_code_repo_if_license_unknown"
+      ]
+    },
+    "qiskit": {
+      "purpose": "free quantum computing SDK for Kaveri/QpiAI-inspired learning labs and future quantum-safe demos",
+      "license": "Apache-2.0",
+      "network_required": false,
+      "status": "optional_adapter",
+      "adapter": "future.backend.labs.quantum.qiskit_lab"
+    },
+    "local_b2b_playbook": {
+      "purpose": "local product strategy templates for B2B master-stroke, AI-employee workflow design, and production-readiness scoring",
+      "license": "Kattappa-built local docs/workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "future.backend.business.local_playbook"
+    },
+    "local_sovereign_frugal_ai_patterns": {
+      "purpose": "architecture rules for sovereign, frugal, offline-first, combat-tested-by-evaluation systems without hype claims",
+      "license": "Kattappa-built local architecture pattern registry",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.core.source_policy"
     }
   },
   "optional_labs": {
@@ -256,6 +385,26 @@
     "minimax_m3": {
       "purpose": "long-context coding and agentic model",
       "status": "wait_until_local_open_weights_available"
+    },
+    "bhashini_research_only": {
+      "purpose": "Indian-language public-program reference for language coverage ideas; not a default runtime dependency",
+      "network_required": true,
+      "status": "research_reference_only",
+      "adapter": "backend.core.tool_scout",
+      "guardrails": [
+        "do not send private audio/text by default",
+        "prefer local Argos/Vosk/faster-whisper/Piper in core"
+      ]
+    },
+    "sarvam_free_llm_reference": {
+      "purpose": "reference Indian AI APIs and free chat model availability, but keep paid STT/TTS/translation out of core",
+      "network_required": true,
+      "status": "research_reference_only",
+      "adapter": "backend.core.tool_scout",
+      "guardrails": [
+        "cloud/offline approval required",
+        "paid speech/translation endpoints blocked from core"
+      ]
     }
   },
   "learning_sources": {
@@ -267,19 +416,43 @@
     "git_reverse_prompting_pattern": "learn the idea of summarizing repo architecture into prompts, then implement locally without external services",
     "hugging_face_papers": "free AI paper/model discovery for learning and model selection",
     "benchlm": "public model benchmark comparison source for choosing free/local models",
-    "open_source_alternative_directories": "free/open-source alternative discovery before adopting any paid SaaS idea"
+    "open_source_alternative_directories": "free/open-source alternative discovery before adopting any paid SaaS idea",
+    "terafab": "track as manufacturing/AI-infrastructure inspiration only; do not add unless a fully free/open local tool is identified",
+    "codegraph_pattern": "turn codebase relationships into local graphs using NetworkX plus repo indexing",
+    "everything_claude_code_pattern": "learn coding-agent workflow patterns, then implement locally with opencode_local_coding_loop and no Claude dependency",
+    "odysseus_repo_review_pattern": "inspect GitHub repo license before reuse; if unclear, rebuild the useful idea locally",
+    "cli_anything_pattern": "use one local CLI entrypoint per project with approval gates and no hidden installers",
+    "second_brain_goat_pattern": "SQLite + ChromaDB + local embeddings + DeepSeek/Gemma model profiles for private long-term memory"
   },
   "hardware_topics": {
     "piezoelectric_sensors": {
       "purpose": "pressure, vibration, ultrasonic, and low-power sensing experiments",
-      "best_projects": ["pcb-doctor", "dews", "musical-keyboard"],
+      "best_projects": [
+        "pcb-doctor",
+        "dews",
+        "musical-keyboard"
+      ],
       "not_for": "Do not treat tiny piezo harvesters as a power source for AI hardware."
     },
     "physical_ai_world_models": {
       "purpose": "future camera, video, simulation, and action reasoning for real-world systems",
-      "best_projects": ["dews", "pcb-doctor", "universal-ai"],
+      "best_projects": [
+        "dews",
+        "pcb-doctor",
+        "universal-ai"
+      ],
       "recommended_tool": "cosmos3",
       "not_for": "Do not require datacenter-scale models for default local runs."
+    },
+    "quantum_india_learning": {
+      "purpose": "Kaveri/QpiAI-inspired quantum learning and simulation experiments using free SDKs first",
+      "best_projects": [
+        "universal-ai",
+        "neuroseed",
+        "ai-cyber-shield"
+      ],
+      "recommended_tool": "qiskit",
+      "not_for": "Do not claim quantum advantage or require paid quantum cloud access in core projects."
     }
   },
   "architecture_patterns_from_pdf": {
@@ -291,7 +464,17 @@
     "agent_loop": "purpose, prompt, model, tools, memory, orchestration, UI, tests",
     "automation_system": "research, content, analytics, support, automation, and workflow agents",
     "hardware_awareness": "CPU, GPU, TPU, NPU, LPU, and DPU concepts inform local setup guidance",
-    "ccna_networking": "OSI/TCP-IP, ports, DNS, DHCP, NAT, VLAN, routing, switching, and safe network troubleshooting basics"
+    "ccna_networking": "OSI/TCP-IP, ports, DNS, DHCP, NAT, VLAN, routing, switching, and safe network troubleshooting basics",
+    "retrieval_evaluation": "measure whether retrieved context contains the answer source before generation",
+    "generation_evaluation": "score factuality, format, safety, and project-policy compliance locally",
+    "end_to_end_evaluation": "test complete user workflow from command to final artifact",
+    "production_evaluation": "run regression, readiness, cross-platform, and privacy checks before release",
+    "sovereign_ai": "local-first, user-owned data, replaceable models, no required cloud dependency",
+    "frugal_ai": "prefer smaller local models, caching, fallback templates, and low-cost hardware-aware routing",
+    "combat_proven_ai": "translate the phrase into evidence-based stress tests, incident drills, and failure logs, not marketing claims",
+    "ai_employees_are_here": "represent as role-based specialist workers with approvals, not uncontrolled autonomous accounts",
+    "voice_ai_explosion": "prioritize offline wake-word, STT, VAD, TTS, and latency instrumentation",
+    "b2b_master_stroke": "build private, auditable workflows first; only later package as customer-safe deployments"
   },
   "free_project_applications": {
     "universal-ai": [
@@ -325,7 +508,19 @@
       "graph_rag",
       "agentic_rag",
       "corrective_rag",
-      "automation_system"
+      "automation_system",
+      "deepseek_r1_local",
+      "chromadb",
+      "local_eval_harness",
+      "ragas_or_deepeval_local",
+      "mermaid",
+      "excalidraw",
+      "opencode_local_coding_loop",
+      "qiskit",
+      "local_b2b_playbook",
+      "local_sovereign_frugal_ai_patterns",
+      "cli_anything_pattern",
+      "second_brain_goat_pattern"
     ],
     "pcb-doctor": [
       "scrapegraphai",
@@ -346,7 +541,11 @@
       "piezoelectric_sensors",
       "cosmos3",
       "physical_ai_world_models",
-      "localsend"
+      "localsend",
+      "mermaid",
+      "excalidraw",
+      "local_eval_harness",
+      "ragas_or_deepeval_local"
     ],
     "ai-cyber-shield": [
       "the_book_of_secret_knowledge",
@@ -362,7 +561,11 @@
       "agentic_rag",
       "corrective_rag",
       "ccna_networking",
-      "localsend"
+      "localsend",
+      "local_eval_harness",
+      "local_sovereign_frugal_ai_patterns",
+      "qiskit",
+      "mermaid"
     ],
     "universal-translator": [
       "gemma",
@@ -376,7 +579,12 @@
       "piper_tts",
       "openwakeword",
       "hardware_awareness",
-      "localsend"
+      "localsend",
+      "argos_translate",
+      "vosk",
+      "local_eval_harness",
+      "bhashini_research_only",
+      "sarvam_free_llm_reference"
     ],
     "musical-keyboard": [
       "piezoelectric_sensors",
@@ -386,7 +594,9 @@
       "google_ai_edge_gallery",
       "hugging_face_papers",
       "hardware_awareness",
-      "free_programming_books"
+      "free_programming_books",
+      "mermaid",
+      "local_eval_harness"
     ],
     "dews": [
       "mirofish",
@@ -402,7 +612,10 @@
       "cosmos3",
       "physical_ai_world_models",
       "agentic_rag",
-      "localsend"
+      "localsend",
+      "local_eval_harness",
+      "local_sovereign_frugal_ai_patterns",
+      "mermaid"
     ],
     "neuroseed": [
       "gemma",
@@ -421,7 +634,15 @@
       "open_source_alternative_directories",
       "localsend",
       "agent_loop",
-      "automation_system"
+      "automation_system",
+      "chromadb",
+      "deepseek_r1_local",
+      "mermaid",
+      "excalidraw",
+      "local_eval_harness",
+      "qiskit",
+      "local_sovereign_frugal_ai_patterns",
+      "second_brain_goat_pattern"
     ]
   },
   "paid_tool_replacement_policy": {
@@ -434,21 +655,171 @@
       "5. Keep external installs, downloads, remote execution, and account connections approval-gated."
     ],
     "known_replacements": {
-      "gitreverse": ["local_repo_prompt_exporter"],
-      "unabyss": ["local_mcp_context_bridge", "semantic local memory"],
-      "rethread": ["local_mcp_context_bridge", "semantic local memory"],
-      "bluedot": ["faster_whisper", "piper_tts", "local meeting notes workflow"],
-      "hyperspace_pods": ["exo_local_ai_cluster", "ray_local_cluster"],
-      "gitkraken": ["github_desktop", "git_cli_safety_workflow"],
-      "sourcetree": ["github_desktop", "git_cli_safety_workflow"],
-      "kimi_webbridge": ["qwebbridge"],
-      "perplexity_comet": ["qwebbridge", "playwright"],
-      "rocket_new": ["local_repo_prompt_exporter", "github_desktop", "gemma4_12b"],
-      "sensor_tower": ["open_source_alternative_directories", "benchlm"],
-      "appkittie": ["open_source_alternative_directories", "benchlm"],
-      "notebooklm": ["chromadb", "sentence_transformers", "local semantic memory"],
-      "microsoft_mai_models": ["gemma4_12b", "openrouter_free_models"],
-      "ai_edge_eloquent": ["google_ai_edge_gallery", "faster_whisper"]
+      "gitreverse": [
+        "local_repo_prompt_exporter"
+      ],
+      "unabyss": [
+        "local_mcp_context_bridge",
+        "semantic local memory"
+      ],
+      "rethread": [
+        "local_mcp_context_bridge",
+        "semantic local memory"
+      ],
+      "bluedot": [
+        "faster_whisper",
+        "piper_tts",
+        "local meeting notes workflow"
+      ],
+      "hyperspace_pods": [
+        "exo_local_ai_cluster",
+        "ray_local_cluster"
+      ],
+      "gitkraken": [
+        "github_desktop",
+        "git_cli_safety_workflow"
+      ],
+      "sourcetree": [
+        "github_desktop",
+        "git_cli_safety_workflow"
+      ],
+      "kimi_webbridge": [
+        "qwebbridge"
+      ],
+      "perplexity_comet": [
+        "qwebbridge",
+        "playwright"
+      ],
+      "rocket_new": [
+        "local_repo_prompt_exporter",
+        "github_desktop",
+        "gemma4_12b"
+      ],
+      "sensor_tower": [
+        "open_source_alternative_directories",
+        "benchlm"
+      ],
+      "appkittie": [
+        "open_source_alternative_directories",
+        "benchlm"
+      ],
+      "notebooklm": [
+        "chromadb",
+        "sentence_transformers",
+        "local semantic memory"
+      ],
+      "microsoft_mai_models": [
+        "gemma4_12b",
+        "openrouter_free_models"
+      ],
+      "ai_edge_eloquent": [
+        "google_ai_edge_gallery",
+        "faster_whisper"
+      ],
+      "terafab": [
+        "open_source_alternative_directories",
+        "local_b2b_playbook"
+      ],
+      "blackbox_ai": [
+        "opencode_local_coding_loop",
+        "deepseek_r1_local",
+        "gemma",
+        "local_repo_prompt_exporter"
+      ],
+      "graphify": [
+        "mermaid",
+        "excalidraw",
+        "networkx"
+      ],
+      "grafyfy": [
+        "mermaid",
+        "excalidraw",
+        "networkx"
+      ],
+      "claude_ai": [
+        "deepseek_r1_local",
+        "gemma",
+        "opencode_local_coding_loop"
+      ],
+      "claude_code": [
+        "opencode_local_coding_loop",
+        "local_repo_prompt_exporter",
+        "git_cli_safety_workflow"
+      ],
+      "codegraph": [
+        "networkx",
+        "local_repo_prompt_exporter",
+        "mermaid"
+      ],
+      "scale_ai": [
+        "local_eval_harness",
+        "ragas_or_deepeval_local"
+      ],
+      "sarvam_ai_paid_speech": [
+        "faster_whisper",
+        "piper_tts",
+        "argos_translate",
+        "vosk"
+      ],
+      "shuka_v1": [
+        "faster_whisper",
+        "vosk"
+      ],
+      "bulbul_v2": [
+        "piper_tts"
+      ],
+      "bhashini_cloud_api": [
+        "argos_translate",
+        "faster_whisper",
+        "vosk",
+        "piper_tts"
+      ],
+      "bharatgpt": [
+        "gemma",
+        "deepseek_r1_local"
+      ],
+      "mythos": [
+        "local_sovereign_frugal_ai_patterns",
+        "mirofish"
+      ],
+      "merlin_ai": [
+        "opencode_local_coding_loop",
+        "local_repo_prompt_exporter",
+        "chromadb"
+      ],
+      "napkin_ai": [
+        "mermaid",
+        "excalidraw"
+      ],
+      "xai_grok": [
+        "deepseek_r1_local",
+        "gemma"
+      ],
+      "deepseek_api": [
+        "deepseek_r1_local"
+      ],
+      "qpiai": [
+        "qiskit"
+      ],
+      "kaveri": [
+        "qiskit"
+      ],
+      "odysseus_repo": [
+        "local_repo_prompt_exporter",
+        "opencode_local_coding_loop"
+      ],
+      "cli_anything": [
+        "git_cli_safety_workflow",
+        "opencode_local_coding_loop"
+      ],
+      "b2b_master_stroke": [
+        "local_b2b_playbook"
+      ],
+      "ai_employees": [
+        "agent_loop",
+        "automation_system",
+        "local_b2b_playbook"
+      ]
     }
   },
   "blocked_paid_or_restricted": [
@@ -499,6 +870,72 @@
     "gitkraken",
     "sourcetree",
     "hyperspace_pods",
-    "hyperspace_rewards_compute"
-  ]
+    "hyperspace_rewards_compute",
+    "terafab",
+    "blackbox_ai",
+    "graphify",
+    "grafyfy",
+    "claude_ai",
+    "claude_code",
+    "scale_ai",
+    "sarvam_ai_paid_speech",
+    "sarvam_ai_paid_translation",
+    "shuka_v1_cloud",
+    "bulbul_v2_cloud",
+    "bhashini_cloud_api",
+    "bharatgpt_unknown_license",
+    "mythos_unknown_license",
+    "merlin_ai",
+    "napkin_ai",
+    "xai_grok",
+    "deepseek_api",
+    "qpiai_commercial",
+    "kaveri_unknown_license",
+    "odysseus_repo_unknown_license",
+    "everything_claude_code_repo_unknown_license"
+  ],
+  "ecosystem_topic_audit_from_chat": {
+    "policy": "Add only fully free/open/local items to project mappings. Paid, freemium, cloud-metered, unknown-license, or closed tools are blocked from core and replaced with local/free equivalents.",
+    "topic_count": 34,
+    "added_free_capabilities": [
+      "deepseek_r1_local",
+      "chromadb",
+      "local_eval_harness",
+      "ragas_or_deepeval_local",
+      "mermaid",
+      "excalidraw",
+      "argos_translate",
+      "vosk",
+      "faster_whisper",
+      "piper_tts",
+      "openwakeword",
+      "opencode_local_coding_loop",
+      "qiskit",
+      "local_b2b_playbook",
+      "local_sovereign_frugal_ai_patterns"
+    ],
+    "research_only": [
+      "bhashini_research_only",
+      "sarvam_free_llm_reference"
+    ],
+    "blocked_or_replaced": [
+      "terafab",
+      "blackbox_ai",
+      "graphify/grafyfy if closed",
+      "claude_ai",
+      "scale_ai",
+      "sarvam paid speech/translation",
+      "shuka cloud",
+      "bulbul cloud",
+      "bharatgpt unknown license",
+      "mythos unknown license",
+      "merlin_ai",
+      "napkin_ai",
+      "xai_grok",
+      "deepseek_api",
+      "qpiai commercial",
+      "kaveri unknown license",
+      "odysseus/eec repos until license inspected"
+    ]
+  }
 }
