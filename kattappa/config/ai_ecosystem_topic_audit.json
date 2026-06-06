@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "verified_on": "2026-06-06",
+  "policy": "Only fully free/open/local-first or Kattappa-built capabilities may be added to core project plans. Paid, freemium, cloud-metered, source-available restricted, proprietary, trial-limited, or unknown-license tools are blocked from core and replaced with free/open/local equivalents when useful.",
+  "source_evidence": {
+    "deepseek_r1_local": "https://github.com/deepseek-ai/DeepSeek-R1",
+    "vosk": "https://github.com/alphacep/vosk-api",
+    "argos_translate": "https://github.com/argosopentech/argos-translate",
+    "faster_whisper": "https://github.com/SYSTRAN/faster-whisper",
+    "piper_tts": "https://github.com/rhasspy/piper",
+    "openwakeword": "https://github.com/dscripka/openWakeWord",
+    "chromadb": "https://github.com/chroma-core/chroma",
+    "mermaid": "https://github.com/mermaid-js/mermaid",
+    "excalidraw": "https://github.com/excalidraw/excalidraw",
+    "qiskit": "https://github.com/Qiskit/qiskit",
+    "node_red": "https://github.com/node-red/node-red",
+    "foam_markdown_vault": "https://github.com/foambubble/foam"
+  },
+  "topics": [
+    {
+      "id": 1,
+      "topic": "Terafab / TeraFab",
+      "decision": "Research inspiration only; no external dependency added.",
+      "free_replacements": ["local_b2b_playbook", "open_source_alternative_directories"],
+      "projects": ["kattappa", "pcb-doctor", "dews"]
+    },
+    {
+      "id": 2,
+      "topic": "BLACKBOX AI",
+      "decision": "Blocked from core; replace with a local coding loop.",
+      "free_replacements": ["opencode_local_coding_loop", "deepseek_r1_local", "gemma", "local_repo_prompt_exporter"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 3,
+      "topic": "Graphify / Grafyfy",
+      "decision": "Blocked unless license is proven; use open diagram/graph tools.",
+      "free_replacements": ["mermaid", "excalidraw", "networkx"],
+      "projects": ["kattappa", "pcb-doctor", "ai-cyber-shield", "dews", "neuroseed"]
+    },
+    {
+      "id": 4,
+      "topic": "Claude AI",
+      "decision": "Paid/cloud model dependency blocked from core.",
+      "free_replacements": ["deepseek_r1_local", "gemma", "opencode_local_coding_loop"],
+      "projects": ["kattappa", "neuroseed"]
+    },
+    {
+      "id": 5,
+      "topic": "CodeGraph",
+      "decision": "Add the pattern locally instead of depending on a closed service.",
+      "free_replacements": ["networkx", "local_repo_prompt_exporter", "mermaid"],
+      "projects": ["kattappa", "pcb-doctor", "ai-cyber-shield"]
+    },
+    {
+      "id": 6,
+      "topic": "Scale AI",
+      "decision": "Commercial data/eval platform blocked from core.",
+      "free_replacements": ["local_eval_harness", "ragas_or_deepeval_local"],
+      "projects": ["all"]
+    },
+    {
+      "id": 7,
+      "topic": "SubQ / Subquadratic",
+      "decision": "Use as an efficiency target for retrieval and memory indexes.",
+      "free_replacements": ["rank_bm25", "networkx", "local_eval_harness"],
+      "projects": ["kattappa", "neuroseed"]
+    },
+    {
+      "id": 8,
+      "topic": "Retrieval Evaluation",
+      "decision": "Added as local evaluation capability.",
+      "free_replacements": ["local_eval_harness", "ragas_or_deepeval_local"],
+      "projects": ["all"]
+    },
+    {
+      "id": 9,
+      "topic": "Generation Evaluation",
+      "decision": "Added as local response-quality checks.",
+      "free_replacements": ["local_eval_harness"],
+      "projects": ["all"]
+    },
+    {
+      "id": 10,
+      "topic": "End-to-End Evaluation",
+      "decision": "Added as workflow-level regression checks.",
+      "free_replacements": ["local_eval_harness"],
+      "projects": ["all"]
+    },
+    {
+      "id": 11,
+      "topic": "Production Evaluation",
+      "decision": "Added as release/readiness checks.",
+      "free_replacements": ["local_eval_harness"],
+      "projects": ["all"]
+    },
+    {
+      "id": 12,
+      "topic": "Sarvam AI",
+      "decision": "Research-only for Indian-language coverage; paid speech/translation blocked.",
+      "free_replacements": ["argos_translate", "faster_whisper", "vosk", "piper_tts"],
+      "projects": ["universal-translator", "kattappa"]
+    },
+    {
+      "id": 13,
+      "topic": "Shuka v1",
+      "decision": "Cloud STT idea replaced with local STT.",
+      "free_replacements": ["faster_whisper", "vosk"],
+      "projects": ["universal-translator", "kattappa"]
+    },
+    {
+      "id": 14,
+      "topic": "Bulbul v2",
+      "decision": "Cloud TTS idea replaced with local TTS.",
+      "free_replacements": ["piper_tts"],
+      "projects": ["universal-translator", "kattappa"]
+    },
+    {
+      "id": 15,
+      "topic": "BharatGPT",
+      "decision": "Unknown/closed status for core; use open local model profiles.",
+      "free_replacements": ["gemma", "deepseek_r1_local"],
+      "projects": ["kattappa", "neuroseed"]
+    },
+    {
+      "id": 16,
+      "topic": "Frugal AI",
+      "decision": "Added as architecture rule.",
+      "free_replacements": ["local_sovereign_frugal_ai_patterns"],
+      "projects": ["kattappa", "ai-cyber-shield", "dews", "neuroseed"]
+    },
+    {
+      "id": 17,
+      "topic": "Sovereign AI",
+      "decision": "Added as local-first/user-owned-data architecture rule.",
+      "free_replacements": ["local_sovereign_frugal_ai_patterns", "chromadb"],
+      "projects": ["kattappa", "ai-cyber-shield", "dews", "neuroseed"]
+    },
+    {
+      "id": 18,
+      "topic": "Combat-Proven AI",
+      "decision": "Translated into evidence-based drills, stress tests, and failure logs.",
+      "free_replacements": ["local_eval_harness", "local_sovereign_frugal_ai_patterns"],
+      "projects": ["ai-cyber-shield", "dews", "kattappa"]
+    },
+    {
+      "id": 19,
+      "topic": "AI Employees Are Here",
+      "decision": "Added as approval-gated specialist-worker pattern, not uncontrolled autonomous accounts.",
+      "free_replacements": ["agent_loop", "automation_system", "local_b2b_playbook"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 20,
+      "topic": "Voice AI Explosion",
+      "decision": "Added to offline voice stack.",
+      "free_replacements": ["openwakeword", "faster_whisper", "vosk", "piper_tts"],
+      "projects": ["kattappa", "universal-translator"]
+    },
+    {
+      "id": 21,
+      "topic": "BHASHINI",
+      "decision": "Research-only unless a safe free public use path is approved.",
+      "free_replacements": ["argos_translate", "faster_whisper", "vosk", "piper_tts"],
+      "projects": ["universal-translator"]
+    },
+    {
+      "id": 22,
+      "topic": "The B2B Master Stroke",
+      "decision": "Added as local product/workflow planning templates.",
+      "free_replacements": ["local_b2b_playbook"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 23,
+      "topic": "Mythos",
+      "decision": "Unknown/closed status; use only safe local simulation and architecture patterns.",
+      "free_replacements": ["mirofish", "local_sovereign_frugal_ai_patterns"],
+      "projects": ["dews", "kattappa"]
+    },
+    {
+      "id": 24,
+      "topic": "n8n",
+      "decision": "Not added to core because the Sustainable Use License is restricted; use Apache-2.0 Node-RED instead.",
+      "free_replacements": ["node_red"],
+      "projects": ["kattappa", "pcb-doctor", "ai-cyber-shield", "universal-translator", "dews"]
+    },
+    {
+      "id": 25,
+      "topic": "Merlin AI",
+      "decision": "Blocked as an external commercial AI workspace.",
+      "free_replacements": ["opencode_local_coding_loop", "chromadb", "local_repo_prompt_exporter"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 26,
+      "topic": "ChatGPT vs Claude vs Merlin vs mini model",
+      "decision": "Use mini/local model routing instead of paid cloud model dependency.",
+      "free_replacements": ["gemma", "deepseek_r1_local", "local_eval_harness"],
+      "projects": ["kattappa", "neuroseed"]
+    },
+    {
+      "id": 27,
+      "topic": "Everything Claude Code repo",
+      "decision": "Do not copy until license is inspected; rebuild useful pattern locally.",
+      "free_replacements": ["opencode_local_coding_loop", "local_repo_prompt_exporter", "git_cli_safety_workflow"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 28,
+      "topic": "Kaveri",
+      "decision": "Use as quantum-learning inspiration only.",
+      "free_replacements": ["qiskit"],
+      "projects": ["kattappa", "ai-cyber-shield", "neuroseed"]
+    },
+    {
+      "id": 29,
+      "topic": "QpiAI",
+      "decision": "Commercial/unknown quantum AI tooling blocked from core.",
+      "free_replacements": ["qiskit"],
+      "projects": ["kattappa", "ai-cyber-shield", "neuroseed"]
+    },
+    {
+      "id": 30,
+      "topic": "Odysseus GitHub repo",
+      "decision": "Do not copy until license is inspected; rebuild useful pattern locally.",
+      "free_replacements": ["local_repo_prompt_exporter", "opencode_local_coding_loop"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 31,
+      "topic": "xAI / Grok",
+      "decision": "Paid/cloud model dependency blocked from core.",
+      "free_replacements": ["deepseek_r1_local", "gemma"],
+      "projects": ["kattappa", "neuroseed"]
+    },
+    {
+      "id": 32,
+      "topic": "Second Brain + DeepSeek API + GOAT system",
+      "decision": "DeepSeek API blocked; local open-weight DeepSeek profile plus local memory added.",
+      "free_replacements": ["deepseek_r1_local", "chromadb", "sentence_transformers", "rank_bm25"],
+      "projects": ["kattappa", "neuroseed"]
+    },
+    {
+      "id": 33,
+      "topic": "Napkin AI",
+      "decision": "Freemium/cloud visual tool blocked from core.",
+      "free_replacements": ["mermaid", "excalidraw"],
+      "projects": ["kattappa", "pcb-doctor", "dews", "neuroseed"]
+    },
+    {
+      "id": 34,
+      "topic": "CLI Anything",
+      "decision": "Added as local pattern: one setup file and one run executable per project.",
+      "free_replacements": ["git_cli_safety_workflow", "opencode_local_coding_loop"],
+      "projects": ["all"]
+    }
+  ]
+}

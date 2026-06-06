@@ -15,7 +15,7 @@ Improvement loop:
 
 Shared registry:
 
-`C:\Users\balu\Projects\universal-ai\docs\SHARED_IMPROVEMENTS.md`
+`C:\Users\balu\Projects\kattappa\docs\SHARED_IMPROVEMENTS.md`
 
 Boundaries:
 
