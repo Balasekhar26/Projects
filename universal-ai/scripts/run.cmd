@@ -26,7 +26,7 @@ echo Unknown option: %MODE%
 goto help
 
 :run
-echo Starting Universal AI on Windows...
+echo Starting Kattappa AI OS on Windows...
 call :ensure_setup
 if errorlevel 1 exit /b 1
 call :start_ollama_if_available
@@ -38,7 +38,7 @@ call :open_app
 exit /b %errorlevel%
 
 :services
-echo Starting Universal AI services...
+echo Starting Kattappa AI OS services...
 call :ensure_setup
 if errorlevel 1 exit /b 1
 call :start_ollama_if_available
@@ -91,7 +91,7 @@ npm run tauri:build:windows-msi
 exit /b %errorlevel%
 
 :status
-echo Checking Universal AI backend...
+echo Checking Kattappa AI OS backend...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-RestMethod -Uri 'http://127.0.0.1:8000/ready' -TimeoutSec 3 | Out-Null; Write-Host 'Backend ready at http://127.0.0.1:8000' } catch { Write-Host 'Backend is not reachable at http://127.0.0.1:8000'; exit 1 }; try { $r=Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 15; $r | ConvertTo-Json -Depth 5 } catch { Write-Host 'Detailed health is slow or unavailable; backend readiness passed.' }"
 exit /b %errorlevel%
 
@@ -101,7 +101,7 @@ exit /b %errorlevel%
 
 :help
 echo.
-echo Universal AI Windows launcher
+echo Kattappa AI OS Windows launcher
 echo.
 echo Supported commands:
 echo   setup.bat         First setup only
@@ -112,7 +112,7 @@ echo   run.bat ui        Open browser desktop UI
 echo   run.bat dev       Start backend + Tauri dev app
 echo   run.bat build     Build native Windows desktop app
 echo   run.bat status    Check backend health
-echo   run.bat stop      Stop Universal AI services
+echo   run.bat stop      Stop Kattappa AI OS services
 echo.
 exit /b 0
 
@@ -120,7 +120,7 @@ exit /b 0
 if exist "ai_system_env\Scripts\python.exe" (
   if exist "backend\.env" exit /b 0
 )
-echo First run setup required. Installing Universal AI for this machine...
+echo First run setup required. Installing Kattappa AI OS for this machine...
 call "%~dp0setup.bat" --setup-only
 if errorlevel 1 exit /b 1
 exit /b 0
@@ -137,7 +137,7 @@ if not errorlevel 1 (
   exit /b 0
 )
 echo Starting Ollama...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$runtime='%~dp0runtime'; if(!(Test-Path $runtime)){New-Item -ItemType Directory -Path $runtime | Out-Null}; $p=Start-Process -WindowStyle Hidden -FilePath 'ollama' -ArgumentList 'serve' -PassThru; Set-Content -LiteralPath (Join-Path $runtime 'ollama.pid') -Value $p.Id; Set-Content -LiteralPath (Join-Path $runtime 'ollama-started-by-sekhar.flag') -Value (Get-Date -Format o)"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$runtime='%~dp0runtime'; if(!(Test-Path $runtime)){New-Item -ItemType Directory -Path $runtime | Out-Null}; $p=Start-Process -WindowStyle Hidden -FilePath 'ollama' -ArgumentList 'serve' -PassThru; Set-Content -LiteralPath (Join-Path $runtime 'ollama.pid') -Value $p.Id; Set-Content -LiteralPath (Join-Path $runtime 'ollama-started-by-kattappa.flag') -Value (Get-Date -Format o)"
 exit /b 0
 
 :ensure_backend
@@ -178,9 +178,9 @@ if exist "logs\backend-launch.err.log" type "logs\backend-launch.err.log"
 exit /b 1
 
 :open_app
-if exist "apps\desktop\src-tauri\target\release\sekhar-ai-os-desktop.exe" (
+if exist "apps\desktop\src-tauri\target\release\kattappa-ai-os-desktop.exe" (
   echo Opening native desktop app...
-  start "" "%~dp0apps\desktop\src-tauri\target\release\sekhar-ai-os-desktop.exe"
+  start "" "%~dp0apps\desktop\src-tauri\target\release\kattappa-ai-os-desktop.exe"
   exit /b 0
 )
 echo Native desktop app is not built yet. Opening browser desktop UI instead.

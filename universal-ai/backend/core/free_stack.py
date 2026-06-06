@@ -189,7 +189,7 @@ def free_stack_report() -> dict[str, Any]:
         "free_model_notes": [
             "Gemma 4 12B is cataloged as a future local multimodal profile; install only if the machine has enough RAM/VRAM.",
             "Google AI Edge Gallery and LiteRT-LM are mobile/edge local runtimes, not required for the Windows desktop first run.",
-            "If Ollama models are not present, Universal AI stays green by using built-in local routing, templates, memory, and tool-specific fallbacks.",
+            "If Ollama models are not present, Kattappa AI OS stays green by using built-in local routing, templates, memory, and tool-specific fallbacks.",
             "OpenRouter is allowed only as a disabled-by-default free-model cloud fallback with explicit user approval.",
         ],
     }
@@ -247,7 +247,7 @@ def _optional_command_any(
         role=role,
         installed=True,
         status="ready",
-        install_hint=install_hint if installed else f"Optional upgrade: {install_hint}. Core Universal AI does not require it.",
+        install_hint=install_hint if installed else f"Optional upgrade: {install_hint}. Core Kattappa AI OS does not require it.",
         actual_installed=installed,
     )
 
@@ -272,6 +272,6 @@ def _next_steps(
 ) -> list[str]:
     steps: list[str] = []
     steps.append(
-        "All Universal AI capability checks are green. Optional upgrades can be added later, but the app is ready now."
+        "All Kattappa AI OS capability checks are green. Optional upgrades can be added later, but the app is ready now."
     )
     return steps

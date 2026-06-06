@@ -132,7 +132,7 @@ function TasksPanel({
   return (
     <section className="panelView">
       <h2>Long Tasks</h2>
-      <p>Use this for work that should survive restarts: builds, research, debugging, project upgrades, and anything you want Sekhar AI OS to resume later.</p>
+      <p>Use this for work that should survive restarts: builds, research, debugging, project upgrades, and anything you want Kattappa AI OS to resume later.</p>
       <div className="taskComposer">
         <input
           value={taskDraft.title}

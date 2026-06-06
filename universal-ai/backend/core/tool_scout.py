@@ -63,7 +63,7 @@ CATALOG = [
         capability="durable long-running agent workflow",
         tool="LangGraph-style checkpointed graph",
         source="https://docs.langchain.com/oss/python/langgraph/durable-execution",
-        license_note="Already used as a replaceable workflow adapter. Keep Sekhar-specific nodes in our code.",
+        license_note="Already used as a replaceable workflow adapter. Keep Kattappa-specific nodes in our code.",
         best_for=("long task", "resume", "agent", "workflow", "approval", "autonomous"),
         build_own_plan=(
             "Keep the graph local, store every step in SQLite, add pause/resume checkpoints, and require approval "
@@ -93,7 +93,7 @@ CATALOG = [
         build_own_plan=(
             "Add a cluster adapter boundary: exo handles local multi-machine model inference, Ray handles "
             "background workers such as indexing, research, simulation, tests, and project scans. Keep a single "
-            "Universal AI manager node with approval gates for actions on other machines."
+            "Kattappa AI OS manager node with approval gates for actions on other machines."
         ),
     ),
     ToolCandidate(
@@ -173,7 +173,7 @@ def scout_for_task(task: str, outcome: str = "") -> dict[str, Any]:
         return {"status": "skipped_duplicate", "capability": candidate.capability}
 
     title = f"Build own {candidate.capability}"
-    motive = f"Task showed this capability may improve Sekhar AI OS: {task[:300]}"
+    motive = f"Task showed this capability may improve Kattappa AI OS: {task[:300]}"
     proposal = (
         f"Candidate: {candidate.tool}\n"
         f"Source/reference: {candidate.source}\n"
@@ -257,7 +257,7 @@ def _quick_web_hint(task: str, capability: str) -> str:
             params={"q": query},
             timeout=2.5,
             follow_redirects=True,
-            headers={"User-Agent": "SekharAIOS/1.0 local tool scout"},
+            headers={"User-Agent": "KattappaAIOS/1.0 local tool scout"},
         )
         response.raise_for_status()
         text = " ".join(response.text.split())

@@ -1,10 +1,10 @@
-# Universal AI Deep System Audit
+# Kattappa AI OS Deep System Audit
 
 Date: 2026-05-31
 
 ## Scope
 
-This audit covers the owned Universal AI files after excluding generated or vendor folders such as `node_modules`, Rust `target`, Python virtual environments, caches, and build output.
+This audit covers the owned Kattappa AI OS files after excluding generated or vendor folders such as `node_modules`, Rust `target`, Python virtual environments, caches, and build output.
 
 Snapshot:
 
@@ -15,7 +15,7 @@ Snapshot:
 
 ## Architecture
 
-Universal AI is a local-first desktop AI system:
+Kattappa AI OS is a local-first desktop AI system:
 
 - Desktop shell: Tauri + React in `apps/desktop`
 - Backend API: FastAPI in `backend/main.py`

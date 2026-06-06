@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Sekhar AI OS",
+  "productName": "Kattappa AI OS",
   "version": "10.0.0",
-  "identifier": "com.sekhar.aios",
+  "identifier": "com.kattappa.aios",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Sekhar AI OS",
+        "title": "Kattappa AI OS",
         "width": 1280,
         "height": 820,
         "minWidth": 960,

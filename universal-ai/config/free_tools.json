@@ -74,7 +74,7 @@
     },
     "git_cli_safety_workflow": {
       "purpose": "safe Git undo, revert, restore, branch, and status workflow for every project",
-      "license": "Git is GPL-2.0-only; workflow is Sekhar-built local guidance",
+      "license": "Git is GPL-2.0-only; workflow is Kattappa-built local guidance",
       "network_required": false,
       "status": "add_now",
       "adapter": "future.backend.tools.git_safety"

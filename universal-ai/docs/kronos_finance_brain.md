@@ -1,12 +1,12 @@
 # Kronos Finance Brain
 
-Universal AI now has a Finance Brain for OHLCV/K-line market data.
+Kattappa AI OS now has a Finance Brain for OHLCV/K-line market data.
 
 ## What Was Installed
 
 - Kronos source: `<Projects root>\external-projects\Kronos` or `<Projects root>\bin\external-projects\Kronos`
 - License: MIT
-- Universal AI adapter: `backend\tools\finance_brain.py`
+- Kattappa AI OS adapter: `backend\tools\finance_brain.py`
 - Finance agent: `backend\agents\finance.py`
 - API endpoints:
   - `GET /finance/kronos/status`
@@ -59,7 +59,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/finance/forecast-csv -
 
 ## Local Fallback vs Real Kronos
 
-`use_kronos=false` uses Sekhar AI OS's own small OHLCV baseline forecaster. It is fast, local, and good for testing the full pipeline.
+`use_kronos=false` uses Kattappa AI OS's own small OHLCV baseline forecaster. It is fast, local, and good for testing the full pipeline.
 
 `use_kronos=true` calls the real Kronos adapter. The first real run can download model weights from Hugging Face:
 
@@ -70,7 +70,7 @@ Use real Kronos with longer candle history. At least 128 candles is better than 
 
 ## Build-Own Boundary
 
-Universal AI did not blindly copy Kronos into its core brain. Kronos stays as an external MIT-licensed reference and optional model adapter. The owned Universal AI layer handles:
+Kattappa AI OS did not blindly copy Kronos into its core brain. Kronos stays as an external MIT-licensed reference and optional model adapter. The owned Kattappa AI OS layer handles:
 
 - OHLCV validation
 - CSV loading

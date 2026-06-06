@@ -25,7 +25,7 @@ Rule: add only tools that are free/open/local enough to improve the projects wit
 
 ## Project Fit
 
-- Universal AI: QWebBridge, Gemma 4, AI Edge Gallery, LiteRT-LM, Hugging Face Papers, BenchLM, OSS alternative directories, OpenRouter free-model-only fallback.
+- Kattappa AI OS: QWebBridge, Gemma 4, AI Edge Gallery, LiteRT-LM, Hugging Face Papers, BenchLM, OSS alternative directories, OpenRouter free-model-only fallback.
 - PCB Doctor: Gemma 4 and AI Edge tools for future multimodal inspection and field-device demos.
 - DEWS: Gemma 4 and AI Edge tools for local/mobile field reasoning.
 - Universal Translator: AI Edge Gallery/LiteRT-LM for offline mobile translation experiments.

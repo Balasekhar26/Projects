@@ -197,7 +197,7 @@ class FinanceCsvForecastRequest(BaseModel):
     use_kronos: bool = False
 
 
-app = FastAPI(title="Sekhar AI OS Backend", version="10.0.0")
+app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -220,7 +220,7 @@ def health_check() -> dict[str, object]:
     ok, message = health()
     config = load_config()
     return {
-        "status": "Sekhar AI OS backend running",
+        "status": "Kattappa AI OS backend running",
         "ollama_ok": ok,
         "ollama_message": message,
         "models": available_models(),
@@ -461,7 +461,7 @@ def chat(request: ChatRequest) -> dict[str, object]:
 @app.websocket("/ws/chat")
 async def chat_socket(websocket: WebSocket) -> None:
     await websocket.accept()
-    await websocket.send_json({"type": "system", "content": "Sekhar AI OS connected."})
+    await websocket.send_json({"type": "system", "content": "Kattappa AI OS connected."})
     while True:
         user_message = await websocket.receive_text()
         await websocket.send_json(

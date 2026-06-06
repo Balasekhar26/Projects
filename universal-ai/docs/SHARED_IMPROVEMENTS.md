@@ -1,13 +1,13 @@
-# Shared Universal AI Improvements
+# Shared Kattappa AI OS Improvements
 
-This file is the Git-repo distribution point for approved, sanitized Universal AI improvement proposals.
-Every Universal AI system, paired or unpaired, should use the Git repository as the canonical place to publish and discover shared improvement data.
+This file is the Git-repo distribution point for approved, sanitized Kattappa AI OS improvement proposals.
+Every Kattappa AI OS system, paired or unpaired, should use the Git repository as the canonical place to publish and discover shared improvement data.
 
 ## Rule
 
-Approved improvement data may be shared through this repository so every Universal AI installation can discover it, whether or not that system is paired into a cluster.
+Approved improvement data may be shared through this repository so every Kattappa AI OS installation can discover it, whether or not that system is paired into a cluster.
 
-Universal AI must not directly push improvement data to other systems. Systems receive shared improvements by cloning, fetching, pulling, or otherwise receiving this Git repository. A system that creates an approved improvement should sanitize it, write it here or to a future registry file, and then stage/commit/push to the configured Git remote when publication is enabled.
+Kattappa AI OS must not directly push improvement data to other systems. Systems receive shared improvements by cloning, fetching, pulling, or otherwise receiving this Git repository. A system that creates an approved improvement should sanitize it, write it here or to a future registry file, and then stage/commit/push to the configured Git remote when publication is enabled.
 
 ## What Can Be Shared
 

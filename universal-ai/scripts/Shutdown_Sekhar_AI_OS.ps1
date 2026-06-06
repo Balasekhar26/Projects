@@ -1,6 +1,7 @@
 $ErrorActionPreference = "SilentlyContinue"
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = Split-Path -Parent $scriptDir
 $runtime = Join-Path $root "runtime"
 $logs = Join-Path $root "logs"
 if (!(Test-Path $logs)) {
@@ -52,17 +53,22 @@ if ($devConn) {
   }
 }
 
-$ollamaMarker = Join-Path $runtime "ollama-started-by-sekhar.flag"
-if (Test-Path $ollamaMarker) {
+$ollamaMarkers = @(
+  (Join-Path $runtime "ollama-started-by-kattappa.flag"),
+  (Join-Path $runtime "ollama-started-by-sekhar.flag")
+)
+if ($ollamaMarkers | Where-Object { Test-Path $_ }) {
   Stop-PidFile (Join-Path $runtime "ollama.pid") "ollama"
   $ollamaProcesses = Get-CimInstance Win32_Process -Filter "Name='ollama.exe'" -ErrorAction SilentlyContinue
   foreach ($process in $ollamaProcesses) {
     if ($process.CommandLine -like "*serve*") {
-      Write-ShutdownLog "Stopping Sekhar-started Ollama serve pid=$($process.ProcessId)"
+      Write-ShutdownLog "Stopping Kattappa-started Ollama serve pid=$($process.ProcessId)"
       Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
     }
   }
-  Remove-Item -LiteralPath $ollamaMarker -Force -ErrorAction SilentlyContinue
+  foreach ($marker in $ollamaMarkers) {
+    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+  }
 }
 
 Write-ShutdownLog "Shutdown completed."

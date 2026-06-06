@@ -7,21 +7,21 @@ SOURCE_FIRST_RULES = [
     "The manager worker may search the internet for better fully free/open-source/local-first tools when a user task needs a new capability.",
     "The tool scout must prefer tools that can run locally, have inspectable source, and do not require paid accounts or cloud quotas.",
     "External tools may be local-run or cloud-run only if they are fully free for the intended use, optional, transparent about data flow, and wrapped as replaceable adapters.",
-    "Prefer Sekhar AI OS built-in code for agents, routing, memory, approvals, desktop modes, and task handling.",
+    "Prefer Kattappa AI OS built-in code for agents, routing, memory, approvals, desktop modes, and task handling.",
     "Before installing a free/open-source tool, show what it is, why it is needed, where the source/project lives, and what command will run.",
     "Treat external packages as replaceable adapters, not as the core brain of the system.",
     "Do not add paid APIs, cloud-only services, telemetry-first services, or closed black-box agents as required dependencies.",
     "When a package is small enough to replace safely, prefer implementing the needed feature locally instead of adding another dependency.",
     "When a package/model is too large to rebuild, keep it behind a local adapter so it can be swapped or removed later.",
     "After meaningful tasks, run a background free-tool scout that looks for better free/local tools and converts useful ideas into approval-gated build-own proposals.",
-    "Never copy code from a project unless its license is inspected and compatible; prefer rebuilding the behavior in Sekhar AI OS style.",
+    "Never copy code from a project unless its license is inspected and compatible; prefer rebuilding the behavior in Kattappa AI OS style.",
 ]
 
 
 REBUILD_BOUNDARIES = [
     {
         "kind": "Agents and workflows",
-        "decision": "Build in Sekhar AI OS code.",
+        "decision": "Build in Kattappa AI OS code.",
         "reason": "Planner, memory, safety, approval, self-improvement, task ledger, and routing are core identity.",
     },
     {
@@ -58,7 +58,7 @@ def source_first_policy() -> dict[str, Any]:
     return {
         "mode": "source_first_free_local",
         "summary": (
-            "Sekhar AI OS should build its own core agents and APIs. It may search the internet for better "
+            "Kattappa AI OS should build its own core agents and APIs. It may search the internet for better "
             "fully free/open-source/local-first tools, including external tools that run locally or in the cloud, "
             "but they are allowed only as inspected, approval-gated, replaceable adapters."
         ),

@@ -1,4 +1,4 @@
-# Sekhar AI OS Self-Improvement Protocol
+# Kattappa AI OS Self-Improvement Protocol
 
 The AI may propose improvements, generate patches, and run tests.
 

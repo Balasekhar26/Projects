@@ -93,7 +93,7 @@ function App() {
   const [simulationDraft, setSimulationDraft] = useState({ seed: "", horizon: "short" });
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
   const [launchProgress, setLaunchProgress] = useState(8);
-  const [launchStatus, setLaunchStatus] = useState("Opening Sekhar AI OS");
+  const [launchStatus, setLaunchStatus] = useState("Opening Kattappa AI OS");
   const [launchComplete, setLaunchComplete] = useState(false);
   const [decidingApprovals, setDecidingApprovals] = useState<string[]>([]);
   const [approvalNotice, setApprovalNotice] = useState<{
@@ -350,7 +350,7 @@ function App() {
   };
 
   const runManualToolScout = async () => {
-    const task = input.trim() || messages.filter((message) => message.role === "user").at(-1)?.content || "Improve Sekhar AI OS with free local tools";
+    const task = input.trim() || messages.filter((message) => message.role === "user").at(-1)?.content || "Improve Kattappa AI OS with free local tools";
     await runToolScout(task);
     refreshHealth();
   };
@@ -439,7 +439,11 @@ function App() {
   );
 
   const sendMessage = async () => {
-    const text = input.trim();
+    await sendMessageText(input);
+  };
+
+  const sendMessageText = async (rawText: string) => {
+    const text = rawText.trim();
     if (!text) return;
     const userMessage: Message = { role: "user", content: text };
     setMessages((prev) => [...prev, userMessage]);
@@ -487,12 +491,23 @@ function App() {
         ...prev,
         {
           role: "assistant",
-          agent: "Sekhar AI",
+          agent: "Kattappa AI",
           content:
-            "I am ready in the interface, but the local backend is not reachable yet. Start Universal AI with run.exe, then send the message again and I will route it through the local agent stack.",
+            "I am ready in the interface, but the local backend is not reachable yet. Start Kattappa AI OS with run.exe, then send the message again and I will route it through the local agent stack.",
         },
       ]);
     }
+  };
+
+  const acknowledgeVoiceWake = () => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        agent: "Kattappa AI",
+        content: "Yes, I am listening. Say the work after Kattappa, Mama, or Kittu.",
+      },
+    ]);
   };
 
   const decideApproval = async (approvalId: string, status: "approved" | "rejected") => {
@@ -577,6 +592,8 @@ function App() {
             onInputChange={setInput}
             onOperatorModeChange={setOperatorMode}
             onSendMessage={sendMessage}
+            onVoiceCommand={sendMessageText}
+            onVoiceWake={acknowledgeVoiceWake}
           />
         ) : (
           <PanelContent
@@ -648,8 +665,8 @@ function App() {
       {!launchComplete && (
         <div className="launchOverlay" role="status" aria-live="polite">
           <div className="launchPanel">
-            <img src="/sekhar-logo.svg" alt="Sekhar AI OS" />
-            <h2>Sekhar AI OS</h2>
+            <img src="/sekhar-logo.svg" alt="Kattappa AI OS" />
+            <h2>Kattappa AI OS</h2>
             <p>{launchStatus}<span className="loadingDots"><span>.</span><span>.</span><span>.</span></span></p>
             <div className="launchBar">
               <span style={{ width: `${launchProgress}%` }} />

@@ -16,5 +16,5 @@ export const PANELS = [
 ];
 
 export function initialMessages(): Message[] {
-  return [{ role: "system", content: "Sekhar AI OS ready." }];
+  return [{ role: "system", content: "Kattappa AI OS ready." }];
 }

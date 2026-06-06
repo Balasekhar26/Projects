@@ -61,10 +61,10 @@ class MachineProfile:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Install and run Universal AI / Sekhar AI OS."
+        description="Install and run Kattappa AI OS Assistant."
     )
     parser.add_argument(
-        "--launch", action="store_true", help="Launch Universal AI after setup."
+        "--launch", action="store_true", help="Launch Kattappa AI OS after setup."
     )
     parser.add_argument(
         "--no-npm", action="store_true", help="Skip desktop npm dependency install."
@@ -89,7 +89,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    print("Universal AI setup")
+    print("Kattappa AI OS setup")
     print(f"Root: {ROOT}")
     if args.print_agreement:
         print_installation_agreement()
@@ -279,7 +279,7 @@ def print_installation_agreement() -> None:
         print(INSTALLATION_AGREEMENT.read_text(encoding="utf-8"))
         return
     print(
-        "Universal AI installation agreement is missing. Installation cannot continue safely."
+        "Kattappa AI OS installation agreement is missing. Installation cannot continue safely."
     )
 
 
@@ -366,7 +366,7 @@ def install_playwright_browser(python_exe: Path) -> None:
         run([str(python_exe), "-m", "playwright", "install", "chromium"])
     except subprocess.CalledProcessError:
         print(
-            "Playwright Chromium install failed. Universal AI will still run; browser automation can be repaired later."
+            "Playwright Chromium install failed. Kattappa AI OS will still run; browser automation can be repaired later."
         )
 
 
@@ -398,7 +398,7 @@ def launch(python_exe: Path) -> int:
             webbrowser.open("http://127.0.0.1:5173")
         else:
             webbrowser.open("http://127.0.0.1:8000/docs")
-        print("Universal AI is running. Press Ctrl+C here to stop the backend.")
+        print("Kattappa AI OS is running. Press Ctrl+C here to stop the backend.")
         backend.wait()
     except KeyboardInterrupt:
         backend.terminate()

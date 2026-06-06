@@ -31,7 +31,7 @@ def cluster_plan() -> dict[str, Any]:
         "delegate_when_needed": delegated,
         "routing_rule": (
             "Run work on the local machine only when it fits local CPU/RAM/capability limits. "
-            "For heavier work, delegate only to explicitly paired trusted Universal AI nodes. "
+            "For heavier work, delegate only to explicitly paired trusted Kattappa AI OS nodes. "
             "Even strong nodes have hard limits and must run only tasks inside their measured capability profile."
         ),
         "capability_policy": {

@@ -9,7 +9,7 @@ def test_health() -> None:
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "Sekhar AI OS backend running"
+    assert data["status"] == "Kattappa AI OS backend running"
     assert "memory_count" in data
 
 
@@ -343,7 +343,7 @@ def test_builder_profile_and_workspace_map() -> None:
     profile_response = client.get("/builder/profile")
     assert profile_response.status_code == 200
     profile = profile_response.json()
-    assert profile["name"] == "Sekhar Builder Brain"
+    assert profile["name"] == "Kattappa Builder Brain"
     assert "not OpenAI private code" in profile["truth_boundary"]
     assert "personal and professional assistant" in profile["motive"]
     assert "manager_worker" in profile["worker_model"]
@@ -397,7 +397,7 @@ def test_project_ecosystem_endpoint() -> None:
     response = client.get("/projects/ecosystem")
     assert response.status_code == 200
     data = response.json()
-    assert data["build_first"].startswith("Sekhar AI OS")
+    assert data["build_first"].startswith("Kattappa AI OS")
     assert len(data["projects"]) == 7
     assert data["projects"][0]["id"] == "universal-ai"
     assert data["projects"][-1]["id"] == "neuroseed"

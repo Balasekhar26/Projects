@@ -48,7 +48,7 @@ def finance_node(state):
 
     status = kronos_status()
     state["result"] = ask_model(
-        "Explain how Bala should use the Universal AI Finance Brain with Kronos. "
+        "Explain how Bala should use the Kattappa AI OS Finance Brain with Kronos. "
         "Be practical and concise. Mention that OHLCV candles are required, real Kronos mode can download "
         "Hugging Face weights on first use, and predictions are not financial advice.\n\n"
         f"User request: {user_input}\nKronos status: {status}",

@@ -51,7 +51,7 @@ def platform_support_report() -> dict[str, object]:
             "ready",
             "Built-in local fallback + optional Ollama",
             "Optional upgrade: install Ollama and pull at least one configured model.",
-            "Universal AI starts green without Ollama; local templates, memory, and specialist fallbacks remain available.",
+            "Kattappa AI OS starts green without Ollama; local templates, memory, and specialist fallbacks remain available.",
         ),
         FeatureSupport(
             "browser_automation",
@@ -101,7 +101,7 @@ def platform_support_report() -> dict[str, object]:
         FeatureSupport(
             "finance_brain",
             "supported",
-            "Universal AI OHLCV baseline + optional Kronos adapter",
+            "Kattappa AI OS OHLCV baseline + optional Kronos adapter",
             "Feed CSV/API OHLCV candles. Kronos is optional for stronger finance experiments.",
             "Market predictions are uncertain and must not be treated as guaranteed signals.",
         ),
@@ -116,8 +116,8 @@ def platform_support_report() -> dict[str, object]:
             "local_file_transfer",
             "ready",
             "LocalSend optional adapter",
-            "Optional upgrade: install LocalSend if you want Universal AI setup notes to point at local device file transfer.",
-            "Optional convenience only; Universal AI core does not require it.",
+            "Optional upgrade: install LocalSend if you want Kattappa AI OS setup notes to point at local device file transfer.",
+            "Optional convenience only; Kattappa AI OS core does not require it.",
         ),
     ]
     return {
@@ -130,7 +130,7 @@ def platform_support_report() -> dict[str, object]:
         "commands": commands,
         "features": [feature.as_dict() for feature in features],
         "promise": (
-            "Universal AI keeps the same feature surface on Windows, macOS, and Linux. "
+            "Kattappa AI OS keeps the same feature surface on Windows, macOS, and Linux. "
             "Optional native OS adapters can improve capability, but unavailable adapters "
             "degrade safely and stay green instead of preventing startup."
         ),

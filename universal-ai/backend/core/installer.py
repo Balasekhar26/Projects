@@ -39,7 +39,7 @@ PACKAGE_SOURCE_NOTES = {
 }
 
 MANUAL_CAPABILITIES = {
-    "ollama": "Install Ollama for Windows, then restart Sekhar AI OS.",
+    "ollama": "Install Ollama for Windows, then restart Kattappa AI OS.",
     "tesseract": "Install Tesseract OCR for Windows and add it to PATH.",
 }
 
@@ -108,7 +108,7 @@ def request_missing_install_approval() -> dict[str, Any]:
         return {"status": "ready", "message": "All required free/local capabilities are already ready.", "plan": plan}
     approval_id = memory.create_approval(
         action=(
-            "Install missing free/local Sekhar AI OS capabilities. "
+            "Install missing free/local Kattappa AI OS capabilities. "
             f"{plan['summary']} Automatic commands will run only after approval."
         ),
         risk="medium",

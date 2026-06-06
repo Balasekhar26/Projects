@@ -30,7 +30,7 @@ HARDWARE_TIERS: list[dict[str, Any]] = [
     },
     {
         "tier": "recommended",
-        "name": "Comfortable daily Universal AI use",
+        "name": "Comfortable daily Kattappa AI OS use",
         "cpu": "8-core modern x64 CPU",
         "ram": "32 GB RAM",
         "gpu": "NVIDIA RTX-class GPU preferred, or strong CPU-only fallback",
@@ -110,21 +110,21 @@ BUYING_GUIDE: list[dict[str, Any]] = [
         "tier": "minimum",
         "laptop": "Used business laptop such as ThinkPad T / Latitude / EliteBook with 16 GB RAM.",
         "desktop": "Used business desktop such as OptiPlex / ThinkCentre with 16-32 GB RAM.",
-        "best_for": "Coding, UI work, backend tests, small local models, and basic Universal AI setup.",
+        "best_for": "Coding, UI work, backend tests, small local models, and basic Kattappa AI OS setup.",
         "avoid": "Do not buy this tier expecting fast vision, voice, 30B models, or heavy local AI.",
     },
     {
         "tier": "recommended",
         "laptop": "RTX 5070 Ti / RTX 5080 class laptop with 32 GB RAM.",
         "desktop": "RTX 5070 Ti / RTX 5080 desktop with 64 GB RAM and 2 TB NVMe.",
-        "best_for": "Daily Universal AI use, coding agents, OCR/browser workflows, and small-to-medium local models.",
+        "best_for": "Daily Kattappa AI OS use, coding agents, OCR/browser workflows, and small-to-medium local models.",
         "avoid": "Avoid thin laptops with weak cooling if local AI is the main workload.",
     },
     {
         "tier": "full_potential",
         "laptop": "RTX 5090 class laptop with 64 GB RAM if portability matters.",
         "desktop": "Custom RTX 5090 desktop with 128 GB RAM, 2-4 TB NVMe, and strong cooling.",
-        "best_for": "Universal AI, PCB Doctor, Cyber Shield, Translator experiments, Finance Brain, voice, and vision together.",
+        "best_for": "Kattappa AI OS, PCB Doctor, Cyber Shield, Translator experiments, Finance Brain, voice, and vision together.",
         "avoid": "Do not choose laptop-first if maximum sustained AI performance matters more than portability.",
     },
     {
@@ -145,7 +145,7 @@ def hardware_requirements() -> dict[str, Any]:
         "tiers": HARDWARE_TIERS,
         "buying_guide": BUYING_GUIDE,
         "recommendation": (
-            "For this Universal AI build, the practical sweet spot is a desktop-first setup: "
+            "For this Kattappa AI OS build, the practical sweet spot is a desktop-first setup: "
             "64-128 GB RAM, an NVIDIA GPU with at least 12-24 GB VRAM, and fast NVMe storage. "
             "A high-end laptop is useful for portability, but a desktop/workstation is better for sustained local AI."
         ),

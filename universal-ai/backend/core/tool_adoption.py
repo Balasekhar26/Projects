@@ -67,11 +67,11 @@ def _run_observe_build_test(job: dict[str, str]) -> dict[str, Any]:
 
     install_observation = (
         "Observation stage completed without approval because it only reads and analyzes. "
-        "Sekhar AI OS reviewed source/license notes, expected runtime behavior, and integration requirements. "
+        "Kattappa AI OS reviewed source/license notes, expected runtime behavior, and integration requirements. "
         "Any install/run/add action still requires approval."
     )
     build_own_result = (
-        "Parallel build-own plan prepared. Rebuild the needed behavior inside Sekhar AI OS style: "
+        "Parallel build-own plan prepared. Rebuild the needed behavior inside Kattappa AI OS style: "
         f"{report['build_own_plan']}"
     )
     test_result = (
@@ -80,7 +80,7 @@ def _run_observe_build_test(job: dict[str, str]) -> dict[str, Any]:
     )
     final_approval_id = memory.create_approval(
         action=(
-            "Final approval to add staged capability into Universal AI: "
+            "Final approval to add staged capability into Kattappa AI OS: "
             f"{report['capability']}. Approve only after reviewing observation, build-own plan, and tests."
         ),
         risk="medium",
@@ -112,7 +112,7 @@ def _final_add(job: dict[str, str]) -> dict[str, Any]:
         trigger=report["capability"],
         steps=(
             "1. Confirm the task needs this capability.\n"
-            "2. Prefer Sekhar-built local behavior.\n"
+            "2. Prefer Kattappa-built local behavior.\n"
             "3. Use any external free/open-source tool only as an approved replaceable adapter.\n"
             "4. Observe output, run tests, and stop for approval before risky changes.\n"
             f"5. Build-own plan: {report['build_own_plan']}"
@@ -136,12 +136,12 @@ def _final_add(job: dict[str, str]) -> dict[str, Any]:
 def _pipeline() -> list[str]:
     return [
         "1. Scout finds free/open-source/local candidate.",
-        "2. Sekhar observes public/source metadata and prepares notes without approval.",
+        "2. Kattappa observes public/source metadata and prepares notes without approval.",
         "3. If installing/running external tools is needed, Bala approves that risky stage.",
-        "4. Sekhar prepares a build-own implementation plan in parallel.",
-        "5. Sekhar runs compatibility/safety tests that do not modify the system.",
-        "6. Bala gives final approval before adding anything to Universal AI.",
-        "7. Capability is added as an approved Sekhar skill/adapter.",
+        "4. Kattappa prepares a build-own implementation plan in parallel.",
+        "5. Kattappa runs compatibility/safety tests that do not modify the system.",
+        "6. Bala gives final approval before adding anything to Kattappa AI OS.",
+        "7. Capability is added as an approved Kattappa skill/adapter.",
     ]
 
 

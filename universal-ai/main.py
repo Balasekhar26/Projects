@@ -30,7 +30,7 @@ def run_cli() -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Sekhar AI OS launcher")
+    parser = argparse.ArgumentParser(description="Kattappa AI OS launcher")
     parser.add_argument("--mode", choices=["backend", "cli"], default="backend")
     args = parser.parse_args()
     if args.mode == "cli":

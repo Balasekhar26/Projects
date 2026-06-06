@@ -46,7 +46,7 @@ BUILDER_PROTOCOL = [
     },
     {
         "name": "Build own tools from learned patterns",
-        "description": "Use external tools as references only after license/source inspection, then rebuild useful behavior in Sekhar AI OS style where practical.",
+        "description": "Use external tools as references only after license/source inspection, then rebuild useful behavior in Kattappa AI OS style where practical.",
     },
     {
         "name": "Remember and improve",
@@ -71,7 +71,7 @@ BUILDER_CAPABILITIES = [
 
 
 UNIVERSAL_AI_MOTIVE = (
-    "Universal AI / Sekhar AI OS is meant to be Bala's personal and professional assistant for the installed system. "
+    "Kattappa AI OS Assistant is meant to be Bala's personal and professional assistant for the installed system. "
     "It should understand chat input, let a manager worker assign tasks to expert workers, use only fully free/local-first "
     "tools as core dependencies, scout the internet for better free/open-source technologies when a task needs them, "
     "support external tools that can run locally or in the cloud when they are fully free and adapter-gated, "
@@ -102,10 +102,10 @@ WORKER_MODEL = {
 def builder_profile() -> dict[str, Any]:
     config = load_config()
     return {
-        "name": "Sekhar Builder Brain",
+        "name": "Kattappa Builder Brain",
         "truth_boundary": (
             "This is not OpenAI private code or a copy of Codex internals. "
-            "It is a local implementation of the engineering workflow Bala wants inside Sekhar AI OS."
+            "It is a local implementation of the engineering workflow Bala wants inside Kattappa AI OS."
         ),
         "workspace": str(config.root),
         "motive": UNIVERSAL_AI_MOTIVE,
@@ -150,7 +150,7 @@ def builder_answer(user_request: str) -> str:
     protocol_lines = "\n".join(f"- {item['name']}: {item['description']}" for item in profile["protocol"])
     systems_lines = "\n".join(f"- {item['path']}: {item['role']}" for item in systems)
     return (
-        "I have added a local Builder Brain concept into Sekhar AI OS.\n\n"
+        "I have added a local Builder Brain concept into Kattappa AI OS.\n\n"
         "What it knows how to do:\n"
         f"{protocol_lines}\n\n"
         "Important boundary:\n"

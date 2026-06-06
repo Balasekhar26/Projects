@@ -1,10 +1,10 @@
-# Sekhar AI OS Architecture
+# Kattappa AI OS Architecture
 
-Sekhar AI OS is a local-first desktop AI operating layer.
+Kattappa AI OS is a local-first desktop AI operating layer.
 
 Motive:
 
-Universal AI is Bala's personal and professional assistant for the installed system. It should take user input from the chat box, let one manager worker route the task, assign specialist workers for each task type, use only fully free/local-first tools as core dependencies, and continuously improve itself through an approval-gated improvement worker. When a new task needs a capability, it searches for the best fully free/open-source tools or technologies, including external tools that can run locally or in the cloud, learns the pattern, and either rebuilds the behavior locally or wraps the tool as a replaceable adapter after source/license and data-flow inspection.
+Kattappa AI OS is Bala's personal and professional assistant for the installed system. It should take user input from the chat box or voice wake names, let one manager worker route the task, assign specialist workers for each task type, use only fully free/local-first tools as core dependencies, and continuously improve itself through an approval-gated improvement worker. When a new task needs a capability, it searches for the best fully free/open-source tools or technologies, including external tools that can run locally or in the cloud, learns the pattern, and either rebuilds the behavior locally or wraps the tool as a replaceable adapter after source/license and data-flow inspection.
 
 - Desktop: Tauri + React
 - Backend: FastAPI + WebSockets
@@ -31,7 +31,7 @@ Worker model:
 Multi-system cluster mode:
 
 - Status: planned, not enabled by default.
-- Rule: Universal AI may auto-connect only after every machine is explicitly paired by its owner/admin. No hidden install, silent join, covert monitoring, or unknown-user operation.
+- Rule: Kattappa AI OS may auto-connect only after every machine is explicitly paired by its owner/admin. No hidden install, silent join, covert monitoring, or unknown-user operation.
 - Manager node: keeps the primary chat, approvals, memory source of truth, project map, and safety policy.
 - Worker nodes: run only approved delegated jobs that fit their hardware and permissions.
 - Auto-connect lifecycle: after pairing, the manager may automatically connect to one or more paired workers when local capability is insufficient, start or wake worker processes, run normal non-sensitive jobs such as inference/indexing/tests/simulation, return results to the manager, then disconnect or idle workers.

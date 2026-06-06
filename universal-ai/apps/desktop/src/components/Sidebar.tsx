@@ -24,8 +24,8 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brandMark">
-        <img src="/sekhar-logo.svg" alt="Sekhar AI OS" />
-        <h1>Sekhar AI OS</h1>
+        <img src="/sekhar-logo.svg" alt="Kattappa AI OS Assistant" />
+        <h1>Kattappa AI OS</h1>
       </div>
       <div className={connected ? "pill ok" : "pill"}>{connected ? "Local backend online" : "Backend offline"}</div>
       <button className="newChatButton" onClick={onCreateChat}>New Chat</button>

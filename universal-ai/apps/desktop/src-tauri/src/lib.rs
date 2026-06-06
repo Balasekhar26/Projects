@@ -8,7 +8,7 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running Sekhar AI OS desktop");
+        .expect("error while running Kattappa AI OS desktop");
 }
 
 fn shutdown_owned_services() {

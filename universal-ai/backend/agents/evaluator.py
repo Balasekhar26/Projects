@@ -7,10 +7,10 @@ from backend.core.tool_scout import scout_for_task_background
 
 
 QUICK_REPLIES = {
-    "hi": "Hi Sekhar, I am online and ready.",
-    "hello": "Hello Sekhar, I am online and ready.",
-    "hey": "Hey Sekhar, I am online and ready.",
-    "status": "Sekhar AI OS is running locally.",
+    "hi": "Hi, Kattappa AI OS is online and ready.",
+    "hello": "Hello, Kattappa AI OS is online and ready.",
+    "hey": "Hey, Kattappa AI OS is online and ready.",
+    "status": "Kattappa AI OS is running locally.",
 }
 
 

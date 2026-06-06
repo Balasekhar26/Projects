@@ -1,6 +1,6 @@
-# Universal AI / Sekhar AI OS Max
+# Kattappa AI OS Assistant
 
-Fully free, local-first AI OS with a Windows packaged desktop launcher and a cross-platform Python/backend development path.
+Fully free, local-first AI OS assistant. It responds to Kattappa, Mama, and Kittu when voice listening is enabled.
 
 ## Supported Windows Launch Path
 
@@ -36,7 +36,7 @@ run.exe ui         # browser desktop UI
 run.exe dev        # backend + Tauri dev app
 run.exe build      # build native Windows desktop app
 run.exe status     # backend health
-run.exe stop       # stop services started by Universal AI
+run.exe stop       # stop services started by Kattappa AI OS
 ```
 
 ## macOS/Linux Development Launch
