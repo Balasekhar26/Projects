@@ -380,23 +380,53 @@ def create_desktop_shortcut() -> None:
         print("Skipping shortcut: run.exe is missing.")
         return
     try:
-        desktop = Path(os.environ.get("USERPROFILE", str(ROOT))) / "Desktop"
-        desktop.mkdir(parents=True, exist_ok=True)
-        shortcut = desktop / "Kattappa AI OS.lnk"
+        desktop_candidates = {Path(os.environ.get("USERPROFILE", str(ROOT))) / "Desktop"}
+        if os.environ.get("OneDrive"):
+            desktop_candidates.add(Path(os.environ["OneDrive"]) / "Desktop")
+        try:
+            shell_desktop = subprocess.check_output(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "[Environment]::GetFolderPath('Desktop')",
+                ],
+                cwd=ROOT,
+                text=True,
+            ).strip()
+            if shell_desktop:
+                desktop_candidates.add(Path(shell_desktop))
+        except Exception:
+            pass
+        shortcut_paths: list[Path] = []
+        for desktop in sorted(desktop_candidates):
+            desktop.mkdir(parents=True, exist_ok=True)
+            shortcut_paths.append(desktop / "Kattappa AI OS.lnk")
+            legacy = desktop / "Sekhar AI OS.lnk"
+            if legacy.exists():
+                shortcut_paths.append(legacy)
+        commands = ["$shell = New-Object -ComObject WScript.Shell;"]
+        for shortcut in shortcut_paths:
+            commands.extend(
+                [
+                    f"$shortcut = $shell.CreateShortcut('{shortcut}');",
+                    f"$shortcut.TargetPath = '{launcher}';",
+                    f"$shortcut.WorkingDirectory = '{ROOT}';",
+                    "$shortcut.Arguments = '';",
+                    "$shortcut.Description = 'Kattappa AI OS Assistant';",
+                    "$shortcut.Save();",
+                ]
+            )
         ps = (
-            "$shell = New-Object -ComObject WScript.Shell; "
-            f"$shortcut = $shell.CreateShortcut('{shortcut}'); "
-            f"$shortcut.TargetPath = '{launcher}'; "
-            f"$shortcut.WorkingDirectory = '{ROOT}'; "
-            "$shortcut.Arguments = ''; "
-            "$shortcut.Description = 'Kattappa AI OS Assistant'; "
-            "$shortcut.Save()"
+            " ".join(commands)
         )
         subprocess.check_call(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
             cwd=ROOT,
         )
-        print(f"Desktop shortcut ready: {shortcut}")
+        print("Desktop shortcuts ready:")
+        for shortcut in shortcut_paths:
+            print(f"  {shortcut}")
     except Exception as exc:
         print(f"Shortcut repair skipped: {exc}")
 
