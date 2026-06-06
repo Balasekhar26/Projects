@@ -12,7 +12,7 @@ if not exist "prototype\index.html" (
   exit /b 1
 )
 
-start "" "%~dp0prototype\index.html"
+start "" "%CD%\prototype\index.html"
 exit /b 0
 
 :status
