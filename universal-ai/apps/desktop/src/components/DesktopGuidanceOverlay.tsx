@@ -1,11 +1,22 @@
 import type { VisualGuidance } from "../types";
 
-export function DesktopGuidanceOverlay({ guidance }: { guidance: VisualGuidance }) {
+export function DesktopGuidanceOverlay({
+  guidance,
+  autoHideMs,
+}: {
+  guidance: VisualGuidance;
+  autoHideMs: number;
+}) {
   const target = guidance.target;
   if (!target) return null;
 
   return (
-    <div className="desktopGuideOverlay" aria-hidden="true">
+    <div
+      className="desktopGuideOverlay"
+      aria-hidden="true"
+      data-auto-hide-ms={autoHideMs}
+      style={{ animationDuration: `${autoHideMs}ms` }}
+    >
       <div
         className="desktopGuideTarget"
         style={{

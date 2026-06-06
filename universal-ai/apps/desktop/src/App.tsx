@@ -63,6 +63,8 @@ type QueuedTurn = {
   operatorMode: OperatorMode;
 };
 
+const VISUAL_GUIDANCE_AUTO_HIDE_MS = 6500;
+
 function App() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [activePanel, setActivePanel] = useState("Chat");
@@ -478,16 +480,16 @@ function App() {
   }, [messages]);
 
   useEffect(() => {
-    if (!latestVisualGuidanceItem) return;
+    if (!latestVisualGuidanceItem || activePanel !== "Chat") return;
     setHiddenGuidanceKey(null);
     const timer = window.setTimeout(() => {
       setHiddenGuidanceKey(latestVisualGuidanceItem.key);
-    }, 6500);
+    }, VISUAL_GUIDANCE_AUTO_HIDE_MS);
     return () => window.clearTimeout(timer);
-  }, [latestVisualGuidanceItem?.key]);
+  }, [latestVisualGuidanceItem?.key, activePanel]);
 
   const latestVisualGuidance =
-    latestVisualGuidanceItem && latestVisualGuidanceItem.key !== hiddenGuidanceKey
+    activePanel === "Chat" && latestVisualGuidanceItem && latestVisualGuidanceItem.key !== hiddenGuidanceKey
       ? latestVisualGuidanceItem.guidance
       : null;
 
@@ -764,7 +766,12 @@ function App() {
           onDecideApproval={decideApproval}
         />
       )}
-      {latestVisualGuidance && <DesktopGuidanceOverlay guidance={latestVisualGuidance} />}
+      {latestVisualGuidance && (
+        <DesktopGuidanceOverlay
+          guidance={latestVisualGuidance}
+          autoHideMs={VISUAL_GUIDANCE_AUTO_HIDE_MS}
+        />
+      )}
       {!launchComplete && (
         <div className="launchOverlay" role="status" aria-live="polite">
           <div className="launchPanel">

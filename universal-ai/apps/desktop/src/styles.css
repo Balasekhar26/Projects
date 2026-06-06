@@ -1451,6 +1451,9 @@ dd { margin: 0; }
   inset: 0;
   z-index: 12;
   pointer-events: none;
+  animation-name: desktopGuideLife;
+  animation-timing-function: ease;
+  animation-fill-mode: forwards;
 }
 
 .desktopGuideOverlay::before {
@@ -1562,6 +1565,11 @@ dd { margin: 0; }
 @keyframes cursorPulse {
   0%, 100% { transform: translate(-50%, -50%) scale(1); }
   50% { transform: translate(-50%, -50%) scale(1.16); }
+}
+
+@keyframes desktopGuideLife {
+  0%, 82% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 @media (max-width: 980px) {
