@@ -44,3 +44,20 @@ Kattappa AI OS must not directly push improvement data to other systems. Systems
 - Multi-system cluster policy: paired workers can run capability-checked tasks, while the task-origin manager keeps chat/task/approval memory.
 - Paid-tool replacement policy: paid, freemium, trial-limited, reward-network, closed, or privacy-risky tools are blocked from the seven-project core unless replaced by fully free/open/local alternatives.
 - Improvement sync policy: approved improvements can be shared automatically to paired nodes as proposals and distributed to unpaired systems through Git as sanitized proposals.
+- Seven-project improvement-agent runtime: Kattappa AI OS exposes `POST /projects/improvement-agents/observe` to inspect all seven project readiness signals and create pending proposals, `POST /improvements/{improvement_id}` to approve or reject proposals, and `POST /projects/improvement-agents/check-shared` to import Git-shared improvements as pending local proposals. Nothing is auto-applied.
+
+## Approved Improvement b44b22f0-b10b-4f06-a83a-fe3d4f6aadd7
+
+<!-- improvement:b44b22f0-b10b-4f06-a83a-fe3d4f6aadd7 -->
+
+- Published: 2026-06-06T20:44:35
+- Title: Enable seven-project approval-gated improvement loop
+- Risk: low
+- Approval status: approved
+- Motive: Verify every project has a Kattappa-managed improvement agent loop with approval, Git-backed publication, and local adoption approval.
+
+Proposal:
+
+The seven-project improvement agent observes setup/run/status signals, creates pending proposals, publishes approved sanitized information to the shared Git registry, and imports shared Git improvements only as pending proposals for local approval.
+
+Receiving systems must verify policy, compatibility, tests, and rollback, then ask local approval before adopting.

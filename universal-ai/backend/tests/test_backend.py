@@ -463,9 +463,35 @@ def test_improvement_lifecycle() -> None:
     pending_ids = {entry["id"] for entry in list_response.json()["items"]}
     assert item["id"] in pending_ids
 
-    decision_response = client.post(f"/improvements/{item['id']}", json={"status": "approved"})
+    decision_response = client.post(f"/improvements/{item['id']}", json={"status": "approved", "publish": False})
     assert decision_response.status_code == 200
     assert decision_response.json()["item"]["status"] == "approved"
+    assert decision_response.json()["publish"]["published"] is False
+
+
+def test_project_improvement_agents_observe_and_check_shared() -> None:
+    client = TestClient(app)
+    registry_response = client.get("/projects/improvement-agents")
+    assert registry_response.status_code == 200
+    registry = registry_response.json()
+    assert registry["mode"] == "approval_gated_git_synced_improvement_agents"
+    assert len(registry["projects"]) == 7
+    assert registry["projects"]["universal-translator"]["policy_doc"].endswith("SELF_IMPROVING_AGENT.md")
+
+    observe_response = client.post("/projects/improvement-agents/observe", json={"run_status": False})
+    assert observe_response.status_code == 200
+    observation = observe_response.json()
+    assert observation["observed_projects"] == 7
+    assert observation["approval_required_before_apply"] is True
+    assert observation["auto_apply"] is False
+    assert all("checks" in item for item in observation["observations"])
+
+    shared_response = client.post("/projects/improvement-agents/check-shared")
+    assert shared_response.status_code == 200
+    shared = shared_response.json()
+    assert shared["checked"] is True
+    assert shared["auto_apply"] is False
+    assert shared["approval_required_before_adoption"] is True
 
 
 def test_skill_reflection_and_evolution_lifecycle() -> None:

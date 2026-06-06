@@ -30,7 +30,12 @@ from backend.core.operator import build_operator_plan
 from backend.core.platform_support import platform_support_report
 from backend.core.project_indexer import build_project_index, search_project_index
 from backend.core.project_blueprint import project_ecosystem
-from backend.core.project_improvement_agents import project_improvement_agents
+from backend.core.project_improvement_agents import (
+    check_git_shared_improvements,
+    observe_project_improvement_agents,
+    project_improvement_agents,
+    publish_approved_improvement,
+)
 from backend.core.self_evolution import run_self_evolution_cycle
 from backend.core.source_policy import source_first_policy
 from backend.core.task_resume import resume_long_task
@@ -105,6 +110,11 @@ class ImprovementRequest(BaseModel):
 
 class ImprovementDecision(BaseModel):
     status: str
+    publish: bool = True
+
+
+class ProjectImprovementObserveRequest(BaseModel):
+    run_status: bool = False
 
 
 class SkillRequest(BaseModel):
@@ -446,6 +456,18 @@ def get_project_improvement_agents() -> dict[str, object]:
     return project_improvement_agents()
 
 
+@app.post("/projects/improvement-agents/observe")
+def observe_project_improvement_agents_endpoint(
+    request: ProjectImprovementObserveRequest,
+) -> dict[str, object]:
+    return observe_project_improvement_agents(run_status=request.run_status)
+
+
+@app.post("/projects/improvement-agents/check-shared")
+def check_shared_project_improvements() -> dict[str, object]:
+    return check_git_shared_improvements()
+
+
 @app.post("/chat")
 def chat(request: ChatRequest) -> dict[str, object]:
     if request.session_id:
@@ -644,7 +666,13 @@ def decide_improvement(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="Improvement proposal not found")
-    return {"item": item}
+    if decision.status == "approved" and decision.publish:
+        publish_result = publish_approved_improvement(item)
+    elif decision.status == "approved":
+        publish_result = {"published": False, "reason": "publishing_disabled_for_this_decision"}
+    else:
+        publish_result = {"published": False, "reason": "not_approved"}
+    return {"item": item, "publish": publish_result}
 
 
 @app.get("/skills")

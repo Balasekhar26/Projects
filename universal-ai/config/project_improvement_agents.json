@@ -2,6 +2,24 @@
   "mode": "approval_gated_git_synced_improvement_agents",
   "shared_registry": "universal-ai/docs/SHARED_IMPROVEMENTS.md",
   "rule": "Every project may observe its own setup, run, test, build, UI, and workflow signals, but improvements are proposals until approved. Approved sanitized improvements can be published to Git. Incoming Git improvements are checked and require local approval before adoption.",
+  "runtime_endpoints": {
+    "registry": "GET /projects/improvement-agents",
+    "observe_projects": "POST /projects/improvement-agents/observe",
+    "check_git_shared_improvements": "POST /projects/improvement-agents/check-shared",
+    "approve_or_reject_proposal": "POST /improvements/{improvement_id}",
+    "list_proposals": "GET /improvements"
+  },
+  "approval_flow": [
+    "observe project signals",
+    "create pending improvement proposal",
+    "wait for local approval",
+    "publish approved sanitized proposal to universal-ai/docs/SHARED_IMPROVEMENTS.md",
+    "commit/push through the normal Git workflow",
+    "receiving projects check Git shared improvements",
+    "receiving projects create pending proposal",
+    "adopt only after local approval"
+  ],
+  "auto_apply": false,
   "publish_never_include": [
     "raw chat history",
     "private task context",
