@@ -3,18 +3,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.tools.voice_tools import voice_profile
+
 
 @dataclass
 class VoiceIO:
     whisper_model_size: str = "small"
 
     def speak(self, text: str) -> None:
+        profile = voice_profile()
         try:
             import pyttsx3
         except Exception as exc:
             print(f"Speech output is unavailable on this OS/session: {exc}")
             return
         engine = pyttsx3.init()
+        engine.setProperty("rate", profile["rate"])
+        engine.setProperty("volume", profile["volume"])
         engine.say(text)
         engine.runAndWait()
 

@@ -45,6 +45,15 @@ def test_voice_tool_degrades_when_voice_stack_missing(monkeypatch) -> None:
     assert "Speech-to-text is unavailable" in voice_tools.transcribe_file("missing.wav")
 
 
+def test_kattappa_voice_profile_is_original() -> None:
+    profile = voice_tools.voice_profile()
+    assert profile["id"] == "kattappa_original_loyal_warrior"
+    assert "deep" in profile["style"]
+    assert "must not clone" in profile["policy"]
+    assert "movie character" in profile["policy"]
+    assert "identifiable person's voice" in profile["policy"]
+
+
 def test_desktop_launcher_uses_mac_shortcut(monkeypatch) -> None:
     events = []
 

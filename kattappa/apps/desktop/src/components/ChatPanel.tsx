@@ -3,6 +3,12 @@ import type { Message, OperatorMode } from "../types";
 import { OperatorModeSelector } from "./OperatorModeSelector";
 
 const WAKE_NAMES = ["kattappa", "mama", "kittu"];
+const KATTAPPA_VOICE_PROFILE = {
+  rate: 0.86,
+  pitch: 0.78,
+  volume: 0.95,
+  preferredVoiceTerms: ["male", "david", "mark", "ravi", "english", "india"],
+};
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
@@ -358,7 +364,20 @@ function speak(text: string) {
   if (!clean) return;
   synth.cancel();
   const utterance = new SpeechSynthesisUtterance(clean);
-  utterance.rate = 1;
-  utterance.pitch = 1;
+  utterance.rate = KATTAPPA_VOICE_PROFILE.rate;
+  utterance.pitch = KATTAPPA_VOICE_PROFILE.pitch;
+  utterance.volume = KATTAPPA_VOICE_PROFILE.volume;
+  utterance.voice = pickKattappaVoice(synth.getVoices());
   synth.speak(utterance);
+}
+
+function pickKattappaVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  return (
+    voices.find((voice) => {
+      const label = `${voice.name} ${voice.lang}`.toLowerCase();
+      return KATTAPPA_VOICE_PROFILE.preferredVoiceTerms.some((term) => label.includes(term));
+    }) ??
+    voices.find((voice) => voice.lang.toLowerCase().startsWith("en")) ??
+    null
+  );
 }

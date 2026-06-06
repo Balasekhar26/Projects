@@ -18,6 +18,9 @@ voice:
   stt_model: small
   tts_engine: piper
   piper_voice_dir: voice/piper
+  assistant_voice_profile: kattappa_original_loyal_warrior
+  voice_style: deep_calm_authoritative_original
+  voice_policy: original_voice_not_movie_actor_clone
 
 vision:
   screenshots_dir: memory/screenshots
