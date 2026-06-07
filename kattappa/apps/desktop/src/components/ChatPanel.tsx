@@ -1,38 +1,9 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { fetchVoiceStatus, processVoiceAudio, speakWithLocalVoice } from "../lib/api";
 import type { Message, OperatorMode } from "../types";
 import { OperatorModeSelector } from "./OperatorModeSelector";
 
-const WAKE_NAMES = ["kattappa", "mama", "kittu"];
-const KATTAPPA_VOICE_PROFILE = {
-  rate: 0.86,
-  pitch: 0.78,
-  volume: 0.95,
-  preferredVoiceTerms: ["male", "david", "mark", "ravi", "english", "india"],
-};
-
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-
-type SpeechRecognitionLike = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
-type SpeechRecognitionEventLike = {
-  resultIndex: number;
-  results: {
-    length: number;
-    [index: number]: {
-      isFinal: boolean;
-      [index: number]: { transcript: string };
-    };
-  };
-};
+type VoiceState = "idle" | "listening" | "processing" | "unsupported";
 
 type ChatPanelProps = {
   messages: Message[];
@@ -44,6 +15,7 @@ type ChatPanelProps = {
   onSendMessage: () => void;
   onVoiceCommand: (command: string) => void;
   onVoiceWake: () => void;
+  onVoiceNotice: (message: string) => void;
   isWorking: boolean;
   queuedCount: number;
 };
@@ -58,14 +30,18 @@ export function ChatPanel({
   onSendMessage,
   onVoiceCommand,
   onVoiceWake,
+  onVoiceNotice,
   isWorking,
   queuedCount,
 }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const listeningRef = useRef(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const voiceStopTimerRef = useRef<number | null>(null);
   const lastSpokenIndexRef = useRef(-1);
-  const [voiceState, setVoiceState] = useState<"idle" | "listening" | "unsupported">("idle");
+  const speakNextAssistantRef = useRef(false);
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const visibleMessages = messages.filter(
     (message, index) => !(index === 0 && message.role === "system" && message.content === "Kattappa AI OS ready."),
   );
@@ -79,20 +55,20 @@ export function ChatPanel({
   }, [input]);
 
   useEffect(() => {
-    if (voiceState !== "listening") return;
+    if (!speakNextAssistantRef.current) return;
     const latestIndex = messages.length - 1;
     const latest = messages[latestIndex];
     if (!latest || latestIndex === lastSpokenIndexRef.current) return;
     if (latest.role !== "assistant" || !latest.content.trim()) return;
     lastSpokenIndexRef.current = latestIndex;
-    speak(latest.content);
-  }, [messages, voiceState]);
+    speakNextAssistantRef.current = false;
+    void speakLocal(latest.content, "assistant_response");
+  }, [messages]);
 
   useEffect(() => {
     return () => {
-      listeningRef.current = false;
-      recognitionRef.current?.stop();
-      window.speechSynthesis?.cancel();
+      stopVoiceTimer();
+      stopMediaStream();
     };
   }, []);
 
@@ -110,78 +86,114 @@ export function ChatPanel({
     return "i";
   };
 
-  const toggleVoice = () => {
-    if (voiceState === "listening") {
-      listeningRef.current = false;
-      recognitionRef.current?.stop();
-      setVoiceState("idle");
-      return;
-    }
-
-    const Recognition =
-      (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor })
-        .SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition;
-
-    if (!Recognition) {
-      setVoiceState("unsupported");
-      return;
-    }
-
-    const recognition = new Recognition();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-    recognition.onresult = (event) => {
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        if (!result?.isFinal) continue;
-        const transcript = result[0]?.transcript?.trim();
-        if (!transcript) continue;
-        handleVoiceTranscript(transcript);
-      }
-    };
-    recognition.onerror = () => {
-      if (listeningRef.current) setVoiceState("listening");
-    };
-    recognition.onend = () => {
-      if (!listeningRef.current) return;
-      window.setTimeout(() => {
-        try {
-          recognition.start();
-        } catch {
-          setVoiceState("idle");
-          listeningRef.current = false;
-        }
-      }, 250);
-    };
-
-    recognitionRef.current = recognition;
-    listeningRef.current = true;
-    setVoiceState("listening");
-    try {
-      recognition.start();
-      speak("Kattappa AI OS is listening. Say Kattappa, Mama, or Kittu, then your command.");
-    } catch {
-      listeningRef.current = false;
-      setVoiceState("idle");
+  const stopVoiceTimer = () => {
+    if (voiceStopTimerRef.current !== null) {
+      window.clearTimeout(voiceStopTimerRef.current);
+      voiceStopTimerRef.current = null;
     }
   };
 
-  const handleVoiceTranscript = (transcript: string) => {
-    const normalized = transcript.toLowerCase();
-    const wake = WAKE_NAMES.find((name) => new RegExp(`\\b${name}\\b`, "i").test(normalized));
-    if (!wake) return;
+  const stopMediaStream = () => {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+  };
 
-    const command = transcript.replace(new RegExp(`^.*?\\b${wake}\\b[,\\s:;-]*`, "i"), "").trim();
-    if (!command) {
-      onVoiceWake();
-      speak("Yes, I am listening.");
+  const toggleVoice = async () => {
+    if (voiceState === "listening") {
+      stopVoiceCapture();
+      return;
+    }
+    if (voiceState === "processing") return;
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setVoiceState("unsupported");
+      onVoiceNotice("Local microphone capture is unavailable in this desktop runtime. Type your command instead.");
       return;
     }
 
-    speak("Okay.");
-    onVoiceCommand(command);
+    try {
+      const status = await fetchVoiceStatus();
+      if (!status.stt.installed) {
+        setVoiceState("unsupported");
+        onVoiceNotice("Local STT is not installed. Install faster-whisper from the tools panel, or type the command.");
+        return;
+      }
+      if (status.wake.primary_decision !== "openwakeword_custom_models") {
+        onVoiceNotice("Custom openWakeWord wake models are not active, so Kattappa will use local STT wake-name parsing for this command.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = preferredAudioMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      audioChunksRef.current = [];
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        audioChunksRef.current = [];
+        stopMediaStream();
+        void processRecordedVoice(blob);
+      };
+      recorder.start();
+      setVoiceState("listening");
+      void speakLocal("వింటున్నాను. Say Kattappa, Mama, or Kittu, then your command.", "wake_prompt");
+      voiceStopTimerRef.current = window.setTimeout(() => stopVoiceCapture(), 7000);
+    } catch {
+      setVoiceState("unsupported");
+      stopMediaStream();
+      onVoiceNotice("Local backend voice pipeline is unavailable. Start Kattappa with run.exe, or type the command.");
+    }
+  };
+
+  const stopVoiceCapture = () => {
+    stopVoiceTimer();
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      setVoiceState("processing");
+      recorder.stop();
+      return;
+    }
+    setVoiceState("idle");
+    stopMediaStream();
+  };
+
+  const processRecordedVoice = async (blob: Blob) => {
+    if (blob.size === 0) {
+      setVoiceState("idle");
+      onVoiceNotice("No voice audio was captured. Try again or type your command.");
+      return;
+    }
+    setVoiceState("processing");
+    try {
+      const audio_base64 = await blobToBase64(blob);
+      const result = await processVoiceAudio({ audio_base64, mime_type: blob.type || "audio/webm" });
+      if (!result.ok) {
+        onVoiceNotice(result.transcript || "Local voice transcription is unavailable. Type your command instead.");
+        setVoiceState("idle");
+        return;
+      }
+      if (!result.wake_detected) {
+        onVoiceNotice("No wake name detected. Say Kattappa, Mama, or Kittu before the command.");
+        setVoiceState("idle");
+        return;
+      }
+      if (!result.command.trim()) {
+        onVoiceWake();
+        void speakLocal("చెప్పండి. I am listening.", "wake_ack");
+        setVoiceState("idle");
+        return;
+      }
+      void speakLocal("సరే. Okay.", "command_ack");
+      speakNextAssistantRef.current = true;
+      onVoiceCommand(result.command);
+    } catch {
+      onVoiceNotice("Local voice processing failed. Type your command while the backend voice stack is checked.");
+    } finally {
+      setVoiceState("idle");
+    }
   };
 
   return (
@@ -200,7 +212,13 @@ export function ChatPanel({
               aria-pressed={voiceState === "listening"}
               aria-label={voiceState === "listening" ? "Stop voice listening" : "Start voice listening"}
             >
-              {voiceState === "listening" ? "Listening" : voiceState === "unsupported" ? "Voice unavailable" : "Voice"}
+              {voiceState === "listening"
+                ? "Listening"
+                : voiceState === "processing"
+                  ? "Processing"
+                  : voiceState === "unsupported"
+                    ? "Voice unavailable"
+                    : "Voice"}
             </button>
             <span className="privacyBadge">Local-first</span>
           </div>
@@ -212,7 +230,7 @@ export function ChatPanel({
             <section className="chatWelcome" aria-label="Chat ready">
               <div className="welcomeMark">K</div>
               <h2>What can I do for you?</h2>
-              <p className="wakeHint">Say "Kattappa", "Mama", or "Kittu" after turning voice on.</p>
+              <p className="wakeHint">Use Voice, then say "Kattappa", "Mama", or "Kittu" with your command.</p>
               <div className="promptGrid" aria-label="Starter prompts">
                 {[
                   "Make this project production ready",
@@ -357,27 +375,29 @@ function splitCodeBlocks(content: string): { kind: "text" | "code"; text: string
   return parts.length ? parts : [{ kind: "text", text: content }];
 }
 
-function speak(text: string) {
-  const synth = window.speechSynthesis;
-  if (!synth) return;
-  const clean = text.replace(/\s+/g, " ").slice(0, 420);
-  if (!clean) return;
-  synth.cancel();
-  const utterance = new SpeechSynthesisUtterance(clean);
-  utterance.rate = KATTAPPA_VOICE_PROFILE.rate;
-  utterance.pitch = KATTAPPA_VOICE_PROFILE.pitch;
-  utterance.volume = KATTAPPA_VOICE_PROFILE.volume;
-  utterance.voice = pickKattappaVoice(synth.getVoices());
-  synth.speak(utterance);
+function preferredAudioMimeType(): string {
+  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+  return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
 }
 
-function pickKattappaVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
-  return (
-    voices.find((voice) => {
-      const label = `${voice.name} ${voice.lang}`.toLowerCase();
-      return KATTAPPA_VOICE_PROFILE.preferredVoiceTerms.some((term) => label.includes(term));
-    }) ??
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en")) ??
-    null
-  );
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onloadend = () => {
+      const value = String(reader.result ?? "");
+      resolve(value.includes(",") ? value.split(",").pop() ?? "" : value);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function speakLocal(text: string, purpose: string) {
+  const clean = text.replace(/\s+/g, " ").slice(0, 420);
+  if (!clean) return;
+  try {
+    await speakWithLocalVoice(clean, purpose);
+  } catch {
+    // Typed output stays available when local speech output is not installed.
+  }
 }

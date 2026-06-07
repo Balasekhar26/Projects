@@ -613,6 +613,16 @@ function App() {
     ]);
   };
 
+  const showVoiceNotice = (content: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "system",
+        content,
+      },
+    ]);
+  };
+
   const decideApproval = async (approvalId: string, status: "approved" | "rejected") => {
     setDecidingApprovals((current) => [...current, approvalId]);
     setApprovals((current) => current.filter((approval) => approval.id !== approvalId));
@@ -697,6 +707,7 @@ function App() {
             onSendMessage={sendMessage}
             onVoiceCommand={sendMessageText}
             onVoiceWake={acknowledgeVoiceWake}
+            onVoiceNotice={showVoiceNotice}
             isWorking={assistantWorking}
             queuedCount={queuedCount}
           />

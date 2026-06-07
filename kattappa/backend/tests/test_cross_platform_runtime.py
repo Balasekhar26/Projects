@@ -49,9 +49,33 @@ def test_kattappa_voice_profile_is_original() -> None:
     profile = voice_tools.voice_profile()
     assert profile["id"] == "kattappa_original_loyal_warrior"
     assert "deep" in profile["style"]
+    assert profile["primary_spoken_language"] == "Telugu"
+    assert profile["secondary_spoken_language"] == "English"
+    assert profile["text_output_language"] == "English"
     assert "must not clone" in profile["policy"]
     assert "movie character" in profile["policy"]
     assert "identifiable person's voice" in profile["policy"]
+
+
+def test_voice_pipeline_status_is_not_browser_primary() -> None:
+    status = voice_tools.voice_pipeline_status()
+    assert status["mode"] == "local_backend_voice_pipeline"
+    assert status["browser_speech_primary"] is False
+    assert status["wake"]["engine"] == "openwakeword"
+    assert status["wake"]["primary_decision"] in {"openwakeword_custom_models", "local_stt_wake_name_parser"}
+    assert status["stt"]["engine"] == "faster-whisper"
+    assert status["tts"]["available"] in {True, False}
+
+
+def test_voice_wake_command_parser() -> None:
+    parsed = voice_tools.parse_wake_command("Kattappa open settings")
+    assert parsed["wake_detected"] is True
+    assert parsed["wake_name"] == "kattappa"
+    assert parsed["command"] == "open settings"
+
+    no_wake = voice_tools.parse_wake_command("open settings")
+    assert no_wake["wake_detected"] is False
+    assert no_wake["command"] == ""
 
 
 def test_desktop_launcher_uses_mac_shortcut(monkeypatch) -> None:

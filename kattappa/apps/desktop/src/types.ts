@@ -91,6 +91,52 @@ export type Health = {
   workspace: string;
 };
 
+export type VoicePipelineStatus = {
+  mode: string;
+  primary_path: string;
+  browser_speech_primary: boolean;
+  wake_names: string[];
+  wake: {
+    engine: string;
+    installed: boolean;
+    custom_models: string[];
+    custom_models_configured: boolean;
+    primary_decision: string;
+    status: string;
+  };
+  stt: {
+    engine: string;
+    installed: boolean;
+    status: string;
+  };
+  tts: {
+    preferred_engine: string;
+    piper_installed: boolean;
+    active_fallback: string;
+    available: boolean;
+  };
+  profile: {
+    id: string;
+    name: string;
+    style: string;
+    primary_spoken_language?: string;
+    secondary_spoken_language?: string;
+    text_output_language?: string;
+    policy: string;
+  };
+  safe_fallback: string;
+};
+
+export type VoiceProcessResult = {
+  ok: boolean;
+  reason: string;
+  pipeline: VoicePipelineStatus;
+  transcript: string;
+  wake_detected: boolean;
+  wake_name: string;
+  command: string;
+};
+
 export type FreeCapability = {
   key: string;
   name: string;

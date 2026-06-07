@@ -51,6 +51,12 @@ from backend.tools.finance_brain import (
     kronos_status,
     load_ohlcv_csv,
 )
+from backend.tools.voice_tools import (
+    parse_wake_command,
+    process_voice_audio,
+    speak,
+    voice_pipeline_status,
+)
 from backend.tools.web_research.website_extractor import extract_website
 from backend.tools.writing.grammar_api import check_grammar, writing_status
 from backend.tools.writing.rewrite_helper import improve_text
@@ -165,6 +171,21 @@ class WritingCheckRequest(BaseModel):
 class WritingRewriteRequest(BaseModel):
     text: str
     tone: str = "clear"
+
+
+class VoiceSpeakRequest(BaseModel):
+    text: str
+    purpose: str = "assistant_response"
+
+
+class VoiceAudioRequest(BaseModel):
+    audio_base64: str
+    mime_type: str = "audio/webm"
+    model_size: str = "small"
+
+
+class VoiceTranscriptRequest(BaseModel):
+    transcript: str
 
 
 class WebsiteExtractRequest(BaseModel):
@@ -293,6 +314,38 @@ def writing_check(request: WritingCheckRequest) -> dict[str, object]:
 @app.post("/writing/rewrite")
 def writing_rewrite(request: WritingRewriteRequest) -> dict[str, object]:
     return improve_text(request.text, tone=request.tone)
+
+
+@app.get("/voice/status")
+def voice_status() -> dict[str, object]:
+    return voice_pipeline_status()
+
+
+@app.post("/voice/speak")
+def voice_speak(request: VoiceSpeakRequest) -> dict[str, object]:
+    spoken_text = request.text.strip()
+    if not spoken_text:
+        return {"ok": False, "result": "empty_text", "pipeline": voice_pipeline_status()}
+    return {
+        "ok": True,
+        "purpose": request.purpose,
+        "result": speak(spoken_text),
+        "pipeline": voice_pipeline_status(),
+    }
+
+
+@app.post("/voice/process")
+def voice_process(request: VoiceAudioRequest) -> dict[str, object]:
+    return process_voice_audio(
+        request.audio_base64,
+        mime_type=request.mime_type,
+        model_size=request.model_size,
+    )
+
+
+@app.post("/voice/parse-wake")
+def voice_parse_wake(request: VoiceTranscriptRequest) -> dict[str, object]:
+    return parse_wake_command(request.transcript)
 
 
 @app.post("/web-research/extract")

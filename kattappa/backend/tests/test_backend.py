@@ -13,6 +13,26 @@ def test_health() -> None:
     assert "memory_count" in data
 
 
+def test_voice_backend_pipeline_endpoints() -> None:
+    client = TestClient(app)
+    status_response = client.get("/voice/status")
+    assert status_response.status_code == 200
+    status = status_response.json()
+    assert status["mode"] == "local_backend_voice_pipeline"
+    assert status["browser_speech_primary"] is False
+    assert status["wake"]["engine"] == "openwakeword"
+    assert status["wake"]["primary_decision"] in {"openwakeword_custom_models", "local_stt_wake_name_parser"}
+    assert status["profile"]["primary_spoken_language"] == "Telugu"
+    assert status["profile"]["text_output_language"] == "English"
+
+    parse_response = client.post("/voice/parse-wake", json={"transcript": "Mama check status"})
+    assert parse_response.status_code == 200
+    parsed = parse_response.json()
+    assert parsed["wake_detected"] is True
+    assert parsed["wake_name"] == "mama"
+    assert parsed["command"] == "check status"
+
+
 def test_approval_lifecycle() -> None:
     client = TestClient(app)
     chat_response = client.post("/chat", json={"message": "delete temp files after showing me the plan"})

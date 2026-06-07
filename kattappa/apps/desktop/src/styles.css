@@ -209,8 +209,15 @@ button.active {
   color: #bbf7d0;
 }
 
+.voiceButton.processing {
+  border-color: #eab308;
+  background: #332a0b;
+  color: #fef3c7;
+}
+
 .voiceButton.unsupported {
-  color: #fef08a;
+  border-color: #ef4444;
+  color: #fecaca;
 }
 
 .messages {

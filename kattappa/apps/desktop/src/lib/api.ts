@@ -17,14 +17,16 @@ import type {
   Skill,
   StoredMessage,
   ToolAdoptionJob,
+  VoicePipelineStatus,
+  VoiceProcessResult,
   WritingResult,
 } from "../types";
 
 export const API_BASE_URL = "http://127.0.0.1:8000";
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(path: string, init?: RequestInit, timeoutMs = 4500): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 4500);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
@@ -41,8 +43,8 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-function postJson<T>(path: string, body: unknown): Promise<T> {
-  return requestJson<T>(path, { method: "POST", body: JSON.stringify(body) });
+function postJson<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
+  return requestJson<T>(path, { method: "POST", body: JSON.stringify(body) }, timeoutMs);
 }
 
 export async function fetchDashboardData(): Promise<DashboardData> {
@@ -95,6 +97,26 @@ export function sendChatMessage(message: string, sessionId?: string) {
     message,
     session_id: sessionId,
   });
+}
+
+export function fetchVoiceStatus() {
+  return requestJson<VoicePipelineStatus>("/voice/status");
+}
+
+export function speakWithLocalVoice(text: string, purpose = "assistant_response") {
+  return postJson<{ ok: boolean; result: string; pipeline: VoicePipelineStatus }>(
+    "/voice/speak",
+    { text, purpose },
+    30000,
+  );
+}
+
+export function processVoiceAudio(body: { audio_base64: string; mime_type: string; model_size?: string }) {
+  return postJson<VoiceProcessResult>(
+    "/voice/process",
+    { model_size: "small", ...body },
+    90000,
+  );
 }
 
 export function createChatSession(title = "New chat") {
