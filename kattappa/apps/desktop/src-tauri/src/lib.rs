@@ -19,22 +19,44 @@ fn start_backend_if_needed() {
         return;
     }
     let Some(root) = find_project_root() else {
+        // Cannot find project root — skip; frontend will show "Backend offline"
         return;
     };
     let script = root.join("backend").join("run_server.py");
+    if !script.exists() {
+        return;
+    }
     let Some(python) = find_python(&root) else {
         return;
     };
     let runtime = runtime_dir(&root);
     let _ = std::fs::create_dir_all(&runtime);
-    let child = std::process::Command::new(python)
-        .arg(script)
+
+    // Spawn backend process completely detached (no console window on Windows)
+    #[cfg(target_os = "windows")]
+    let spawn_result = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        std::process::Command::new(&python)
+            .arg(&script)
+            .current_dir(&root)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let spawn_result = std::process::Command::new(&python)
+        .arg(&script)
         .current_dir(&root)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
-    if let Ok(child) = child {
+
+    if let Ok(child) = spawn_result {
         let _ = std::fs::write(runtime.join("backend.pid"), child.id().to_string());
         wait_for_backend();
     }
@@ -78,7 +100,9 @@ fn backend_ready() -> bool {
 }
 
 fn wait_for_backend() {
-    for _ in 0..30 {
+    // Poll every 500 ms for up to 90 seconds (180 iterations).
+    // Python cold-start with many imports (torch, chromadb, etc.) can take 20-40 s.
+    for _ in 0..180 {
         if backend_ready() {
             return;
         }
@@ -87,6 +111,7 @@ fn wait_for_backend() {
 }
 
 fn find_project_root() -> Option<std::path::PathBuf> {
+    // 1. Walk ancestors of the running exe (works for release builds)
     if let Ok(exe) = std::env::current_exe() {
         for ancestor in exe.ancestors() {
             if ancestor.join("backend").join("run_server.py").exists() {
@@ -94,6 +119,17 @@ fn find_project_root() -> Option<std::path::PathBuf> {
             }
         }
     }
+
+    // 2. Walk ancestors of the current working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        for ancestor in cwd.ancestors() {
+            if ancestor.join("backend").join("run_server.py").exists() {
+                return Some(ancestor.to_path_buf());
+            }
+        }
+    }
+
+    // 3. Compile-time fallback (only reliable for dev builds)
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for ancestor in manifest_dir.ancestors() {
         if ancestor.join("backend").join("run_server.py").exists() {
@@ -121,6 +157,7 @@ fn find_python(root: &std::path::Path) -> Option<std::path::PathBuf> {
             return Some(candidate);
         }
     }
+    // Last resort: system Python
     if cfg!(target_os = "windows") {
         Some(std::path::PathBuf::from("python"))
     } else {
@@ -167,16 +204,16 @@ fn find_shutdown_script() -> Option<std::path::PathBuf> {
             }
         }
     }
-
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest_dir.ancestors() {
-        let candidate = ancestor.join(script_name);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-        let candidate_in_scripts = ancestor.join("scripts").join(script_name);
-        if candidate_in_scripts.exists() {
-            return Some(candidate_in_scripts);
+    if let Ok(cwd) = std::env::current_dir() {
+        for ancestor in cwd.ancestors() {
+            let candidate = ancestor.join(script_name);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+            let candidate_in_scripts = ancestor.join("scripts").join(script_name);
+            if candidate_in_scripts.exists() {
+                return Some(candidate_in_scripts);
+            }
         }
     }
     None
