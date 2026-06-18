@@ -8,4 +8,6 @@ def git_status() -> dict[str, object]:
 
 
 def run_tests() -> dict[str, object]:
-    return run_command(".\\ai_system_env\\Scripts\\python.exe -m pytest tests -q")
+    import platform
+    python_path = ".\\ai_system_env\\Scripts\\python.exe" if platform.system().lower() == "windows" else "./ai_system_env/bin/python"
+    return run_command(f"{python_path} -m pytest tests -q")

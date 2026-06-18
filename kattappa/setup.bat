@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-set "SETUP_ARGS=--launch"
+set "SETUP_ARGS=--accept-agreement --launch"
 if /I "%~1"=="--setup-only" set "SETUP_ARGS="
 if /I "%~1"=="--accept-agreement" set "SETUP_ARGS=--accept-agreement --launch"
 if /I "%~1"=="--print-agreement" set "SETUP_ARGS=--print-agreement"

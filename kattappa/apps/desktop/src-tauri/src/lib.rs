@@ -158,6 +158,10 @@ fn find_shutdown_script() -> Option<std::path::PathBuf> {
             if candidate.exists() {
                 return Some(candidate);
             }
+            let candidate_in_scripts = ancestor.join("scripts").join(script_name);
+            if candidate_in_scripts.exists() {
+                return Some(candidate_in_scripts);
+            }
         }
     }
 
@@ -166,6 +170,10 @@ fn find_shutdown_script() -> Option<std::path::PathBuf> {
         let candidate = ancestor.join(script_name);
         if candidate.exists() {
             return Some(candidate);
+        }
+        let candidate_in_scripts = ancestor.join("scripts").join(script_name);
+        if candidate_in_scripts.exists() {
+            return Some(candidate_in_scripts);
         }
     }
     None

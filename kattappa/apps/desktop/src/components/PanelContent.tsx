@@ -24,6 +24,7 @@ import type {
 } from "../types";
 import { FinancePlayground } from "./FinancePlayground";
 import { SystemDiagnostics } from "./SystemDiagnostics";
+import { JarvisHud } from "./JarvisHud";
 
 type PanelContentProps = {
   activePanel: string;
@@ -90,6 +91,9 @@ type PanelContentProps = {
 };
 
 export function PanelContent(props: PanelContentProps) {
+  if (props.activePanel === "Jarvis HUD") {
+    return <JarvisHud />;
+  }
   if (props.activePanel === "Memory") {
     return <MemoryPanel health={props.health} onRefreshHealth={props.onRefreshHealth} />;
   }

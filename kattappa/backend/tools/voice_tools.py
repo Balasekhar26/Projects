@@ -28,16 +28,17 @@ KATTAPPA_LANGUAGE_CONTRACT = {
 KATTAPPA_VOICE_PROFILE = {
     "id": "kattappa_original_loyal_warrior",
     "name": "Kattappa Original Loyal Warrior",
-    "style": "deep, calm, authoritative, warm, and cinematic",
-    "rate": 145,
-    "volume": 0.95,
-    "pitch": 42,
+    "style": "deep, authoritative, booming, loyal, and dramatic (Telugu Movie Profile)",
+    "rate": 125,
+    "volume": 1.0,
+    "pitch": 35,
     "primary_spoken_language": KATTAPPA_LANGUAGE_CONTRACT["primary_spoken_language"],
     "secondary_spoken_language": KATTAPPA_LANGUAGE_CONTRACT["secondary_spoken_language"],
     "text_output_language": KATTAPPA_LANGUAGE_CONTRACT["text_output_language"],
     "policy": (
-        "Original assistant voice profile only. It must not clone, imitate, or claim to be "
-        "any movie character, actor, or identifiable person's voice."
+        "Inspired by the loyal Telugu warrior Kattappa from the Bahubali cinematic universe. "
+        "Speaks with a slow, booming, and authoritative tone. It must not clone, imitate, or claim "
+        "to be any movie character, actor, or identifiable person's voice."
     ),
 }
 
@@ -309,39 +310,87 @@ def _command_from_openwakeword_transcript(transcript: str) -> str:
 
 def _speak_with_os_adapter(text: str, cause: Exception) -> str:
     system = platform.system().lower()
-    if system == "darwin" and shutil.which("say"):
-        subprocess.Popen(["say", "-r", str(KATTAPPA_VOICE_PROFILE["rate"]), text])
-        return "spoken via macOS say using Kattappa original voice profile"
+    if system == "darwin":
+        if shutil.which("say"):
+            subprocess.Popen(["say", "-r", "125", text])
+            return "spoken via macOS say using Kattappa cinematic movie voice profile"
+        if shutil.which("osascript"):
+            try:
+                safe_text = text.replace('"', '\\"')
+                subprocess.Popen(["osascript", "-e", f'say "{safe_text}"'])
+                return "spoken via macOS AppleScript fallback using Kattappa cinematic movie voice profile"
+            except Exception:
+                pass
+
     if system == "linux":
         if shutil.which("espeak"):
             subprocess.Popen(
                 [
                     "espeak",
+                    "-v",
+                    "te",
                     "-s",
-                    str(KATTAPPA_VOICE_PROFILE["rate"]),
+                    "125",
                     "-p",
-                    str(KATTAPPA_VOICE_PROFILE["pitch"]),
+                    "35",
                     text,
                 ]
             )
-            return "spoken via espeak using Kattappa original voice profile"
+            return "spoken via espeak using Kattappa cinematic movie voice profile"
         if shutil.which("spd-say"):
-            subprocess.Popen(["spd-say", "-r", "-25", text])
-            return "spoken via spd-say using Kattappa original voice profile"
-    if system == "windows" and shutil.which("powershell"):
-        command = (
-            "Add-Type -AssemblyName System.Speech; "
-            "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-            "$synth.Rate = -2; "
-            "$synth.Volume = 95; "
-            "$synth.Speak($args[0])"
-        )
-        subprocess.Popen(
-            ["powershell", "-NoProfile", "-Command", command, text],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return "spoken via Windows speech using Kattappa original voice profile"
+            subprocess.Popen(["spd-say", "-l", "te", "-r", "-35", text])
+            return "spoken via spd-say using Kattappa cinematic movie voice profile"
+        if shutil.which("flite"):
+            subprocess.Popen(["flite", "-t", text])
+            return "spoken via Linux flite using Kattappa cinematic movie voice profile"
+        if shutil.which("festival"):
+            try:
+                proc = subprocess.Popen(["festival", "--tts"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                proc.communicate(input=text.encode("utf-8"))
+                return "spoken via Linux festival using Kattappa cinematic movie voice profile"
+            except Exception:
+                pass
+
+    if system == "windows":
+        if shutil.which("powershell"):
+            command = (
+                "Add-Type -AssemblyName System.Speech; "
+                "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                "$synth.Rate = -3; "
+                "$synth.Volume = 100; "
+                "$voice = $synth.GetInstalledVoices() | Where-Object { "
+                "  $_.VoiceInfo.Language.Name -like '*te*' -or "
+                "  $_.VoiceInfo.Name -like '*Heera*' -or "
+                "  $_.VoiceInfo.Name -like '*Ravi*' -or "
+                "  $_.VoiceInfo.Name -like '*Hemant*' -or "
+                "  $_.VoiceInfo.Language.Name -like '*in*' "
+                "} | Select-Object -First 1; "
+                "if ($voice) { $synth.SelectVoice($voice.VoiceInfo.Name); } "
+                "$synth.Speak($args[0])"
+            )
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-Command", command, text],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return "spoken via Windows speech using Kattappa cinematic movie voice profile"
+        elif shutil.which("cscript") or shutil.which("cscript.exe"):
+            try:
+                import tempfile
+                safe_text = text.replace('"', '""')
+                vbs_code = (
+                    f'Set Speech = CreateObject("SAPI.SpVoice")\n'
+                    f'Speech.Rate = -3\n'
+                    f'Speech.Volume = 100\n'
+                    f'Speech.Speak "{safe_text}"\n'
+                )
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".vbs", mode="w", encoding="utf-8") as f:
+                    f.write(vbs_code)
+                    vbs_path = f.name
+                subprocess.Popen(["cscript.exe", "//NoLogo", vbs_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return "spoken via Windows VBScript fallback using Kattappa cinematic movie voice profile"
+            except Exception:
+                pass
     return f"Speech output is unavailable on this OS/session: {cause}"
 
 
@@ -599,7 +648,7 @@ def _apply_kattappa_profile(engine: object) -> None:
         voices = engine.getProperty("voices") or []
     except Exception:
         return
-    preferred_terms = ("male", "david", "mark", "ravi", "english", "india")
+    preferred_terms = ("heera", "ravi", "hemant", "telugu", "india", "male", "david", "mark", "english")
     for voice in voices:
         label = f"{getattr(voice, 'id', '')} {getattr(voice, 'name', '')}".lower()
         if any(term in label for term in preferred_terms):

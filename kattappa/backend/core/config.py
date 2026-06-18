@@ -140,3 +140,6 @@ def load_config() -> BackendConfig:
         logs_dir=_resolve_runtime_path(paths.get("logs"), "backend/data/logs"),
         workspace_dir=_resolve_runtime_path(paths.get("workspace"), "workspace"),
     )
+
+JARVIS_MODE = True
+

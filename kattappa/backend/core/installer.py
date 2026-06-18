@@ -56,7 +56,11 @@ class InstallStep:
 def build_missing_install_plan() -> dict[str, Any]:
     report = free_stack_report()
     config = load_config()
-    python_exe = str(config.root / "ai_system_env" / "Scripts" / "python.exe")
+    import platform
+    if platform.system().lower() == "windows":
+        python_exe = str(config.root / "ai_system_env" / "Scripts" / "python.exe")
+    else:
+        python_exe = str(config.root / "ai_system_env" / "bin" / "python")
     steps: list[InstallStep] = []
     manual_steps: list[str] = []
 
@@ -169,9 +173,11 @@ def run_approved_install_job(approval_id: str) -> dict[str, Any]:
 
 
 def _command_is_allowlisted(command: list[str]) -> bool:
-    if len(command) >= 5 and Path(command[0]).name.lower() == "python.exe" and command[1:4] == ["-m", "pip", "install"]:
+    import platform
+    exe_name = "python.exe" if platform.system().lower() == "windows" else "python"
+    if len(command) >= 5 and Path(command[0]).name.lower() == exe_name and command[1:4] == ["-m", "pip", "install"]:
         return command[4] in set(PYTHON_PACKAGES.values())
-    if len(command) == 5 and Path(command[0]).name.lower() == "python.exe" and command[1:] == [
+    if len(command) == 5 and Path(command[0]).name.lower() == exe_name and command[1:] == [
         "-m",
         "playwright",
         "install",

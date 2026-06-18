@@ -305,3 +305,40 @@ export async function fetchDiagnostics(): Promise<{
   ]);
   return { platformSupport, hardwareRequirements };
 }
+
+export function fetchJarvisMode(): Promise<{ enabled: boolean }> {
+  return requestJson<{ enabled: boolean }>("/settings/jarvis");
+}
+
+export function saveJarvisMode(enabled: boolean): Promise<{ enabled: boolean }> {
+  return postJson<{ enabled: boolean }>("/settings/jarvis", { enabled });
+}
+
+export interface JarvisDiagnostics {
+  ok: boolean;
+  telemetry: {
+    neuroseed_brain_sync: string;
+    cyber_shield_deflectors: string;
+    universal_translation: string;
+    pcb_doctor: string;
+    kairo: string;
+    prism: string;
+    tempo: string;
+    portal: string;
+    mira: string;
+  };
+  stats: {
+    cpu: number;
+    memory: number;
+    git_changes: number;
+    active_tasks: number;
+    projects: number;
+    ollama_ok: boolean;
+    voice_ok: boolean;
+  };
+}
+
+export function fetchJarvisDiagnostics(): Promise<JarvisDiagnostics> {
+  return requestJson<JarvisDiagnostics>("/settings/jarvis/diagnostics");
+}
+

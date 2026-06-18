@@ -53,12 +53,21 @@ def screenshot(path: str | None = None) -> str:
         raise PermissionError(
             "Screen capture is disabled until setup enables KATTAPPA_SCREEN_CAPTURE_ENABLED=true."
         )
-    pyautogui = _pyautogui()
     config.screenshots_dir.mkdir(parents=True, exist_ok=True)
     target = Path(path) if path else config.screenshots_dir / "desktop_screen.png"
-    image = pyautogui.screenshot()
-    image.save(target)
-    return str(target)
+    try:
+        pyautogui = _pyautogui()
+        image = pyautogui.screenshot()
+        image.save(target)
+        return str(target)
+    except Exception as exc:
+        try:
+            import mss
+            with mss.mss() as sct:
+                sct.shot(output=str(target))
+            return str(target)
+        except Exception:
+            raise exc
 
 
 def open_start_menu() -> str:

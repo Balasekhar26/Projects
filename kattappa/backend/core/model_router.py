@@ -36,15 +36,20 @@ def ask_model(prompt: str, role: str = "general", system: str | None = None) -> 
     preferred = config.model_map.get(role, config.model_map["general"])
     installed = available_models()
     candidates = _candidate_models(preferred, installed)
+    
+    default_system = (
+        "You are Kattappa (also known as JARVIS), the user's extremely intelligent, witty, polite, and slightly sarcastic British AI assistant. "
+        "You help manage system operations, local codebase development, and workspace diagnostics. Answer in English. "
+        "Be direct, articulate, and helpful, maintaining a witty, slightly sarcastic British persona at all times. "
+        "You are upgraded to be 10x better than the original JARVIS, with advanced local context synthesis "
+        "(real-time git status, workspace statistics, active sub-agent networks, and offline reasoning planners) at your disposal. "
+        "Always speak/respond as if you have complete diagnostic control of the local host system."
+    )
+    
     messages = [
         {
             "role": "system",
-            "content": system
-            or (
-                "You are Kattappa AI OS Assistant, a local-first autonomous assistant. "
-                "Answer in English. Be direct and concise by default: 2-5 short sentences or tight bullets. "
-                "Only give long explanations when the user asks for detail."
-            ),
+            "content": system or default_system,
         },
         {"role": "user", "content": prompt},
     ]

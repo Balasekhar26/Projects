@@ -114,6 +114,7 @@ def build_operator_plan(
         steps.append(str(visual_guidance["instruction"]))
 
     return {
+        "mode": detect_operator_mode(request),
         "execution_path": execution_path,
         "intent": _execution_path_label(execution_path),
         "agent": selected_agent or "evaluator",
@@ -135,12 +136,19 @@ def build_operator_plan(
 
 def build_visual_guidance(
     request: str,
-    execution_path: str,
-    screen_snapshot: dict[str, Any] | None,
-    approval_required: bool,
+    execution_path: str = "human_guided_step",
+    screen_snapshot: dict[str, Any] | None = None,
+    approval_required: bool = False,
     enabled: bool = True,
+    mode: str | None = None,
 ) -> dict[str, Any]:
-    if not enabled or execution_path not in {"human_guided_step", "approval_gated_action"}:
+    path = mode or execution_path
+    if path == "assist":
+        path = "approval_gated_action"
+    elif path == "teach":
+        path = "human_guided_step"
+
+    if not enabled or path not in {"human_guided_step", "approval_gated_action"}:
         return {"enabled": False, "reason": "Visual guidance is not needed for this order."}
     if not _explicit_visual_guidance_requested(request):
         return {"enabled": False, "reason": "The order does not ask for cursor or target guidance."}
@@ -156,7 +164,7 @@ def build_visual_guidance(
 
     return {
         "enabled": True,
-        "execution_path": execution_path,
+        "execution_path": path,
         "kind": "one_step_overlay",
         "requires_approval": approval_required,
         "matched_screen_text": matched,
@@ -170,6 +178,8 @@ def build_visual_guidance(
 
 
 def _explicit_visual_guidance_requested(request: str) -> bool:
+    if re.search(r"\[operator mode:\s*(teach|assist)\]", request, re.IGNORECASE):
+        return True
     lower = _strip_legacy_mode_prefix(request).lower()
     return any(
         phrase in lower
@@ -185,6 +195,7 @@ def _explicit_visual_guidance_requested(request: str) -> bool:
             "press",
             "type into",
             "open app",
+            "show me",
         )
     )
 
@@ -260,3 +271,15 @@ def _execution_path_label(execution_path: str) -> str:
         "human_guided_step": "Guided human step",
         "approval_gated_action": "Approval-gated action",
     }.get(execution_path, "Automatic route")
+
+
+def detect_operator_mode(text: str) -> str:
+    lower = text.lower()
+    match = re.search(r"\[operator mode:\s*([^\]]+)\]", text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().lower()
+    if any(hint in lower for hint in ("teach", "guide", "show me", "where to click")):
+        return "teach"
+    if any(hint in lower for hint in ("click", "type", "press", "do it", "automate")):
+        return "assist"
+    return "observe"

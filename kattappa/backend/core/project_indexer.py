@@ -129,11 +129,15 @@ def _walk_files(root: Path, limit: int) -> list[dict[str, Any]]:
 def _detect_scripts(root: Path) -> list[dict[str, str]]:
     scripts: list[dict[str, str]] = []
     package_json = root / "apps" / "desktop" / "package.json"
+    import platform
+    is_windows = platform.system().lower() == "windows"
+    npm_cmd = "npm.cmd" if is_windows else "npm"
+    python_cmd = "ai_system_env\\Scripts\\python.exe" if is_windows else "ai_system_env/bin/python"
     if package_json.exists():
-        scripts.append({"name": "desktop build", "command": "npm.cmd run build", "cwd": "apps/desktop"})
-        scripts.append({"name": "desktop MSI", "command": "npm.cmd run tauri:build", "cwd": "apps/desktop"})
+        scripts.append({"name": "desktop build", "command": f"{npm_cmd} run build", "cwd": "apps/desktop"})
+        scripts.append({"name": "desktop MSI", "command": f"{npm_cmd} run tauri:build", "cwd": "apps/desktop"})
     if (root / "backend" / "tests" / "test_backend.py").exists():
-        scripts.append({"name": "backend tests", "command": "ai_system_env\\Scripts\\python.exe -m pytest backend\\tests\\test_backend.py", "cwd": "."})
+        scripts.append({"name": "backend tests", "command": f"{python_cmd} -m pytest backend/tests/test_backend.py", "cwd": "."})
     if (root / "run.exe").exists():
         scripts.append({"name": "launch app", "command": "run.exe", "cwd": "."})
     return scripts

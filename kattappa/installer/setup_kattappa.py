@@ -447,6 +447,9 @@ def create_desktop_shortcut() -> None:
     if system == "darwin":
         create_macos_desktop_shortcut()
         return
+    if system == "linux":
+        create_linux_desktop_shortcut()
+        return
     if system != "windows":
         return
     launcher = ROOT / "run.exe"
@@ -505,6 +508,31 @@ def create_desktop_shortcut() -> None:
             print(f"  {shortcut}")
     except Exception as exc:
         print(f"Shortcut repair skipped: {exc}")
+
+
+def create_linux_desktop_shortcut() -> None:
+    try:
+        desktop = Path.home() / "Desktop"
+        if not desktop.exists():
+            return
+        shortcut = desktop / "kattappa-ai-os.desktop"
+        if shortcut.exists():
+            return
+        launcher = ROOT / "setup.sh"
+        content = f"""[Desktop Entry]
+Type=Application
+Name=Kattappa AI OS
+Comment=Kattappa AI OS Assistant
+Exec={launcher}
+Icon={ROOT / "apps" / "desktop" / "src-tauri" / "icons" / "icon.png"}
+Terminal=true
+Categories=Utility;Development;
+"""
+        shortcut.write_text(content, encoding="utf-8")
+        shortcut.chmod(0o755)
+        print(f"Linux desktop shortcut ready: {shortcut}")
+    except Exception as exc:
+        print(f"Linux desktop shortcut skipped: {exc}")
 
 
 def create_macos_desktop_shortcut() -> None:

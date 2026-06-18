@@ -2,6 +2,7 @@ import type { Message } from "../types";
 
 export const PANELS = [
   "Projects",
+  "Jarvis HUD",
   "Memory",
   "Tasks",
   "Finance",

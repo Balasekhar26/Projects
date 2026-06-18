@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -9,10 +10,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
+def _venv_python() -> Path:
+    if platform.system().lower() == "windows":
+        return ROOT / "ai_system_env" / "Scripts" / "python.exe"
+    return ROOT / "ai_system_env" / "bin" / "python"
+
+
 def run_backend() -> int:
     return subprocess.call(
         [
-            str(ROOT / "ai_system_env" / "Scripts" / "python.exe"),
+            str(_venv_python()),
             "-m",
             "uvicorn",
             "backend.main:app",
@@ -26,7 +33,7 @@ def run_backend() -> int:
 
 
 def run_cli() -> int:
-    return subprocess.call([str(ROOT / "ai_system_env" / "Scripts" / "python.exe"), "-m", "ai_system.cli", "chat"], cwd=ROOT)
+    return subprocess.call([str(_venv_python()), "-m", "ai_system.cli", "chat"], cwd=ROOT)
 
 
 def main() -> int:
