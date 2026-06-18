@@ -630,11 +630,53 @@ def open_native_desktop_app() -> bool:
     return False
 
 
+def open_in_app_window(url: str) -> bool:
+    system = platform.system().lower()
+    candidates = []
+    if system == "windows":
+        candidates = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+        for cmd in ("msedge", "chrome"):
+            path = shutil.which(cmd)
+            if path:
+                candidates.append(path)
+    elif system == "darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ]
+        for cmd in ("google-chrome", "chromium", "microsoft-edge"):
+            path = shutil.which(cmd)
+            if path:
+                candidates.append(path)
+    elif system == "linux":
+        for cmd in ("google-chrome", "chromium-browser", "chromium", "microsoft-edge"):
+            path = shutil.which(cmd)
+            if path:
+                candidates.append(path)
+
+    for exe in candidates:
+        if Path(exe).exists() or shutil.which(exe):
+            try:
+                subprocess.Popen([str(exe), f"--app={url}"])
+                return True
+            except Exception:
+                pass
+    return False
+
+
 def start_desktop_web_ui() -> None:
-    print("Native desktop app is not built yet. Starting browser desktop UI fallback...")
+    print("Native desktop app is not built yet. Starting desktop dev UI...")
     subprocess.Popen(["npm", "run", "dev"], cwd=DESKTOP_DIR)
     time.sleep(3)
-    webbrowser.open("http://127.0.0.1:5173")
+    url = "http://127.0.0.1:5173"
+    if open_in_app_window(url):
+        print("Opened desktop app window in App Mode.")
+    else:
+        webbrowser.open(url)
 
 
 def wait_for_ready() -> None:

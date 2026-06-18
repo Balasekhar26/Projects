@@ -215,5 +215,5 @@ if errorlevel 1 (
   echo Browser desktop UI did not become ready. Try: run.bat dev
   exit /b 1
 )
-start "" "http://127.0.0.1:5173"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path '${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe') { Start-Process '${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe' -ArgumentList '--app=http://127.0.0.1:5173' } else { Start-Process 'http://127.0.0.1:5173' }"
 exit /b 0
