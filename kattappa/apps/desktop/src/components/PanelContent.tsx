@@ -22,9 +22,7 @@ import type {
   ToolScoutStatus,
   WritingResult,
 } from "../types";
-import { FinancePlayground } from "./FinancePlayground";
 import { SystemDiagnostics } from "./SystemDiagnostics";
-import { JarvisHud } from "./JarvisHud";
 
 type PanelContentProps = {
   activePanel: string;
@@ -91,27 +89,6 @@ type PanelContentProps = {
 };
 
 export function PanelContent(props: PanelContentProps) {
-  if (props.activePanel === "Jarvis HUD") {
-    return <JarvisHud />;
-  }
-  if (props.activePanel === "Memory") {
-    return <MemoryPanel health={props.health} onRefreshHealth={props.onRefreshHealth} />;
-  }
-  if (props.activePanel === "Tasks") {
-    return <TasksPanel {...props} />;
-  }
-  if (props.activePanel === "Finance") {
-    return <FinancePlayground />;
-  }
-  if (props.activePanel === "Writing") {
-    return <WritingPanel {...props} />;
-  }
-  if (props.activePanel === "Research") {
-    return <ResearchPanel {...props} />;
-  }
-  if (props.activePanel === "Simulation") {
-    return <SimulationPanel {...props} />;
-  }
   if (props.activePanel === "Tools") {
     return <ToolsPanel {...props} />;
   }
@@ -127,7 +104,7 @@ export function PanelContent(props: PanelContentProps) {
   if (props.activePanel === "Settings") {
     return <SettingsPanel {...props} />;
   }
-  return <ProjectsPanel {...props} />;
+  return null;
 }
 
 function MemoryPanel({ health, onRefreshHealth }: { health: Health | null; onRefreshHealth: () => void }) {
