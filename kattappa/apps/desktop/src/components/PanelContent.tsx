@@ -89,22 +89,16 @@ type PanelContentProps = {
 };
 
 export function PanelContent(props: PanelContentProps) {
-  if (props.activePanel === "Tools") {
-    return <ToolsPanel {...props} />;
-  }
-  if (props.activePanel === "Cluster") {
-    return <ClusterPanel {...props} />;
-  }
-  if (props.activePanel === "Diagnostics") {
-    return <SystemDiagnostics />;
-  }
-  if (props.activePanel === "Agents") {
-    return <AgentsPanel {...props} />;
-  }
-  if (props.activePanel === "Settings") {
-    return <SettingsPanel {...props} />;
-  }
-  return null;
+  return (
+    <SystemDiagnostics
+      health={props.health}
+      freeStack={props.freeStack}
+      capabilityLadder={props.capabilityLadder}
+      improvements={props.improvements}
+      reflections={props.reflections}
+      sourcePolicy={props.sourcePolicy}
+    />
+  );
 }
 
 function MemoryPanel({ health, onRefreshHealth }: { health: Health | null; onRefreshHealth: () => void }) {

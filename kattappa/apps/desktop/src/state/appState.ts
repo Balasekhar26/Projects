@@ -1,13 +1,9 @@
 import type { Message } from "../types";
 
 export const PANELS = [
-  "Tools",
-  "Cluster",
   "Diagnostics",
-  "Agents",
-  "Settings",
 ];
 
 export function initialMessages(): Message[] {
-  return [{ role: "system", content: "Kattappa AI OS ready." }];
+  return [{ role: "system", content: "Kattappa AI OS ready. All capabilities — projects, memory, tasks, research, writing, finance, simulation, tools, agents, cluster — activate automatically. Just talk to me." }];
 }
