@@ -835,6 +835,34 @@ def hub_get_result_endpoint(task_id: str) -> dict[str, object]:
     return res
 
 
+@app.get("/cluster/prometheus/health")
+def cluster_prometheus_health() -> dict[str, object]:
+    from backend.core.cluster_plan import local_node_profile
+    profile = local_node_profile()
+    return {
+        "status": "healthy",
+        "cpu_count": profile.get("cpu_count_logical", 0),
+        "ram_gb": profile.get("ram_total_gb", 0.0),
+        "alert_triggered": False,
+        "engine": "Prometheus AI Monitor fallback"
+    }
+
+
+class MimoCodeRequest(BaseModel):
+    prompt: str
+    file_path: str
+
+
+@app.post("/cluster/hub/mimo-code")
+def cluster_hub_mimo_code(request: MimoCodeRequest) -> dict[str, object]:
+    from backend.core.mimo_agent import MimoCodeAgent
+    agent = MimoCodeAgent()
+    result = agent.generate_code_patch(request.prompt, request.file_path)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
 
 @app.get("/finance/kronos/status")
 def finance_kronos_status() -> dict[str, object]:

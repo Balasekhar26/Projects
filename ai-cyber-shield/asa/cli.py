@@ -52,6 +52,9 @@ def build_parser() -> argparse.ArgumentParser:
     block_ip = subcommands.add_parser("block-ip", help="Add IP to local blocklist")
     block_ip.add_argument("ip")
 
+    virus_scan = subcommands.add_parser("virus-scan", help="Run ClamAV or signature-matching directory scan")
+    virus_scan.add_argument("directory", nargs="?", default=".")
+
     return parser
 
 
@@ -149,6 +152,43 @@ def main() -> int:
         logger.action(result)
         print(result.message)
         return 0
+
+    if args.command == "virus-scan":
+        from .clamav_driver import ClamAvScanner
+        scanner = ClamAvScanner(config)
+        try:
+            result = scanner.scan_directory(args.directory)
+            engine = result["engine"]
+            findings = result["findings"]
+            status = result["scan_status"]
+            infected = result["infected_count"]
+
+            logger.event(
+                "info",
+                "virus_scan",
+                "directory_scan_complete",
+                f"Virus scan of {args.directory} completed. Infected: {infected}",
+                engine=engine,
+                status=status,
+                infected_count=infected
+            )
+
+            for finding in findings:
+                logger.event(
+                    "error" if finding["severity"] == "critical" else "warning",
+                    "threat_detection",
+                    "malware_signature_detected",
+                    f"Detected malware signature '{finding['threat_name']}' in file {finding['file_path']}",
+                    file_path=finding["file_path"],
+                    threat_name=finding["threat_name"],
+                    severity=finding["severity"]
+                )
+
+            print(json.dumps(result, indent=2, sort_keys=True, default=str))
+            return 0 if infected == 0 else 1
+        except Exception as exc:
+            print(f"Virus scan failed: {exc}")
+            return 1
 
     return 2
 

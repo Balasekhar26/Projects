@@ -126,6 +126,27 @@ class HybridTranslationEngine {
           const result = await this._googleWithTimeout(text, sourceLanguage, targetLanguage);
           if (result) return result;
         }
+
+        if (provider === "gemini") {
+          const apiKey = this.config.geminiApiKey;
+          if (apiKey) {
+            const translated = await this._translateWithGemini(text, sourceLanguage, targetLanguage, apiKey);
+            if (translated) return { translatedText: translated, backend: "gemini" };
+          } else {
+            const result = await this._googleWithTimeout(text, sourceLanguage, targetLanguage);
+            if (result) return { translatedText: result.translatedText, backend: "gemini-free-fallback" };
+          }
+        }
+
+        if (provider === "nemotron") {
+          if (!this.config.nvidiaNimApiKey) continue;
+          const translated = await withTimeout(
+            this._getNvidia().translate({ text, sourceLanguage, targetLanguage }),
+            this.config.nvidiaNimTimeoutMs || ONLINE_TIMEOUT_MS,
+            "NVIDIA Nemotron translation timeout"
+          );
+          if (translated) return { translatedText: translated, backend: "nvidia-nemotron" };
+        }
       } catch (error) {
         errors.push(`${provider}: ${error.message}`);
         if (onlineOnly) {
@@ -136,6 +157,31 @@ class HybridTranslationEngine {
 
     if (onlineOnly && errors.length) {
       throw new Error(errors.join("; "));
+    }
+    return null;
+  }
+
+  async _translateWithGemini(text, sourceLanguage, targetLanguage, apiKey) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Translate the following text from ${sourceLanguage} to ${targetLanguage}. Return ONLY the translated text, with no wrapping quotes, explanations, or metadata:\n\n${text}`
+            }]
+          }]
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        return content.trim();
+      }
+    } catch {
+      return null;
     }
     return null;
   }
@@ -170,10 +216,10 @@ class HybridTranslationEngine {
 
   _onlineProviderOrder() {
     const provider = norm(this.config.translationProvider).toLowerCase();
-    if (["nvidia", "deepl", "google"].includes(provider)) {
+    if (["nvidia", "deepl", "google", "gemini", "nemotron"].includes(provider)) {
       return [provider];
     }
-    return ["nvidia", "deepl", "google"];
+    return ["nvidia", "deepl", "google", "gemini", "nemotron"];
   }
 
   _getNvidia() {

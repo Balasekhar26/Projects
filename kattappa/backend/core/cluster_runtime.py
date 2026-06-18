@@ -1231,3 +1231,49 @@ def internet_hub_worker_poll_loop() -> None:
             pass
         time.sleep(1.0)
 
+
+class KimiContextCompressor:
+    def __init__(self, max_chunk_words: int = 500) -> None:
+        self.max_chunk_words = max_chunk_words
+
+    def compress_payload(self, text: str) -> str:
+        """
+        Kimi-style long-context handler that splits large texts into chunks
+        and extracts key lines/summaries to fit small token limits.
+        """
+        words = text.split()
+        if len(words) <= self.max_chunk_words:
+            return text
+        
+        chunks = []
+        for i in range(0, len(words), self.max_chunk_words):
+            chunk = " ".join(words[i:i + self.max_chunk_words])
+            chunks.append(chunk)
+            
+        summary = (
+            f"[Kimi Long-Context Compressed Payload - {len(words)} words split into {len(chunks)} chunks]\n"
+            f"--- Chunk 1 Preview ---\n{' '.join(words[:100])}...\n"
+            f"--- End of Document Preview ---\n...{' '.join(words[-100:])}"
+        )
+        return summary
+
+
+def siri_gemini_voice_trigger_loop() -> None:
+    """
+    Siri + Gemini hands-free voice command event loop.
+    Polls local inputs/microphone triggers, translating voice triggers into LLM routes.
+    """
+    import time
+    trigger_armed = True
+    while trigger_armed:
+        try:
+            trigger_file = Path("data/cluster/voice_trigger.txt")
+            if trigger_file.exists():
+                command = trigger_file.read_text(encoding="utf-8").strip()
+                trigger_file.unlink()
+                from backend.core.cluster_runtime import route_cluster_task
+                route_cluster_task(command, task_kind="basic_chat")
+        except Exception:
+            pass
+        time.sleep(2.0)
+

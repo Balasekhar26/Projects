@@ -734,3 +734,103 @@ canvas {
   border-color: var(--mint);
 }
 
+/* Studio View Styles */
+.figma-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.figma-canvas {
+  width: 100%;
+  height: 220px;
+  background: #fdfdfd;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.figma-controls {
+  display: flex;
+  gap: 16px;
+}
+
+.figma-controls label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  color: var(--muted);
+  gap: 4px;
+}
+
+.kombai-output-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kombai-code {
+  background: #1e2824;
+  color: #a3e635;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.notebook-output {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.notebook-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+
+.notebook-tab {
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.notebook-tab:hover {
+  background: var(--bg);
+}
+
+.notebook-tab.active {
+  color: var(--mint);
+  background: var(--mint-2);
+}
+
+.notebook-tab-content {
+  display: none;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.notebook-tab-content.active {
+  display: block;
+}
+

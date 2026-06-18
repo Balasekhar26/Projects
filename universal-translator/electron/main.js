@@ -748,6 +748,51 @@ ipcMain.handle("translator:stop", async () => {
   return { ok: true, isRunning };
 });
 
+ipcMain.handle("translator:transcribe-video", async (_event, payload) => {
+  const { spawn } = require("child_process");
+  return new Promise((resolve) => {
+    const scriptPath = path.join(__dirname, "..", "memo-transcribe.py");
+    if (!fs.existsSync(scriptPath)) {
+      return resolve({ error: "transcribe script not found at " + scriptPath });
+    }
+
+    sendLog(`Starting Memo AI transcription for: ${payload.filePath} (Target: ${payload.targetLang})`, "status");
+    
+    let pyPath = "python";
+    const localKattappaPy = "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Scripts\\python.exe";
+    if (fs.existsSync(localKattappaPy)) {
+      pyPath = localKattappaPy;
+    }
+
+    const pyProcess = spawn(pyPath, [scriptPath, payload.filePath, payload.targetLang || "te"]);
+    
+    let stdoutData = "";
+    let stderrData = "";
+    
+    pyProcess.stdout.on("data", (data) => {
+      stdoutData += data.toString();
+    });
+    
+    pyProcess.stderr.on("data", (data) => {
+      stderrData += data.toString();
+    });
+    
+    pyProcess.on("close", (code) => {
+      if (code !== 0) {
+        sendLog(`Memo transcription failed: ${stderrData}`, "error");
+        return resolve({ error: stderrData || `process exited with code ${code}` });
+      }
+      try {
+        const parsed = JSON.parse(stdoutData);
+        sendLog(`Memo transcription completed successfully!`, "success");
+        resolve(parsed);
+      } catch (err) {
+        resolve({ error: `failed to parse json output: ${err.message}`, raw: stdoutData });
+      }
+    });
+  });
+});
+
 app.whenReady().then(async () => {
   // Initialize database first
   try {

@@ -13,11 +13,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--board", default="data/sample-board.json", help="Board model JSON")
     parser.add_argument("--measurements", default="data/sample-measurements.json", help="Measurements JSON")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    parser.add_argument("--academy", action="store_true", help="Launch Mimo Diagnostics Academy interactive helper")
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.academy:
+        from .academy import DiagnosticsAcademy
+        DiagnosticsAcademy().launch_interactive_shell()
+        return 0
+
     root = Path(__file__).resolve().parents[1]
     board_path = _resolve(root, args.board)
     measurements_path = _resolve(root, args.measurements)

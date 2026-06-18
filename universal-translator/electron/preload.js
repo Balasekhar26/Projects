@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("translatorApp", {
   start: (payload) => ipcRenderer.invoke("translator:start", payload),
   stop: () => ipcRenderer.invoke("translator:stop"),
   getDevices: () => ipcRenderer.invoke("translator:get-devices"),
+  transcribeVideo: (payload) => ipcRenderer.invoke("translator:transcribe-video", payload),
   onLog: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("translator:log", listener);

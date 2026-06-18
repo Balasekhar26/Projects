@@ -140,7 +140,17 @@ function bindElements() {
     "memoryStatus",
     "exportJsonBtn",
     "exportCsvBtn",
-    "sessionList"
+    "sessionList",
+    "figmaRefreshBtn",
+    "figmaCanvas",
+    "electrodeColor",
+    "bandStyle",
+    "kombaiGenerateBtn",
+    "kombaiCodeOutput",
+    "notebookGenerateBtn",
+    "notebookSummaryContent",
+    "notebookQaContent",
+    "notebookPodcastContent"
   ].forEach((id) => {
     els[id] = document.getElementById(id);
   });
@@ -180,6 +190,25 @@ function bindEvents() {
   els.exportCsvBtn.addEventListener("click", () => exportCsv());
   els.volumeSlider.addEventListener("input", updateLoadStatus);
   els.hapticSlider.addEventListener("input", updateLoadStatus);
+
+  // Studio Events
+  els.figmaRefreshBtn.addEventListener("click", renderFigmaHeadset);
+  els.electrodeColor.addEventListener("input", renderFigmaHeadset);
+  els.bandStyle.addEventListener("change", renderFigmaHeadset);
+  els.kombaiGenerateBtn.addEventListener("click", kombaiGenerateCode);
+  els.notebookGenerateBtn.addEventListener("click", notebookGenerateStudy);
+
+  document.querySelectorAll(".notebook-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".notebook-tab").forEach((t) => t.classList.remove("active"));
+      document.querySelectorAll(".notebook-tab-content").forEach((c) => c.classList.remove("active"));
+      tab.classList.add("active");
+      const targetView = tab.dataset.notebookTab;
+      if (targetView === "summary") els.notebookSummaryContent.classList.add("active");
+      if (targetView === "qa") els.notebookQaContent.classList.add("active");
+      if (targetView === "podcast") els.notebookPodcastContent.classList.add("active");
+    });
+  });
 }
 
 async function hydrateFromMemory() {
@@ -313,7 +342,8 @@ function setView(view) {
     seed: "Seed Builder",
     sleep: "Sleep Reinforcement",
     recall: "Recall Verification",
-    ethics: "Guard Layer"
+    ethics: "Guard Layer",
+    studio: "Studio & Design Workspace"
   };
 
   document.querySelectorAll(".tab-button").forEach((button) => {
@@ -324,6 +354,10 @@ function setView(view) {
   });
   els.viewTitle.textContent = titles[view];
   drawMemoryMap();
+
+  if (view === "studio") {
+    renderFigmaHeadset();
+  }
 }
 
 function generateSeeds() {
@@ -1199,4 +1233,149 @@ function escapeHtml(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function renderFigmaHeadset() {
+  const color = els.electrodeColor.value;
+  const style = els.bandStyle.value;
+  
+  let bandFill = "#2a3630";
+  let backgroundFill = "#f0f4f1";
+  
+  if (style === "cyber") {
+    bandFill = "#0c100d";
+    backgroundFill = "#151b18";
+  } else if (style === "aurora") {
+    bandFill = "url(#auroraGrad)";
+    backgroundFill = "#faf5ff";
+  }
+  
+  const svg = `<svg width="100%" height="100%" viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="auroraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#4f46e5" />
+        <stop offset="50%" stop-color="#ec4899" />
+        <stop offset="100%" stop-color="#06b6d4" />
+      </linearGradient>
+    </defs>
+    <!-- Background Canvas -->
+    <rect width="400" height="200" rx="12" fill="${backgroundFill}" />
+    <!-- Head Outline -->
+    <circle cx="200" cy="100" r="65" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="2" />
+    <!-- Headset Band -->
+    <path d="M 130 90 A 70 70 0 0 1 270 90" fill="none" stroke="${bandFill}" stroke-width="14" stroke-linecap="round" />
+    <!-- Left Electrode Node -->
+    <circle cx="145" cy="72" r="10" fill="${color}" stroke="#ffffff" stroke-width="2" />
+    <!-- Center Electrode Node -->
+    <circle cx="200" cy="32" r="10" fill="${color}" stroke="#ffffff" stroke-width="2" />
+    <!-- Right Electrode Node -->
+    <circle cx="255" cy="72" r="10" fill="${color}" stroke="#ffffff" stroke-width="2" />
+    <!-- Status Text -->
+    <text x="200" y="180" font-family="sans-serif" font-size="11" font-weight="600" fill="#64748b" text-anchor="middle">
+      Figma Preview Frame - Electrode Cue Arrays
+    </text>
+  </svg>`;
+  
+  els.figmaCanvas.innerHTML = svg;
+}
+
+function kombaiGenerateCode() {
+  const color = els.electrodeColor.value;
+  const style = els.bandStyle.value;
+  
+  const code = `<!-- Exported from Kombai 2.0 Figma Parser -->
+<div class="neuroseed-headset ${style}">
+  <div class="headset-band"></div>
+  <div class="electrode-array">
+    <span class="node left" style="background-color: ${color};"></span>
+    <span class="node center" style="background-color: ${color};"></span>
+    <span class="node right" style="background-color: ${color};"></span>
+  </div>
+</div>
+
+<style>
+.neuroseed-headset {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  height: 200px;
+  background: ${style === "cyber" ? "#151b18" : style === "aurora" ? "#faf5ff" : "#f0f4f1"};
+  border-radius: 12px;
+}
+.headset-band {
+  width: 280px;
+  height: 140px;
+  border-radius: 50% 50% 0 0;
+  border: 14px solid ${style === "cyber" ? "#0c100d" : style === "aurora" ? "url(#auroraGrad)" : "#2a3630"};
+  border-bottom: none;
+}
+.electrode-array .node {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 8px ${color};
+}
+.electrode-array .left   { top: 72px; left: 145px; }
+.electrode-array .center { top: 32px; left: 200px; }
+.electrode-array .right  { top: 72px; left: 255px; }
+</style>`;
+  
+  els.kombaiCodeOutput.textContent = code;
+  toastLog("Kombai 2.0", "HTML/CSS layout generated from active canvas elements.");
+}
+
+function notebookGenerateStudy() {
+  let notes = els.sourceText.value.trim();
+  if (!notes) {
+    notes = sampleText;
+  }
+  
+  const approvedSeeds = state.seeds.filter(s => s.approved);
+  const textSource = approvedSeeds.length > 0 
+    ? approvedSeeds.map(s => s.text).join("\n\n") 
+    : notes;
+  
+  const paragraphs = textSource.split("\n\n").filter(Boolean);
+  
+  // 1. Generate Summary
+  let summaryHtml = `<h4>Concept Synopsis</h4><ul>`;
+  paragraphs.forEach(p => {
+    summaryHtml += `<li><strong>Key point:</strong> ${escapeHtml(p.substring(0, 100))}...</li>`;
+  });
+  summaryHtml += `</ul>`;
+  els.notebookSummaryContent.innerHTML = summaryHtml;
+  
+  // 2. Generate Q&As
+  let qaHtml = `<h4>Active Recall Questions</h4>`;
+  paragraphs.forEach((p, idx) => {
+    qaHtml += `<div style="margin-bottom:12px;">
+      <p style="margin:0; font-weight:600; color:var(--mint);">Q${idx+1}: What is the primary function described here?</p>
+      <p style="margin:2px 0 0 0; color:var(--muted); font-size:0.85rem;">A: ${escapeHtml(p)}</p>
+    </div>`;
+  });
+  els.notebookQaContent.innerHTML = qaHtml;
+  
+  // 3. Generate Audio Podcast Script
+  let podcastHtml = `<h4>NotebookLM Audio Guide Simulation</h4>
+    <div style="background:var(--bg); border-left:4px solid var(--blue); padding:10px; border-radius:4px; font-style:italic;">
+      <strong>Host 1 (Austin):</strong> Welcome back to our learning review. Today we are looking at some fascinating memory reinforcement notes.
+      <br><br>
+      <strong>Host 2 (Taylor):</strong> Yes! And what is amazing is how targeted memory reactivation cueing actually biases synaptic consolidation while you sleep. Let's break down the details...
+      <br><br>`;
+  
+  paragraphs.forEach((p, idx) => {
+    if (idx % 2 === 0) {
+      podcastHtml += `<strong>Austin:</strong> So, looking at the first segment, it says: "${escapeHtml(p.substring(0, 80))}..." How does that translate to practical application?
+      <br><br>`;
+    } else {
+      podcastHtml += `<strong>Taylor:</strong> Well, that aligns with the point that: "${escapeHtml(p.substring(0, 80))}..." essentially reinforcing learned associations.
+      <br><br>`;
+    }
+  });
+  podcastHtml += `<strong>Austin:</strong> Incredible. Thanks for tuning in to this session!</div>`;
+  els.notebookPodcastContent.innerHTML = podcastHtml;
+  
+  toastLog("NotebookLM", "Notebook study guide compilation generated.");
 }

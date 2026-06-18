@@ -194,6 +194,7 @@ async function initialize() {
   populateLangSelect("mic-lang", false, "hi");
   populateLangSelect("spk-src-lang", true, "auto");
   populateLangSelect("spk-lang", false, "te");
+  populateLangSelect("memo-target-lang", false, "te");
 
   const state = await window.translatorApp.getState();
   isRunning = Boolean(state?.isRunning);
@@ -222,5 +223,55 @@ window.translatorApp.onState((p) => {
   isRunning = Boolean(p?.isRunning);
   syncUI();
 });
+
+async function startMemoTranscription() {
+  const filePath = document.getElementById("memo-video-url").value.trim();
+  const targetLang = document.getElementById("memo-target-lang").value;
+  const progress = document.getElementById("memo-progress");
+  const transcriptDiv = document.getElementById("memo-transcript");
+  
+  if (!filePath) {
+    progress.textContent = "Please enter a valid file path.";
+    return;
+  }
+  
+  progress.textContent = "Preprocessing and running faster-whisper (CPU)... This may take a moment.";
+  transcriptDiv.innerHTML = `<p class="empty">Transcribing video file...</p>`;
+  
+  const startBtn = document.getElementById("memo-start-btn");
+  startBtn.disabled = true;
+  
+  try {
+    const result = await window.translatorApp.transcribeVideo({ filePath, targetLang });
+    startBtn.disabled = false;
+    
+    if (result.error) {
+      progress.textContent = `Failed: ${result.error}`;
+      transcriptDiv.innerHTML = `<p class="empty" style="color:#ef4444;">Error: ${result.error}</p>`;
+      return;
+    }
+    
+    progress.textContent = `Completed! Duration: ${result.duration}s. Detected language: ${result.language}`;
+    
+    if (!result.segments || result.segments.length === 0) {
+      transcriptDiv.innerHTML = `<p class="empty">No speech detected.</p>`;
+      return;
+    }
+    
+    let html = "";
+    result.segments.forEach((seg) => {
+      html += `<div style="margin-bottom: 12px; border-bottom: 1px solid #1e3a5f; padding-bottom: 6px;">
+        <span style="font-size: 11px; color: #64748b;">[${seg.start}s - ${seg.end}s]</span>
+        <div style="font-size: 12px; color: #8fa09a;">${seg.text}</div>
+        <div style="font-size: 14px; color: #67e8f9; font-weight: 500; margin-top: 2px;">${seg.translated}</div>
+      </div>`;
+    });
+    transcriptDiv.innerHTML = html;
+  } catch (err) {
+    startBtn.disabled = false;
+    progress.textContent = `Error: ${err.message}`;
+    transcriptDiv.innerHTML = `<p class="empty" style="color:#ef4444;">Error: ${err.message}</p>`;
+  }
+}
 
 initialize().catch((e) => addLog(e.message, "error"));

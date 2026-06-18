@@ -35,6 +35,10 @@
             <i data-lucide="shield-check"></i>
             <span>Guard</span>
           </button>
+          <button class="tab-button" type="button" data-view="studio">
+            <i data-lucide="palette"></i>
+            <span>Studio</span>
+          </button>
         </nav>
 
         <section class="status-panel" aria-label="System status">
@@ -315,6 +319,77 @@
               <div>
                 <span class="small-label">Future research</span>
                 <p>Wearable sleep staging, EEG timing, clinical studies, strict consent controls.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view-grid" id="studioView" data-view-panel="studio">
+          <div class="panel figma-panel">
+            <div class="panel-heading">
+              <h3>Figma Canvas (AI Assist)</h3>
+              <button class="tool-button" type="button" id="figmaRefreshBtn">
+                <i data-lucide="refresh-cw"></i>
+                <span>Refresh Canvas</span>
+              </button>
+            </div>
+            <div class="figma-container">
+              <div class="figma-canvas" id="figmaCanvas">
+                <!-- SVG headset preview dynamically rendered here -->
+              </div>
+              <div class="figma-controls">
+                <label>
+                  <span>Electrode Color</span>
+                  <input type="color" id="electrodeColor" value="#00ffcc">
+                </label>
+                <label>
+                  <span>Band Styling</span>
+                  <select id="bandStyle">
+                    <option value="minimalist">Minimalist Mint</option>
+                    <option value="cyber">Cyber Obsidian</option>
+                    <option value="aurora">Aurora Gradient</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel kombai-panel">
+            <div class="panel-heading">
+              <h3>Kombai 2.0 Design-to-Code</h3>
+              <button class="primary-button" type="button" id="kombaiGenerateBtn">
+                <i data-lucide="code-2"></i>
+                <span>Generate HTML/CSS</span>
+              </button>
+            </div>
+            <div class="kombai-output-container">
+              <span class="small-label">Exported HTML/CSS:</span>
+              <pre class="kombai-code"><code id="kombaiCodeOutput">Click "Generate HTML/CSS" to parse current Figma canvas layout.</code></pre>
+            </div>
+          </div>
+
+          <div class="panel notebook-panel">
+            <div class="panel-heading">
+              <h3>NotebookLM Study Studio</h3>
+              <button class="primary-button" type="button" id="notebookGenerateBtn">
+                <i data-lucide="book-open"></i>
+                <span>Generate Study Guide</span>
+              </button>
+            </div>
+            <div class="notebook-output">
+              <div class="notebook-tabs">
+                <button class="notebook-tab active" data-notebook-tab="summary">Summary</button>
+                <button class="notebook-tab" data-notebook-tab="qa">Q&A Pairs</button>
+                <button class="notebook-tab" data-notebook-tab="podcast">Podcast Script</button>
+              </div>
+              <div class="notebook-tab-content active" id="notebookSummaryContent">
+                <p>Click "Generate Study Guide" to compile current memory seeds.</p>
+              </div>
+              <div class="notebook-tab-content" id="notebookQaContent">
+                <p>Study Q&As will appear here.</p>
+              </div>
+              <div class="notebook-tab-content" id="notebookPodcastContent">
+                <p>A host dialogue podcast script based on your notes will appear here.</p>
               </div>
             </div>
           </div>

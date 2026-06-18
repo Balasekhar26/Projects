@@ -140,6 +140,7 @@
     <div class="tabs">
       <button class="tab active" onclick="showTab('feed',this)">Translation Feed</button>
       <button class="tab" onclick="showTab('logs',this)">Logs</button>
+      <button class="tab" onclick="showTab('memo',this)">Memo AI Transcriber</button>
     </div>
     <div class="tab-panel active" id="tab-feed">
       <div class="empty" id="feed-empty">
@@ -150,6 +151,26 @@
     </div>
     <div class="tab-panel" id="tab-logs">
       <div id="logs"></div>
+    </div>
+    <div class="tab-panel" id="tab-memo">
+      <div class="card" style="margin-bottom: 16px;">
+        <div class="card-title">Memo AI Video Transcription</div>
+        <div class="field">
+          <div class="field-label">Video file path / URL</div>
+          <input type="text" id="memo-video-url" placeholder="e.g. C:\Users\balu\Downloads\lecture.mp4 or YouTube URL" />
+        </div>
+        <div class="field" style="margin-top: 8px;">
+          <div class="field-label">Target translation language</div>
+          <select id="memo-target-lang"></select>
+        </div>
+        <div class="row" style="margin-top: 8px;">
+          <button class="start-btn idle" style="padding: 10px; margin: 0; font-size: 13px;" id="memo-start-btn" onclick="startMemoTranscription()">Transcribe & Translate</button>
+        </div>
+      </div>
+      <div id="memo-progress" style="font-size: 13px; color: #67e8f9; margin-bottom: 12px;"></div>
+      <div id="memo-transcript" style="font-size: 13px; line-height: 1.5; color: #e2e8f0; max-height: 400px; overflow-y: auto; background: #0c1828; border: 1px solid #1e3a5f; padding: 12px; border-radius: 8px;">
+        <p class="empty" id="memo-empty">No video transcribed yet. Enter a path above to extract and translate audio.</p>
+      </div>
     </div>
   </div>
 </div>
