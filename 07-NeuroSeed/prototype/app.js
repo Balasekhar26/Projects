@@ -1,5 +1,12 @@
 const stateKey = "neuroseed-project-7-prototype";
 
+// Detect if running in Electron (desktop) or through the local NeuroSeed server.
+const isElectron = typeof window !== "undefined" && typeof window.neuroSeedApi !== "undefined";
+const apiBaseUrl = window.location.protocol === "http:" ? "" : "http://127.0.0.1:8765";
+
+let backendReady = false;
+let syncTimer = null;
+
 const state = {
   seeds: [],
   logs: [],
@@ -8,7 +15,8 @@ const state = {
   activeSessionId: null,
   stageIndex: 0,
   sleepTimer: null,
-  recallResults: []
+  recallResults: [],
+  consentLogs: []
 };
 
 const stageNames = ["N1", "N2", "N3", "REM"];
@@ -19,8 +27,10 @@ const consentModel = {
   unconsciousOnlyInjectionBlocked: true,
   hiddenPersuasionBlocked: true,
   removableLocalStorage: true,
+  localMemoryRemovable: true,
+  durableMemory: "universal-ai Chroma + SQLite when the local memory bridge is available",
   exportRequiresUserAction: true,
-  safetyNote: "NeuroSeed stores only user-entered study text, consent choices, cue events, and recall checks in this browser."
+  safetyNote: "NeuroSeed stores only user-entered study text, consent choices, cue events, and recall checks in local memory."
 };
 const sampleText = `Hippocampus helps bind new episodic memories before they are gradually integrated with cortical networks.
 Targeted memory reactivation links learned content with a sound or odor cue, then replays the cue during sleep to bias consolidation.
@@ -29,9 +39,9 @@ Sleep reinforcement can strengthen selected memories, but it cannot upload brand
 
 const els = {};
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   bindElements();
-  restoreState();
+  await restoreState();
   bindEvents();
   renderAll();
   drawMemoryMap();
@@ -75,6 +85,7 @@ function bindElements() {
     "sessionCountStat",
     "cuedRecallStat",
     "uncuedRecallStat",
+    "memoryStatus",
     "exportJsonBtn",
     "exportCsvBtn",
     "sessionList"
@@ -95,10 +106,10 @@ function bindEvents() {
   els.generateBtn.addEventListener("click", generateSeeds);
   els.startSleepBtn.addEventListener("click", startSleepSession);
   els.stopSleepBtn.addEventListener("click", stopSleepSession);
-  els.saveBtn.addEventListener("click", saveState);
+  els.saveBtn.addEventListener("click", () => saveState());
   els.resetBtn.addEventListener("click", resetState);
-  els.exportJsonBtn.addEventListener("click", exportJson);
-  els.exportCsvBtn.addEventListener("click", exportCsv);
+  els.exportJsonBtn.addEventListener("click", () => exportJson());
+  els.exportCsvBtn.addEventListener("click", () => exportCsv());
   els.volumeSlider.addEventListener("input", updateLoadStatus);
   els.hapticSlider.addEventListener("input", updateLoadStatus);
 }
@@ -321,6 +332,9 @@ function renderSleep() {
   els.eligibleCount.textContent = `${approved.length} eligible`;
   els.cueCounter.textContent = `${state.cuedIds.size} cues`;
   els.sleepStatus.textContent = activeSession ? "Running" : "Idle";
+  if (els.memoryStatus) {
+    els.memoryStatus.textContent = backendReady ? "universal-ai Chroma + SQLite" : "Browser cache";
+  }
 }
 
 function renderRecall() {
@@ -539,37 +553,99 @@ function saveState(showLog = true) {
     sessions: state.sessions,
     cuedIds: [...state.cuedIds],
     activeSessionId: state.activeSessionId,
-    recallResults: state.recallResults
+    recallResults: state.recallResults,
+    consentLogs: state.consentLogs
   };
+  
+  // Always save to localStorage for backward compatibility
   localStorage.setItem(stateKey, JSON.stringify(payload));
+  
+  scheduleBackendSync(payload);
+  
   if (showLog) {
-    toastLog("Storage", "Prototype state saved.");
+    toastLog("Storage", "State saved.");
     renderAll();
   }
 }
 
-function restoreState() {
+async function restoreState() {
   const raw = localStorage.getItem(stateKey);
+  const remote = await loadBackendState();
+  if (remote) {
+    if (!hasStoredNeuroSeedData(remote) && raw) {
+      try {
+        applyStatePayload(JSON.parse(raw));
+        toastLog("Memory", "Migrated browser cache into universal-ai memory.");
+        saveState(false);
+        return;
+      } catch {
+        localStorage.removeItem(stateKey);
+      }
+    }
+    applyStatePayload(remote);
+    toastLog("Memory", "Loaded from universal-ai local memory.");
+    return;
+  }
+
   if (!raw) return;
   try {
-    const payload = JSON.parse(raw);
-    state.seeds = (payload.seeds || []).map((seed) => ({
-      ...seed,
-      consent: seed.consent || {
-        status: seed.approved ? "awake-approved" : "pending",
-        model: consentModel.version,
-        approvedAt: null
-      }
-    }));
-    state.logs = payload.logs || [];
-    state.sessions = payload.sessions || [];
-    state.cuedIds = new Set(payload.cuedIds || []);
-    state.activeSessionId = payload.activeSessionId || null;
-    state.recallResults = normalizeRecallResults(payload.recallResults);
-    finalizeActiveSession();
+    applyStatePayload(JSON.parse(raw));
   } catch {
     localStorage.removeItem(stateKey);
   }
+}
+
+function applyStatePayload(payload) {
+  // Handle both IPC format (from SQLite) and local format (from localStorage)
+  state.seeds = (payload.seeds || []).map((seed) => {
+    // Convert from SQLite row format if needed
+    const normalized = {
+      ...seed,
+      keywords: typeof seed.keywords === 'string' ? JSON.parse(seed.keywords) : (seed.keywords || []),
+      cue: typeof seed.cue === 'string' ? JSON.parse(seed.cue) : (seed.cue || {})
+    };
+    
+    return {
+      ...normalized,
+      consent: normalized.consent || {
+        status: normalized.approved || normalized.consentStatus === 'awake-approved' ? "awake-approved" : "pending",
+        model: consentModel.version,
+        approvedAt: normalized.approved_at || normalized.approvedAt || null
+      }
+    };
+  });
+  
+  state.logs = payload.logs || [];
+  
+  state.sessions = (payload.sessions || []).map(session => {
+    // Convert from SQLite row format if needed
+    if (typeof session.approved_seed_ids === 'string') {
+      return {
+        ...session,
+        approvedSeedIds: JSON.parse(session.approved_seed_ids),
+        cueEvents: JSON.parse(session.cue_events),
+        uncuedSeedIds: JSON.parse(session.uncued_seed_ids),
+        settings: JSON.parse(session.settings),
+        safetyBoundary: JSON.parse(session.safety_boundary)
+      };
+    }
+    return session;
+  });
+  
+  state.cuedIds = new Set(payload.cuedIds || []);
+  state.activeSessionId = payload.activeSessionId || null;
+  state.recallResults = normalizeRecallResults(payload.recallResults);
+  state.consentLogs = payload.consentLogs || [];
+  finalizeActiveSession();
+}
+
+function hasStoredNeuroSeedData(payload) {
+  return Boolean(
+    (payload.seeds && payload.seeds.length)
+      || (payload.sessions && payload.sessions.length)
+      || (payload.recallResults && payload.recallResults.length)
+      || (payload.consentLogs && payload.consentLogs.length)
+  );
 }
 
 function resetState() {
@@ -580,7 +656,18 @@ function resetState() {
   state.cuedIds = new Set();
   state.activeSessionId = null;
   state.recallResults = [];
+  state.consentLogs = [];
   localStorage.removeItem(stateKey);
+  syncNow({
+    dataModel: { ...consentModel, resetRequested: true },
+    seeds: [],
+    logs: [],
+    sessions: [],
+    cuedIds: [],
+    activeSessionId: null,
+    recallResults: [],
+    consentLogs: []
+  });
   renderAll();
 }
 
@@ -668,7 +755,8 @@ function renderSessions() {
   }).join("");
 }
 
-function exportJson() {
+async function exportJson() {
+  await syncNow();
   const payload = analysisPayload();
   downloadFile(`neuroseed-analysis-${dateStamp()}.json`, JSON.stringify(payload, null, 2), "application/json");
   toastLog("Export", "Analysis JSON exported by user action.");
@@ -676,7 +764,8 @@ function exportJson() {
   renderAll();
 }
 
-function exportCsv() {
+async function exportCsv() {
+  await syncNow();
   const rows = [
     ["session_id", "session_started_at", "seed_id", "seed_title", "condition", "score", "checked_at", "answer"]
   ];
@@ -706,6 +795,7 @@ function analysisPayload() {
     seeds: state.seeds,
     sessions: state.sessions,
     recallResults: state.recallResults,
+    consentLogs: state.consentLogs,
     summary: {
       seedCount: state.seeds.length,
       approvedCount: state.seeds.filter((seed) => seed.approved).length,
@@ -714,6 +804,85 @@ function analysisPayload() {
       uncuedRecallAverage: averageScore(state.recallResults.filter((result) => result.condition === "uncued").map((result) => result.score))
     }
   };
+}
+
+async function loadBackendState() {
+  try {
+    const result = isElectron
+      ? await window.neuroSeedApi.getState()
+      : await fetchJson("/api/neuroseed/state");
+    if (!result.ok) {
+      backendReady = false;
+      return null;
+    }
+    backendReady = true;
+    return result;
+  } catch (error) {
+    console.error("Failed to load backend state:", error);
+    backendReady = false;
+    return null;
+  }
+}
+
+function scheduleBackendSync(payload) {
+  if (syncTimer) {
+    window.clearTimeout(syncTimer);
+  }
+  syncTimer = window.setTimeout(() => {
+    syncNow(payload);
+  }, 120);
+}
+
+async function syncNow(payload = null) {
+  const body = payload || {
+    dataModel: consentModel,
+    seeds: state.seeds,
+    logs: state.logs,
+    sessions: state.sessions,
+    cuedIds: [...state.cuedIds],
+    activeSessionId: state.activeSessionId,
+    recallResults: state.recallResults,
+    consentLogs: state.consentLogs
+  };
+
+  try {
+    const result = isElectron
+      ? await window.neuroSeedApi.putState(body)
+      : await fetchJson("/api/neuroseed/state", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+    if (!result.ok) throw new Error(result.error || "Unknown error");
+    
+    state.consentLogs = result.consentLogs || state.consentLogs;
+    backendReady = true;
+    renderSleep();
+    return true;
+  } catch (error) {
+    console.error("Failed to sync state:", error);
+    backendReady = false;
+    renderSleep();
+    return false;
+  }
+}
+
+async function fetchJson(path, options = {}) {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    cache: "no-store",
+    ...options
+  });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const payload = await response.json();
+      detail = payload.error || detail;
+    } catch {
+      // Keep the HTTP status text when the response is not JSON.
+    }
+    throw new Error(detail);
+  }
+  return response.json();
 }
 
 function normalizeRecallResults(value) {

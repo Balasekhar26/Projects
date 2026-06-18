@@ -1,6 +1,9 @@
 import builtins
+from pathlib import Path
 
+from backend.core import free_stack, platform_support
 from backend.tools import browser_tools, desktop_tools, screen_tools, voice_tools
+import backend.tools.finance_brain as finance_brain
 
 
 def test_browser_tool_degrades_when_playwright_missing(monkeypatch) -> None:
@@ -65,6 +68,62 @@ def test_voice_pipeline_status_is_not_browser_primary() -> None:
     assert status["wake"]["primary_decision"] in {"openwakeword_custom_models", "local_stt_wake_name_parser"}
     assert status["stt"]["engine"] == "faster-whisper"
     assert status["tts"]["available"] in {True, False}
+
+
+def test_free_stack_does_not_false_green_missing_optional_adapters(monkeypatch) -> None:
+    monkeypatch.setattr(free_stack.importlib.util, "find_spec", lambda _name: None)
+    monkeypatch.setattr(free_stack.shutil, "which", lambda _name: None)
+
+    report = free_stack.free_stack_report()
+    by_key = {item["key"]: item for item in report["capabilities"]}
+
+    for key in ["playwright", "pytesseract", "faster_whisper", "openwakeword", "tesseract"]:
+        assert by_key[key]["installed"] is False
+        assert by_key[key]["actual_installed"] is False
+        assert by_key[key]["status"] == "fallback"
+        assert by_key[key]["usable"] is True
+
+    assert report["ready_count"] < report["total_count"]
+    assert report["fallback_count"] >= 5
+
+
+def test_platform_support_reports_installed_vs_fallback_states(monkeypatch) -> None:
+    monkeypatch.setattr(platform_support, "_module_available", lambda _name: False)
+    monkeypatch.setattr(platform_support, "_tts_ready", lambda _system, _commands: False)
+    monkeypatch.setattr(platform_support, "_external_projects_root", lambda _root: Path("Z:/definitely-missing-external-projects"))
+    monkeypatch.setattr(
+        platform_support,
+        "_command_map",
+        lambda: {
+            "ollama": False,
+            "npm": True,
+            "node": True,
+            "tesseract": False,
+            "say": False,
+            "spd-say": False,
+            "espeak": False,
+            "localsend": False,
+            "localsend_app": False,
+        },
+    )
+
+    report = platform_support.platform_support_report()
+    features = {item["feature"]: item for item in report["features"]}
+
+    for feature in ["browser_automation", "ocr", "speech_to_text", "wake_word", "kronos_finance"]:
+        assert features[feature]["status"] == "fallback"
+        assert features[feature]["installed"] is False
+        assert features[feature]["usable"] is True
+
+
+def test_kronos_status_uses_fallback_when_repository_is_absent(monkeypatch) -> None:
+    monkeypatch.setattr(finance_brain, "KRONOS_ROOT", Path("Z:/definitely-missing-kronos"))
+    status = finance_brain.kronos_status()
+    assert status["installed"] is False
+    assert status["status"] == "fallback"
+    assert status["fallback_available"] is True
+    assert status["fallback_engine"] == "kattappa-local-ohlcv-baseline"
+    assert status["ready_for_real_kronos"] is False
 
 
 def test_voice_wake_command_parser() -> None:

@@ -122,13 +122,13 @@ export function FinancePlayground() {
         </header>
         {status ? (
           <div className="statusGrid">
-            <article className="ready">
-              <strong>{status.installed ? "Kronos installed" : "Baseline ready"}</strong>
+            <article className={status.installed ? "ready" : "missing"}>
+              <strong>{status.installed ? "Kronos installed" : "Kronos not installed"}</strong>
               <span>{status.path}</span>
             </article>
-            <article className="ready">
-              <strong>{status.ready_for_real_kronos ? "Kronos ready" : "Local baseline ready"}</strong>
-              <span>{missingImports(status).join(", ") || "All runtime imports found"}</span>
+            <article className={status.ready_for_real_kronos ? "ready" : "working"}>
+              <strong>{status.ready_for_real_kronos ? "Kronos ready" : "Kronos fallback active"}</strong>
+              <span>{missingImports(status).join(", ") || status.fallback_engine || "All runtime imports found"}</span>
             </article>
             <article>
               <strong>{status.default_model}</strong>

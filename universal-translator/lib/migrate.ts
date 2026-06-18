@@ -42,6 +42,58 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
     CREATE INDEX IF NOT EXISTS idx_translations_created_at ON translations(created_at);
     CREATE INDEX IF NOT EXISTS idx_translations_session_id ON translations(session_id);
+
+    -- NeuroSeed consent-first memory reinforcement tables
+    CREATE TABLE IF NOT EXISTS neuroseed_seeds (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      text TEXT NOT NULL,
+      keywords TEXT NOT NULL,
+      cue TEXT NOT NULL,
+      approved INTEGER NOT NULL DEFAULT 0,
+      consent_status TEXT NOT NULL DEFAULT 'pending',
+      consent_model TEXT NOT NULL,
+      approved_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS neuroseed_sessions (
+      id TEXT PRIMARY KEY,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      status TEXT NOT NULL DEFAULT 'running',
+      approved_seed_ids TEXT NOT NULL,
+      cue_events TEXT NOT NULL,
+      uncued_seed_ids TEXT NOT NULL,
+      settings TEXT NOT NULL,
+      safety_boundary TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS neuroseed_consent_logs (
+      id TEXT PRIMARY KEY,
+      seed_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      consent_status TEXT NOT NULL,
+      model_version TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS neuroseed_recall_results (
+      id TEXT PRIMARY KEY,
+      seed_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      seed_title TEXT NOT NULL,
+      condition TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      answer TEXT NOT NULL,
+      checked_at TEXT NOT NULL,
+      consent_model TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_neuroseed_seeds_created ON neuroseed_seeds(created_at);
+    CREATE INDEX IF NOT EXISTS idx_neuroseed_sessions_started ON neuroseed_sessions(started_at);
+    CREATE INDEX IF NOT EXISTS idx_neuroseed_recall_session ON neuroseed_recall_results(session_id);
   `);
 
   const now = new Date().toISOString();

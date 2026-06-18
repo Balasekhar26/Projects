@@ -55,12 +55,17 @@ def kronos_status() -> dict[str, Any]:
         "huggingface_hub": _has_module("huggingface_hub"),
         "safetensors": _has_module("safetensors"),
     }
+    installed = KRONOS_ROOT.exists()
+    ready = installed and all(imports.values())
     return {
-        "installed": KRONOS_ROOT.exists(),
+        "installed": installed,
+        "status": "installed" if ready else "fallback",
+        "fallback_available": True,
+        "fallback_engine": "kattappa-local-ohlcv-baseline",
         "path": str(KRONOS_ROOT),
         "license": "MIT" if (KRONOS_ROOT / "LICENSE").exists() else "unknown",
         "imports": imports,
-        "ready_for_real_kronos": KRONOS_ROOT.exists() and all(imports.values()),
+        "ready_for_real_kronos": ready,
         "default_tokenizer": DEFAULT_KRONOS_TOKENIZER,
         "default_model": DEFAULT_KRONOS_MODEL,
         "first_real_run_note": (

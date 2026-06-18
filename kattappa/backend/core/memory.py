@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -209,6 +210,83 @@ class MemorySystem:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS neuroseed_seeds (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    keywords TEXT NOT NULL DEFAULT '[]',
+                    cue TEXT NOT NULL DEFAULT '{}',
+                    approved INTEGER NOT NULL DEFAULT 0,
+                    consent_status TEXT NOT NULL DEFAULT 'pending',
+                    consent_model TEXT NOT NULL DEFAULT '',
+                    approved_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    memory_id TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS neuroseed_consent_logs (
+                    id TEXT PRIMARY KEY,
+                    seed_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    consent_model TEXT NOT NULL DEFAULT '',
+                    note TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS neuroseed_sessions (
+                    id TEXT PRIMARY KEY,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT,
+                    status TEXT NOT NULL,
+                    approved_seed_ids TEXT NOT NULL DEFAULT '[]',
+                    uncued_seed_ids TEXT NOT NULL DEFAULT '[]',
+                    settings TEXT NOT NULL DEFAULT '{}',
+                    safety_boundary TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS neuroseed_cue_events (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    seed_id TEXT NOT NULL,
+                    seed_title TEXT NOT NULL,
+                    cue_label TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    cued_at TEXT NOT NULL,
+                    FOREIGN KEY(session_id) REFERENCES neuroseed_sessions(id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS neuroseed_recall_results (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    session_started_at TEXT,
+                    seed_id TEXT NOT NULL,
+                    seed_title TEXT NOT NULL,
+                    condition TEXT NOT NULL,
+                    answer TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    checked_at TEXT NOT NULL,
+                    consent_model TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
 
     def _ensure_column(
         self,
@@ -222,6 +300,16 @@ class MemorySystem:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     def remember(self, text: str, category: str = "general", metadata: str = "{}") -> str:
+        with sqlite3.connect(self.config.sqlite_path) as conn:
+            return self._remember_with_connection(conn, text, category, metadata)
+
+    def _remember_with_connection(
+        self,
+        conn: sqlite3.Connection,
+        text: str,
+        category: str = "general",
+        metadata: str = "{}",
+    ) -> str:
         memory_id = str(uuid4())
         created_at = datetime.now().isoformat(timespec="seconds")
         self._collection().add(
@@ -229,17 +317,16 @@ class MemorySystem:
             documents=[text],
             metadatas=[{"category": category, "created_at": created_at}],
         )
-        with sqlite3.connect(self.config.sqlite_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO memories(
-                    id, category, text, created_at, metadata,
-                    decay_score, last_accessed, flagged_for_summary
-                )
-                VALUES (?, ?, ?, ?, ?, 1.0, ?, 0)
-                """,
-                (memory_id, category, text, created_at, metadata, created_at),
+        conn.execute(
+            """
+            INSERT INTO memories(
+                id, category, text, created_at, metadata,
+                decay_score, last_accessed, flagged_for_summary
             )
+            VALUES (?, ?, ?, ?, ?, 1.0, ?, 0)
+            """,
+            (memory_id, category, text, created_at, metadata, created_at),
+        )
         return memory_id
 
     def recall(self, query: str, n_results: int = 5) -> list[str]:
@@ -294,6 +381,489 @@ class MemorySystem:
         with sqlite3.connect(self.config.sqlite_path) as conn:
             row = conn.execute("SELECT COUNT(*) FROM memories").fetchone()
         return int(row[0]) if row else 0
+
+    def save_neuroseed_state(self, payload: dict[str, Any]) -> dict[str, Any]:
+        seeds = [item for item in payload.get("seeds", []) if isinstance(item, dict)]
+        sessions = [item for item in payload.get("sessions", []) if isinstance(item, dict)]
+        recall_results = [item for item in payload.get("recallResults", []) if isinstance(item, dict)]
+        data_model = payload.get("dataModel", {})
+        now = datetime.now().isoformat(timespec="seconds")
+        reset_requested = isinstance(data_model, dict) and data_model.get("resetRequested") is True
+
+        with sqlite3.connect(self.config.sqlite_path) as conn:
+            if reset_requested:
+                self._delete_neuroseed_semantic_memories(conn)
+                for table in (
+                    "neuroseed_recall_results",
+                    "neuroseed_cue_events",
+                    "neuroseed_sessions",
+                    "neuroseed_consent_logs",
+                    "neuroseed_seeds",
+                ):
+                    conn.execute(f"DELETE FROM {table}")
+            else:
+                approved_seed_ids: set[str] = set()
+                ever_approved_seed_ids = self._neuroseed_ever_approved_seed_ids(conn)
+                incoming_seed_ids: set[str] = set()
+                incoming_session_ids: set[str] = set()
+                incoming_recall_ids: set[str] = set()
+
+                for seed in seeds:
+                    seed_id = str(seed.get("id") or "").strip()
+                    text = str(seed.get("text") or "").strip()
+                    if not seed_id or not text:
+                        continue
+                    incoming_seed_ids.add(seed_id)
+                    title = str(seed.get("title") or "Untitled seed").strip()[:160] or "Untitled seed"
+                    consent = seed.get("consent") if isinstance(seed.get("consent"), dict) else {}
+                    approved = bool(seed.get("approved")) and consent.get("status") == "awake-approved"
+                    consent_status = str(consent.get("status") or ("awake-approved" if approved else "pending"))
+                    consent_model = str(consent.get("model") or data_model.get("version") or "")
+                    approved_at = str(consent.get("approvedAt") or "") or None
+                    existing = conn.execute(
+                        """
+                        SELECT approved, consent_status, memory_id
+                        FROM neuroseed_seeds
+                        WHERE id = ?
+                        """,
+                        (seed_id,),
+                    ).fetchone()
+                    memory_id = str(existing[2] or "") if existing else ""
+
+                    if approved:
+                        approved_seed_ids.add(seed_id)
+                        ever_approved_seed_ids.add(seed_id)
+                        if not memory_id:
+                            memory_id = self._remember_with_connection(
+                                conn,
+                                text,
+                                category="neuroseed_approved_seed",
+                                metadata=_json_dump(
+                                    {
+                                        "project": "neuroseed",
+                                        "seed_id": seed_id,
+                                        "title": title,
+                                        "cue": seed.get("cue") or {},
+                                        "consent_model": consent_model,
+                                        "approved_at": approved_at,
+                                    }
+                                ),
+                            )
+
+                    if (
+                        existing is None
+                        or bool(existing[0]) != approved
+                        or str(existing[1] or "") != consent_status
+                    ):
+                        conn.execute(
+                            """
+                            INSERT INTO neuroseed_consent_logs(
+                                id, seed_id, action, status, consent_model, note, created_at
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                str(uuid4()),
+                                seed_id,
+                                "awake_approval" if approved else "approval_removed",
+                                consent_status,
+                                consent_model,
+                                "User-controlled NeuroSeed consent change.",
+                                now,
+                            ),
+                        )
+
+                    conn.execute(
+                        """
+                        INSERT INTO neuroseed_seeds(
+                            id, title, text, keywords, cue, approved, consent_status,
+                            consent_model, approved_at, created_at, updated_at, memory_id
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            title = excluded.title,
+                            text = excluded.text,
+                            keywords = excluded.keywords,
+                            cue = excluded.cue,
+                            approved = excluded.approved,
+                            consent_status = excluded.consent_status,
+                            consent_model = excluded.consent_model,
+                            approved_at = excluded.approved_at,
+                            updated_at = excluded.updated_at,
+                            memory_id = excluded.memory_id
+                        """,
+                        (
+                            seed_id,
+                            title,
+                            text,
+                            _json_dump(seed.get("keywords") or []),
+                            _json_dump(seed.get("cue") or {}),
+                            1 if approved else 0,
+                            consent_status,
+                            consent_model,
+                            approved_at,
+                            str(seed.get("createdAt") or now),
+                            now,
+                            memory_id,
+                        ),
+                    )
+
+                for session in sessions:
+                    session_id = str(session.get("id") or "").strip()
+                    if session_id:
+                        incoming_session_ids.add(session_id)
+                    self._upsert_neuroseed_session(
+                        conn,
+                        session,
+                        approved_seed_ids=approved_seed_ids,
+                        ever_approved_seed_ids=ever_approved_seed_ids,
+                        now=now,
+                    )
+
+                session_cues = self._neuroseed_session_cue_index(conn)
+                for result in recall_results:
+                    result_id = str(result.get("id") or "").strip()
+                    if result_id:
+                        incoming_recall_ids.add(result_id)
+                    self._upsert_neuroseed_recall_result(conn, result, session_cues)
+
+                self._delete_absent_neuroseed_seeds(conn, incoming_seed_ids)
+                self._delete_absent(conn, "neuroseed_sessions", incoming_session_ids)
+                self._delete_absent(conn, "neuroseed_recall_results", incoming_recall_ids)
+                if incoming_session_ids:
+                    self._delete_absent(conn, "neuroseed_cue_events", incoming_session_ids, column="session_id")
+                else:
+                    conn.execute("DELETE FROM neuroseed_cue_events")
+
+        return self.get_neuroseed_state()
+
+    def get_neuroseed_state(self) -> dict[str, Any]:
+        with sqlite3.connect(self.config.sqlite_path) as conn:
+            seed_rows = conn.execute(
+                """
+                SELECT id, title, text, keywords, cue, approved, consent_status,
+                       consent_model, approved_at, created_at
+                FROM neuroseed_seeds
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
+            session_rows = conn.execute(
+                """
+                SELECT id, started_at, ended_at, status, approved_seed_ids,
+                       uncued_seed_ids, settings, safety_boundary
+                FROM neuroseed_sessions
+                ORDER BY started_at DESC
+                """
+            ).fetchall()
+            recall_rows = conn.execute(
+                """
+                SELECT id, session_id, session_started_at, seed_id, seed_title,
+                       condition, answer, score, checked_at, consent_model
+                FROM neuroseed_recall_results
+                ORDER BY checked_at DESC
+                """
+            ).fetchall()
+            consent_rows = conn.execute(
+                """
+                SELECT id, seed_id, action, status, consent_model, note, created_at
+                FROM neuroseed_consent_logs
+                ORDER BY created_at DESC
+                LIMIT 200
+                """
+            ).fetchall()
+            cue_rows = conn.execute(
+                """
+                SELECT id, session_id, seed_id, seed_title, cue_label, stage, cued_at
+                FROM neuroseed_cue_events
+                ORDER BY cued_at ASC
+                """
+            ).fetchall()
+
+        cue_events_by_session: dict[str, list[dict[str, str]]] = {}
+        cued_ids: set[str] = set()
+        for row in cue_rows:
+            event = {
+                "id": str(row[0]),
+                "sessionId": str(row[1]),
+                "seedId": str(row[2]),
+                "seedTitle": str(row[3]),
+                "cueLabel": str(row[4]),
+                "stage": str(row[5]),
+                "cuedAt": str(row[6]),
+            }
+            cue_events_by_session.setdefault(event["sessionId"], []).append(event)
+            cued_ids.add(event["seedId"])
+
+        return {
+            "dataModel": {
+                "version": "pilot-consent-v1",
+                "durableMemory": "universal-ai Chroma + SQLite",
+                "exportRequiresUserAction": True,
+            },
+            "seeds": [
+                {
+                    "id": str(row[0]),
+                    "title": str(row[1]),
+                    "text": str(row[2]),
+                    "keywords": _json_load(row[3], []),
+                    "cue": _json_load(row[4], {}),
+                    "approved": bool(row[5]),
+                    "consent": {
+                        "status": str(row[6]),
+                        "model": str(row[7] or ""),
+                        "approvedAt": row[8],
+                    },
+                    "createdAt": str(row[9]),
+                }
+                for row in seed_rows
+            ],
+            "logs": [],
+            "sessions": [
+                {
+                    "id": str(row[0]),
+                    "startedAt": str(row[1]),
+                    "endedAt": row[2],
+                    "status": str(row[3]),
+                    "approvedSeedIds": _json_load(row[4], []),
+                    "cueEvents": cue_events_by_session.get(str(row[0]), []),
+                    "uncuedSeedIds": _json_load(row[5], []),
+                    "settings": _json_load(row[6], {}),
+                    "safetyBoundary": _json_load(row[7], {}),
+                }
+                for row in session_rows
+            ],
+            "cuedIds": sorted(cued_ids),
+            "activeSessionId": None,
+            "recallResults": [
+                {
+                    "id": str(row[0]),
+                    "sessionId": str(row[1]),
+                    "sessionStartedAt": row[2],
+                    "seedId": str(row[3]),
+                    "seedTitle": str(row[4]),
+                    "condition": str(row[5]),
+                    "answer": str(row[6]),
+                    "score": float(row[7]),
+                    "checkedAt": str(row[8]),
+                    "consentModel": str(row[9] or ""),
+                }
+                for row in recall_rows
+            ],
+            "consentLogs": [
+                {
+                    "id": str(row[0]),
+                    "seedId": str(row[1]),
+                    "action": str(row[2]),
+                    "status": str(row[3]),
+                    "consentModel": str(row[4] or ""),
+                    "note": str(row[5]),
+                    "createdAt": str(row[6]),
+                }
+                for row in consent_rows
+            ],
+        }
+
+    def _neuroseed_ever_approved_seed_ids(self, conn: sqlite3.Connection) -> set[str]:
+        rows = conn.execute(
+            """
+            SELECT id FROM neuroseed_seeds WHERE approved = 1
+            UNION
+            SELECT seed_id FROM neuroseed_consent_logs WHERE status = 'awake-approved'
+            """
+        ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def _delete_absent(
+        self,
+        conn: sqlite3.Connection,
+        table: str,
+        ids: set[str],
+        column: str = "id",
+    ) -> None:
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            conn.execute(f"DELETE FROM {table} WHERE {column} NOT IN ({placeholders})", tuple(ids))
+        else:
+            conn.execute(f"DELETE FROM {table}")
+
+    def _delete_absent_neuroseed_seeds(self, conn: sqlite3.Connection, ids: set[str]) -> None:
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(
+                f"""
+                SELECT memory_id
+                FROM neuroseed_seeds
+                WHERE id NOT IN ({placeholders}) AND memory_id <> ''
+                """,
+                tuple(ids),
+            ).fetchall()
+            self._delete_semantic_memory_ids(conn, [str(row[0]) for row in rows])
+            conn.execute(f"DELETE FROM neuroseed_seeds WHERE id NOT IN ({placeholders})", tuple(ids))
+        else:
+            self._delete_neuroseed_semantic_memories(conn)
+            conn.execute("DELETE FROM neuroseed_seeds")
+
+    def _delete_neuroseed_semantic_memories(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            """
+            SELECT memory_id FROM neuroseed_seeds WHERE memory_id <> ''
+            UNION
+            SELECT id FROM memories WHERE category = 'neuroseed_approved_seed'
+            """
+        ).fetchall()
+        self._delete_semantic_memory_ids(conn, [str(row[0]) for row in rows])
+        conn.execute("DELETE FROM memories WHERE category = 'neuroseed_approved_seed'")
+
+    def _delete_semantic_memory_ids(self, conn: sqlite3.Connection, ids: list[str]) -> None:
+        clean_ids = [memory_id for memory_id in ids if memory_id]
+        if not clean_ids:
+            return
+        try:
+            self._collection().delete(ids=clean_ids)
+        except Exception:
+            pass
+        placeholders = ",".join("?" for _ in clean_ids)
+        conn.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", tuple(clean_ids))
+
+    def _upsert_neuroseed_session(
+        self,
+        conn: sqlite3.Connection,
+        session: dict[str, Any],
+        approved_seed_ids: set[str],
+        ever_approved_seed_ids: set[str],
+        now: str,
+    ) -> None:
+        session_id = str(session.get("id") or "").strip()
+        started_at = str(session.get("startedAt") or "").strip()
+        if not session_id or not started_at:
+            return
+        requested_seed_ids = [str(item) for item in session.get("approvedSeedIds", [])]
+        allowed_seed_ids = [
+            seed_id
+            for seed_id in requested_seed_ids
+            if seed_id in approved_seed_ids or seed_id in ever_approved_seed_ids
+        ]
+        if requested_seed_ids and not allowed_seed_ids:
+            raise ValueError("NeuroSeed session blocked: no awake-approved seeds.")
+
+        cue_events = [item for item in session.get("cueEvents", []) if isinstance(item, dict)]
+        cued_seed_ids: set[str] = set()
+        for event in cue_events:
+            seed_id = str(event.get("seedId") or "")
+            if seed_id not in allowed_seed_ids:
+                raise ValueError("NeuroSeed cue blocked: seed was not awake-approved for this session.")
+            cued_seed_ids.add(seed_id)
+
+        uncued_seed_ids = [seed_id for seed_id in allowed_seed_ids if seed_id not in cued_seed_ids]
+        conn.execute(
+            """
+            INSERT INTO neuroseed_sessions(
+                id, started_at, ended_at, status, approved_seed_ids, uncued_seed_ids,
+                settings, safety_boundary, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                started_at = excluded.started_at,
+                ended_at = excluded.ended_at,
+                status = excluded.status,
+                approved_seed_ids = excluded.approved_seed_ids,
+                uncued_seed_ids = excluded.uncued_seed_ids,
+                settings = excluded.settings,
+                safety_boundary = excluded.safety_boundary,
+                updated_at = excluded.updated_at
+            """,
+            (
+                session_id,
+                started_at,
+                session.get("endedAt"),
+                str(session.get("status") or "completed"),
+                _json_dump(allowed_seed_ids),
+                _json_dump(uncued_seed_ids),
+                _json_dump(session.get("settings") or {}),
+                _json_dump(session.get("safetyBoundary") or {}),
+                now,
+                now,
+            ),
+        )
+        conn.execute("DELETE FROM neuroseed_cue_events WHERE session_id = ?", (session_id,))
+        for event in cue_events:
+            conn.execute(
+                """
+                INSERT INTO neuroseed_cue_events(
+                    id, session_id, seed_id, seed_title, cue_label, stage, cued_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(event.get("id") or uuid4()),
+                    session_id,
+                    str(event.get("seedId") or ""),
+                    str(event.get("seedTitle") or ""),
+                    str(event.get("cueLabel") or ""),
+                    str(event.get("stage") or ""),
+                    str(event.get("cuedAt") or now),
+                ),
+            )
+
+    def _neuroseed_session_cue_index(self, conn: sqlite3.Connection) -> dict[str, set[str]]:
+        rows = conn.execute("SELECT session_id, seed_id FROM neuroseed_cue_events").fetchall()
+        index: dict[str, set[str]] = {}
+        for session_id, seed_id in rows:
+            index.setdefault(str(session_id), set()).add(str(seed_id))
+        return index
+
+    def _upsert_neuroseed_recall_result(
+        self,
+        conn: sqlite3.Connection,
+        result: dict[str, Any],
+        session_cues: dict[str, set[str]],
+    ) -> None:
+        result_id = str(result.get("id") or "").strip()
+        seed_id = str(result.get("seedId") or "").strip()
+        session_id = str(result.get("sessionId") or "manual").strip() or "manual"
+        condition = str(result.get("condition") or "").strip()
+        if not result_id or not seed_id:
+            return
+        if condition not in {"cued", "uncued"}:
+            raise ValueError("NeuroSeed recall condition must be cued or uncued.")
+        if session_id != "manual":
+            expected = "cued" if seed_id in session_cues.get(session_id, set()) else "uncued"
+            if condition != expected:
+                raise ValueError("NeuroSeed recall condition does not match session cue history.")
+        score = float(result.get("score") or 0)
+        if score < 0 or score > 1:
+            raise ValueError("NeuroSeed recall score must be between 0 and 1.")
+        conn.execute(
+            """
+            INSERT INTO neuroseed_recall_results(
+                id, session_id, session_started_at, seed_id, seed_title, condition,
+                answer, score, checked_at, consent_model
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                session_id = excluded.session_id,
+                session_started_at = excluded.session_started_at,
+                seed_id = excluded.seed_id,
+                seed_title = excluded.seed_title,
+                condition = excluded.condition,
+                answer = excluded.answer,
+                score = excluded.score,
+                checked_at = excluded.checked_at,
+                consent_model = excluded.consent_model
+            """,
+            (
+                result_id,
+                session_id,
+                result.get("sessionStartedAt"),
+                seed_id,
+                str(result.get("seedTitle") or ""),
+                condition,
+                str(result.get("answer") or ""),
+                score,
+                str(result.get("checkedAt") or datetime.now().isoformat(timespec="seconds")),
+                str(result.get("consentModel") or ""),
+            ),
+        )
 
     def create_chat_session(self, title: str = "New chat") -> dict[str, str]:
         session_id = str(uuid4())
@@ -1069,6 +1639,17 @@ def _tool_adoption_row(row: tuple[object, ...]) -> dict[str, str]:
         "created_at": str(row[8]),
         "updated_at": str(row[9]),
     }
+
+
+def _json_dump(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+
+
+def _json_load(value: object, fallback: Any) -> Any:
+    try:
+        return json.loads(str(value or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return fallback
 
 
 def _chat_title(content: str) -> str:

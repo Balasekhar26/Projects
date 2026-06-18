@@ -40,25 +40,25 @@ def build_capability_ladder() -> dict[str, Any]:
             "L2",
             "Voice assistant",
             "Can become wake-word, speech-to-text, and local TTS driven.",
-            _ready(True),
+            _all_ready(capabilities, ["faster_whisper", "piper", "openwakeword"]),
             evidence=_capability_evidence(capabilities, ["faster_whisper", "piper", "openwakeword"]),
-            next_step="Ready for typed chat. Optional: install voice packages for speech mode.",
+            next_step="Typed chat is usable. Install openWakeWord, faster-whisper, and Piper for full offline speech mode.",
         ),
         _level(
             "L3",
             "Screen and browser operator",
             "Can see browser/screen state and automate web workflows.",
-            _ready(True),
+            _all_ready(capabilities, ["playwright", "mss", "pytesseract", "tesseract"]),
             evidence=_capability_evidence(capabilities, ["playwright", "mss", "pytesseract", "tesseract"]),
-            next_step="Ready in guide mode. Optional: install Playwright and OCR for direct screen understanding.",
+            next_step="Guide mode is usable. Install Playwright, MSS, pytesseract, and Tesseract for direct browser/screen understanding.",
         ),
         _level(
             "L4",
             "Cursor-guided desktop control",
             "Supports observe, guide, assist, and autonomous modes with approval gates.",
-            _ready(True),
+            _all_ready(capabilities, ["pyautogui", "pywinauto"]) if config.desktop_enabled else ("disabled", 0),
             evidence=f"desktop_enabled={config.desktop_enabled}; {_capability_evidence(capabilities, ['pyautogui', 'pywinauto'])}",
-            next_step="Ready in safe guide mode. Optional: enable desktop control after testing.",
+            next_step="Observe/guide mode is usable. Enable desktop control only after adapter testing and approval gates are verified.",
         ),
         _level(
             "L5",
@@ -83,8 +83,11 @@ def build_capability_ladder() -> dict[str, Any]:
             "L7",
             "Autonomous multi-step work",
             "Breaks large work into auditable steps, acts only through safety and approval gates.",
-            _ready(True),
-            evidence=f"{stack['ready_count']}/{stack['total_count']} free/local capabilities ready.",
+            _free_stack_readiness(stack),
+            evidence=(
+                f"{stack['installed_count']}/{stack['total_count']} adapters installed; "
+                f"{stack['fallback_count']} using fallback; {stack['usable_count']} usable."
+            ),
             next_step="Ready now. Keep risky actions approval-gated.",
         ),
     ]
@@ -130,10 +133,13 @@ def _ready(value: bool) -> tuple[str, int]:
 
 def _all_ready(capabilities: dict[str, dict[str, Any]], keys: list[str]) -> tuple[str, int]:
     count = sum(1 for key in keys if capabilities[key]["installed"])
+    usable_count = sum(1 for key in keys if capabilities[key].get("usable", capabilities[key]["installed"]))
     if count == len(keys):
         return ("ready", 100)
     if count:
         return ("partial", round((count / len(keys)) * 100))
+    if usable_count:
+        return ("fallback", 25)
     return ("missing", 0)
 
 
@@ -142,7 +148,25 @@ def _any_ready(capabilities: dict[str, dict[str, Any]], keys: list[str]) -> bool
 
 
 def _capability_evidence(capabilities: dict[str, dict[str, Any]], keys: list[str]) -> str:
-    return ", ".join(f"{capabilities[key]['name']}={capabilities[key]['status']}" for key in keys)
+    evidence = []
+    for key in keys:
+        item = capabilities[key]
+        installed = "installed" if item["installed"] else "not installed"
+        evidence.append(f"{item['name']}={item['status']} ({installed})")
+    return ", ".join(evidence)
+
+
+def _free_stack_readiness(stack: dict[str, Any]) -> tuple[str, int]:
+    total = stack["total_count"] or 1
+    installed = stack.get("installed_count", stack.get("ready_count", 0))
+    usable = stack.get("usable_count", installed)
+    if installed == total:
+        return ("ready", 100)
+    if usable == total:
+        return ("fallback", round((installed / total) * 100))
+    if installed:
+        return ("partial", round((installed / total) * 100))
+    return ("missing", 0)
 
 
 def _model_evidence(models: list[str]) -> str:

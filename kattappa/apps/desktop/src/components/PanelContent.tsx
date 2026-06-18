@@ -1,6 +1,7 @@
 import type {
   BuilderProfile,
   CapabilityLadder,
+  FreeCapability,
   FreeStack,
   Health,
   Improvement,
@@ -340,9 +341,11 @@ function ToolsPanel({
       <h2>Tools</h2>
       {freeStack && (
         <p>
-          {freeStack.ready_count === freeStack.total_count
-            ? "All free/local capabilities are ready."
-            : `${freeStack.ready_count}/${freeStack.total_count} capabilities are ready. Optional upgrades stay green with fallbacks.`}
+          {freeStack.installed_count ?? freeStack.ready_count}/{freeStack.total_count} adapters installed.
+          {" "}
+          {freeStack.fallback_count ?? 0} using safe fallback.
+          {" "}
+          {freeStack.missing_count ?? 0} unavailable.
         </p>
       )}
       {sourcePolicy && (
@@ -435,15 +438,16 @@ function ToolsPanel({
         <dt>Desktop</dt>
         <dd>Observe and guide do not need approval. Assist/autonomous pause before actions that change, install, delete, send, or control anything risky.</dd>
         <dt>Vision</dt>
-        <dd>Screenshot and OCR tools are installed.</dd>
+        <dd>Screenshot and OCR show installed, fallback, or missing status in the capability list below.</dd>
       </dl>
       {freeStack && (
         <div className="capabilityGrid">
           {freeStack.capabilities.map((item) => (
-            <article key={item.key} className="capability ready">
+            <article key={item.key} className={`capability ${capabilityTone(item)}`}>
               <strong>{item.name}</strong>
-              <span>{item.installed ? "Ready" : "Ready via fallback"}</span>
+              <span>{capabilityLabel(item)}</span>
               <p>{item.role}</p>
+              {!item.installed && <small>{item.install_hint}</small>}
             </article>
           ))}
         </div>
@@ -724,16 +728,30 @@ function ProjectsPanel({ projectEcosystem, projectIndex, health, onRefreshHealth
 function statusTone(status: string) {
   const value = status.toLowerCase();
   if (["ready", "done", "completed", "success", "trusted", "installed", "supported"].includes(value)) return "ready";
-  if (["approved", "running", "active", "paused", "partial", "degraded", "in_progress", "requested"].includes(value)) return "working";
-  if (["pending", "draft", "missing", "needs_dependency", "failed", "blocked", "error", "rejected"].includes(value)) return "ready";
-  return "ready";
+  if (["approved", "running", "active", "paused", "partial", "degraded", "fallback", "in_progress", "requested", "pending", "draft"].includes(value)) return "working";
+  if (["missing", "needs_dependency", "failed", "blocked", "error", "rejected", "disabled", "manual_required"].includes(value)) return "missing";
+  return "working";
 }
 
 function statusLabel(status: string) {
   const value = status.toLowerCase();
-  if (value === "missing" || value === "needs_dependency") return "Ready via fallback";
+  if (value === "missing" || value === "needs_dependency") return "Missing";
   if (value === "pending" || value === "draft") return "Ready for review";
-  if (value === "partial" || value === "degraded" || value === "in_progress") return "Ready, running";
-  if (value === "failed" || value === "blocked" || value === "error" || value === "rejected") return "Handled safely";
+  if (value === "fallback") return "Fallback";
+  if (value === "partial" || value === "degraded" || value === "in_progress") return "Partially ready";
+  if (value === "failed" || value === "blocked" || value === "error" || value === "rejected") return "Needs attention";
+  if (value === "disabled") return "Disabled";
   return status.replace(/_/g, " ");
+}
+
+function capabilityTone(item: FreeCapability) {
+  if (item.installed || item.actual_installed) return "ready";
+  if (item.fallback_available || item.usable) return "working";
+  return "missing";
+}
+
+function capabilityLabel(item: FreeCapability) {
+  if (item.installed || item.actual_installed) return "Installed";
+  if (item.fallback_available || item.usable) return "Fallback active";
+  return item.required ? "Required missing" : "Missing";
 }

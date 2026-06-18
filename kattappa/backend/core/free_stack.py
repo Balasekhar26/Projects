@@ -20,7 +20,10 @@ class FreeCapability:
     installed: bool
     status: str
     install_hint: str
-    actual_installed: bool = True
+    actual_installed: bool = False
+    fallback_available: bool = True
+    required: bool = False
+    fallback: str = "Built-in safe fallback keeps the desktop app usable."
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -31,6 +34,10 @@ class FreeCapability:
             "status": self.status,
             "install_hint": self.install_hint,
             "actual_installed": self.actual_installed,
+            "fallback_available": self.fallback_available,
+            "required": self.required,
+            "usable": self.installed or self.fallback_available,
+            "fallback": self.fallback,
         }
 
 
@@ -189,11 +196,14 @@ def free_stack_report() -> dict[str, Any]:
         "free_model_notes": [
             "Gemma 4 12B is cataloged as a future local multimodal profile; install only if the machine has enough RAM/VRAM.",
             "Google AI Edge Gallery and LiteRT-LM are mobile/edge local runtimes, not required for the Windows desktop first run.",
-            "If Ollama models are not present, Kattappa AI OS stays green by using built-in local routing, templates, memory, and tool-specific fallbacks.",
+            "If Ollama models are not present, Kattappa AI OS stays usable by using built-in local routing, templates, memory, and tool-specific fallbacks.",
             "OpenRouter is allowed only as a disabled-by-default free-model cloud fallback with explicit user approval.",
         ],
     }
-    ready_count = sum(1 for item in capabilities if item.installed)
+    installed_count = sum(1 for item in capabilities if item.installed)
+    fallback_count = sum(1 for item in capabilities if not item.installed and item.fallback_available)
+    missing_count = sum(1 for item in capabilities if not item.installed and not item.fallback_available)
+    usable_count = sum(1 for item in capabilities if item.installed or item.fallback_available)
     return {
         "mode": "fully_free_local_first",
         "approval_required_for_actions": True,
@@ -201,7 +211,11 @@ def free_stack_report() -> dict[str, Any]:
         "shell_enabled": config.shell_enabled,
         "capabilities": [item.to_dict() for item in capabilities],
         "models": model_status,
-        "ready_count": ready_count,
+        "ready_count": installed_count,
+        "installed_count": installed_count,
+        "fallback_count": fallback_count,
+        "missing_count": missing_count,
+        "usable_count": usable_count,
         "total_count": len(capabilities),
         "next_best_steps": _next_steps(capabilities, model_status),
         "source_first": source_first_policy(),
@@ -213,12 +227,13 @@ def _python_package(
     module: str, name: str, role: str, install_hint: str
 ) -> FreeCapability:
     installed = importlib.util.find_spec(module) is not None
+    status = "installed" if installed else "fallback"
     return FreeCapability(
         key=module,
         name=name,
         role=role,
-        installed=True,
-        status="ready",
+        installed=installed,
+        status=status,
         install_hint=install_hint if installed else f"Optional upgrade: {install_hint}. Built-in fallback is active.",
         actual_installed=installed,
     )
@@ -226,12 +241,13 @@ def _python_package(
 
 def _command(command: str, name: str, role: str, install_hint: str) -> FreeCapability:
     installed = shutil.which(command) is not None
+    status = "installed" if installed else "fallback"
     return FreeCapability(
         key=command,
         name=name,
         role=role,
-        installed=True,
-        status="ready",
+        installed=installed,
+        status=status,
         install_hint=install_hint if installed else f"Optional upgrade: {install_hint}. Built-in fallback is active.",
         actual_installed=installed,
     )
@@ -241,12 +257,13 @@ def _optional_command_any(
     commands: list[str], key: str, name: str, role: str, install_hint: str
 ) -> FreeCapability:
     installed = any(shutil.which(command) is not None for command in commands)
+    status = "installed" if installed else "fallback"
     return FreeCapability(
         key=key,
         name=name,
         role=role,
-        installed=True,
-        status="ready",
+        installed=installed,
+        status=status,
         install_hint=install_hint if installed else f"Optional upgrade: {install_hint}. Core Kattappa AI OS does not require it.",
         actual_installed=installed,
     )
@@ -256,12 +273,13 @@ def _path(
     path: Path, key: str, name: str, role: str, install_hint: str
 ) -> FreeCapability:
     installed = path.exists()
+    status = "installed" if installed else "fallback"
     return FreeCapability(
         key=key,
         name=name,
         role=role,
-        installed=True,
-        status="ready",
+        installed=installed,
+        status=status,
         install_hint=install_hint if installed else f"Optional reference: {install_hint}. Local baseline remains ready.",
         actual_installed=installed,
     )
@@ -270,8 +288,22 @@ def _path(
 def _next_steps(
     capabilities: list[FreeCapability], model_status: dict[str, Any]
 ) -> list[str]:
+    missing_optional = [item.name for item in capabilities if not item.installed and item.fallback_available]
+    missing_required = [item.name for item in capabilities if not item.installed and not item.fallback_available]
     steps: list[str] = []
-    steps.append(
-        "All Kattappa AI OS capability checks are green. Optional upgrades can be added later, but the app is ready now."
-    )
+    if missing_required:
+        steps.append(
+            "Install required missing tools before using those features: "
+            + ", ".join(missing_required[:6])
+            + "."
+        )
+    if missing_optional:
+        steps.append(
+            "Optional adapters are not installed and are running through safe fallbacks: "
+            + ", ".join(missing_optional[:8])
+            + "."
+        )
+    if not missing_required and not missing_optional:
+        steps.append("All listed free/local capability adapters are installed.")
+    steps.append("Typed chat, memory, planning, and approval-gated workflows remain usable while optional adapters are absent.")
     return steps

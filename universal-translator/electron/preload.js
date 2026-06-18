@@ -24,3 +24,9 @@ contextBridge.exposeInMainWorld("translatorApp", {
     return () => ipcRenderer.removeListener("translator:state", listener);
   },
 });
+
+// NeuroSeed API for consent-first memory reinforcement
+contextBridge.exposeInMainWorld("neuroSeedApi", {
+  getState: () => ipcRenderer.invoke("neuroseed:get-state"),
+  putState: (payload) => ipcRenderer.invoke("neuroseed:put-state", payload),
+});

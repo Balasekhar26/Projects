@@ -144,6 +144,11 @@ export type FreeCapability = {
   installed: boolean;
   status: string;
   install_hint: string;
+  actual_installed?: boolean;
+  fallback_available?: boolean;
+  required?: boolean;
+  usable?: boolean;
+  fallback?: string;
 };
 
 export type FreeStack = {
@@ -159,6 +164,10 @@ export type FreeStack = {
     missing_recommended: string[];
   };
   ready_count: number;
+  installed_count?: number;
+  fallback_count?: number;
+  missing_count?: number;
+  usable_count?: number;
   total_count: number;
   next_best_steps: string[];
   source_first?: SourcePolicy;
@@ -373,6 +382,9 @@ export type FinanceCsvForecastRequest = {
 
 export type KronosStatus = {
   installed: boolean;
+  status?: string;
+  fallback_available?: boolean;
+  fallback_engine?: string;
   path: string;
   license: string;
   imports: Record<string, boolean>;
@@ -416,6 +428,10 @@ export type PlatformFeature = {
   adapter: string;
   setup_hint: string;
   notes: string;
+  installed?: boolean;
+  fallback_available?: boolean;
+  required?: boolean;
+  usable?: boolean;
 };
 
 export type PlatformSupport = {

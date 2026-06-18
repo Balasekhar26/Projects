@@ -635,7 +635,7 @@ button.active {
 }
 
 .importantFiles .ready { border-color: #3f806a; }
-.importantFiles .missing { border-color: #22c55e; }
+.importantFiles .missing { border-color: #ef4444; }
 
 .resumePanel ol {
   margin: 0;
@@ -747,7 +747,7 @@ button.active {
 .financeResultCard.ready { border-color: #22c55e; }
 
 .statusGrid article.missing,
-.financeResultCard.missing { border-color: #22c55e; }
+.financeResultCard.missing { border-color: #ef4444; }
 
 .statusGrid article.working,
 .financeResultCard.working { border-color: #eab308; }
@@ -866,7 +866,7 @@ button.active {
 }
 
 .capability.missing {
-  border-color: #22c55e;
+  border-color: #ef4444;
 }
 
 .capability.working {
@@ -926,7 +926,7 @@ button.active {
 
 .scoutItem.ready { border-color: #22c55e; }
 .scoutItem.working { border-color: #eab308; }
-.scoutItem.missing { border-color: #22c55e; }
+.scoutItem.missing { border-color: #ef4444; }
 
 .scoutItem header {
   display: flex;
@@ -1041,7 +1041,7 @@ button.active {
 }
 
 .diagnosticSummary .ready { border-color: #22c55e; }
-.diagnosticSummary .missing { border-color: #22c55e; }
+.diagnosticSummary .missing { border-color: #ef4444; }
 .diagnosticSummary .degraded { border-color: #eab308; }
 
 .diagnosticList,
@@ -1061,7 +1061,7 @@ button.active {
 }
 
 .diagnosticItem.ready { border-color: #22c55e; }
-.diagnosticItem.missing { border-color: #22c55e; }
+.diagnosticItem.missing { border-color: #ef4444; }
 .diagnosticItem.degraded { border-color: #eab308; }
 
 .diagnosticItem header,
@@ -1111,7 +1111,7 @@ button.active {
 .installItem.running { border-color: #eab308; }
 .installItem.failed,
 .installItem.blocked,
-.installItem.missing { border-color: #22c55e; }
+.installItem.missing { border-color: #ef4444; }
 .installItem span {
   color: #d1d5db;
   font-size: 13px;
@@ -1172,7 +1172,7 @@ button.active {
 .ladderItem.ready { border-color: #22c55e; }
 .ladderItem.partial,
 .ladderItem.working { border-color: #eab308; }
-.ladderItem.missing { border-color: #22c55e; }
+.ladderItem.missing { border-color: #ef4444; }
 
 .ladderItem small {
   color: #aab8b4;
@@ -1180,7 +1180,7 @@ button.active {
 }
 
 .skillItem.draft,
-.skillItem.missing { border-color: #22c55e; }
+.skillItem.missing { border-color: #ef4444; }
 .skillItem.approved,
 .skillItem.working { border-color: #eab308; }
 .skillItem.trusted,

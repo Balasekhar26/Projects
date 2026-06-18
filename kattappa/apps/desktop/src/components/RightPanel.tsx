@@ -43,11 +43,11 @@ export function RightPanel({
         <dt>Memory</dt>
         <dd>{health ? `${health.memory_count} memories` : "Chroma + SQLite"}</dd>
         <dt>Automation</dt>
-        <dd>Browser ready, desktop gated</dd>
+        <dd>{automationSummary(freeStack)}</dd>
         <dt>Models</dt>
         <dd>{health?.models.length ? health.models.slice(0, 3).join(", ") : "Built-in fallback ready"}</dd>
         <dt>Free Stack</dt>
-        <dd>{freeStack ? `${freeStack.ready_count}/${freeStack.total_count} ready` : "Checking"}</dd>
+        <dd>{freeStack ? `${freeStack.installed_count ?? freeStack.ready_count}/${freeStack.total_count} installed, ${freeStack.fallback_count ?? 0} fallback` : "Checking"}</dd>
         <dt>Maturity</dt>
         <dd>{capabilityLadder ? `${capabilityLadder.maturity_percent}%` : "Checking"}</dd>
       </dl>
@@ -82,4 +82,12 @@ export function RightPanel({
       </div>
     </aside>
   );
+}
+
+function automationSummary(freeStack: FreeStack | null) {
+  if (!freeStack) return "Checking adapters";
+  const byKey = Object.fromEntries(freeStack.capabilities.map((item) => [item.key, item]));
+  const browser = byKey.playwright?.installed ? "browser installed" : "browser fallback";
+  const desktop = byKey.pyautogui?.installed || byKey.pywinauto?.installed ? "desktop adapter installed" : "desktop guide mode";
+  return `${browser}, ${desktop}`;
 }

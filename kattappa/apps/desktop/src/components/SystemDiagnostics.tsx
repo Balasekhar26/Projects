@@ -34,7 +34,7 @@ export function SystemDiagnostics() {
   return (
     <section className="panelView">
       <h2>System Diagnostics</h2>
-      <p>Installer and setup checks for this machine: platform support, adapter readiness, hardware fit, and green fallback coverage.</p>
+      <p>Installer and setup checks for this machine: platform support, adapter readiness, hardware fit, and fallback coverage.</p>
       <div className="taskControls">
         <button onClick={refresh} disabled={loading}>{loading ? "Checking..." : "Refresh Diagnostics"}</button>
       </div>
@@ -60,8 +60,8 @@ export function SystemDiagnostics() {
 
           <div className="diagnosticSummary">
             <StatusCount label="Ready" count={grouped.ready.length} className="ready" />
-            {grouped.missing.length > 0 && <StatusCount label="Ready via fallback" count={grouped.missing.length} className="ready" />}
-            {grouped.degraded.length > 0 && <StatusCount label="In progress" count={grouped.degraded.length} className="degraded" />}
+            {grouped.degraded.length > 0 && <StatusCount label="Fallback" count={grouped.degraded.length} className="degraded" />}
+            {grouped.missing.length > 0 && <StatusCount label="Missing or disabled" count={grouped.missing.length} className="missing" />}
           </div>
 
           <h3>Adapters</h3>
@@ -161,20 +161,23 @@ function StatusCount({ label, count, className }: { label: string; count: number
 function groupFeatures(features: PlatformFeature[]) {
   return {
     ready: features.filter((feature) => statusClass(feature.status) === "ready"),
-    missing: [],
     degraded: features.filter((feature) => statusClass(feature.status) === "degraded"),
+    missing: features.filter((feature) => statusClass(feature.status) === "missing"),
   };
 }
 
 function statusClass(status: string) {
-  if (status === "ready" || status === "supported") return "ready";
-  if (status === "needs_dependency" || status === "missing") return "ready";
+  if (status === "ready" || status === "supported" || status === "installed") return "ready";
+  if (status === "fallback" || status === "partial" || status === "degraded" || status === "needs_dependency") return "degraded";
+  if (status === "missing" || status === "disabled" || status === "failed" || status === "error" || status === "blocked") return "missing";
   return "degraded";
 }
 
 function statusLabel(status: string) {
-  if (status === "needs_dependency" || status === "missing") return "Ready via fallback";
+  if (status === "needs_dependency" || status === "fallback") return "Fallback";
+  if (status === "missing") return "Missing";
   if (status === "supported") return "Ready";
+  if (status === "installed") return "Installed";
   if (status === "disabled") return "Disabled";
   return formatName(status);
 }

@@ -20,6 +20,13 @@ const { MicrophoneCapture } = require("../modules/audio-capture");
 const { RealtimeTranslator } = require("../src/pipeline/realtime-translator");
 const { writePcmAsWavFile } = require("../src/utils/wav");
 
+// Import database
+const Database = require("better-sqlite3");
+const dbPath = path.join(__dirname, "..", ".ult-runtime", "universal-translator.db");
+const sqlite = new Database(dbPath);
+sqlite.pragma("journal_mode = WAL");
+sqlite.pragma("foreign_keys = ON");
+
 const CABLE_OUTPUT = "CABLE Output (VB-Audio Virtual Cable)";
 const LINE1_IN = "Line 1 (Virtual Audio Cable)";
 const DESKTOP_SETTINGS_PATH = path.join(__dirname, "..", ".ult-runtime", "desktop-settings.json");
@@ -351,6 +358,145 @@ async function stopAll() {
   broadcastState();
 }
 
+// NeuroSeed IPC handlers for consent-first memory reinforcement
+ipcMain.handle("neuroseed:get-state", async () => {
+  try {
+    const initDb = require("../lib/migrate").initializeDatabase;
+    initDb();
+
+    const seeds = sqlite.prepare("SELECT * FROM neuroseed_seeds ORDER BY created_at DESC").all();
+    const sessions = sqlite.prepare("SELECT * FROM neuroseed_sessions ORDER BY started_at DESC").all();
+    const consentLogs = sqlite.prepare("SELECT * FROM neuroseed_consent_logs ORDER BY timestamp DESC LIMIT 100").all();
+    const recallResults = sqlite.prepare("SELECT * FROM neuroseed_recall_results ORDER BY checked_at DESC").all();
+
+    return {
+      ok: true,
+      seeds: seeds.map(s => ({
+        ...s,
+        keywords: JSON.parse(s.keywords || "[]"),
+        cue: JSON.parse(s.cue || "{}")
+      })),
+      sessions: sessions.map(s => ({
+        ...s,
+        approvedSeedIds: JSON.parse(s.approved_seed_ids || "[]"),
+        cueEvents: JSON.parse(s.cue_events || "[]"),
+        uncuedSeedIds: JSON.parse(s.uncued_seed_ids || "[]"),
+        settings: JSON.parse(s.settings || "{}"),
+        safetyBoundary: JSON.parse(s.safety_boundary || "{}")
+      })),
+      consentLogs,
+      recallResults
+    };
+  } catch (error) {
+    console.error("neuroseed:get-state error:", error);
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("neuroseed:put-state", async (_event, payload) => {
+  try {
+    const initDb = require("../lib/migrate").initializeDatabase;
+    initDb();
+
+    // Handle reset
+    if (payload.dataModel?.resetRequested) {
+      sqlite.prepare("DELETE FROM neuroseed_seeds").run();
+      sqlite.prepare("DELETE FROM neuroseed_sessions").run();
+      sqlite.prepare("DELETE FROM neuroseed_consent_logs").run();
+      sqlite.prepare("DELETE FROM neuroseed_recall_results").run();
+      return { ok: true, consentLogs: [] };
+    }
+
+    // Upsert seeds
+    const seedStmt = sqlite.prepare(`
+      INSERT OR REPLACE INTO neuroseed_seeds 
+      (id, title, text, keywords, cue, approved, consent_status, consent_model, approved_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    (payload.seeds || []).forEach(seed => {
+      seedStmt.run(
+        seed.id,
+        seed.title,
+        seed.text,
+        JSON.stringify(seed.keywords || []),
+        JSON.stringify(seed.cue || {}),
+        seed.approved ? 1 : 0,
+        seed.consent?.status || "pending",
+        seed.consent?.model || "pilot-consent-v1",
+        seed.consent?.approvedAt || null,
+        seed.createdAt || new Date().toISOString()
+      );
+    });
+
+    // Upsert sessions
+    const sessionStmt = sqlite.prepare(`
+      INSERT OR REPLACE INTO neuroseed_sessions 
+      (id, started_at, ended_at, status, approved_seed_ids, cue_events, uncued_seed_ids, settings, safety_boundary, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    (payload.sessions || []).forEach(session => {
+      sessionStmt.run(
+        session.id,
+        session.startedAt,
+        session.endedAt || null,
+        session.status,
+        JSON.stringify(session.approvedSeedIds || []),
+        JSON.stringify(session.cueEvents || []),
+        JSON.stringify(session.uncuedSeedIds || []),
+        JSON.stringify(session.settings || {}),
+        JSON.stringify(session.safetyBoundary || {}),
+        session.startedAt
+      );
+    });
+
+    // Log consent actions
+    (payload.consentLogs || []).forEach(log => {
+      sqlite.prepare(`
+        INSERT OR IGNORE INTO neuroseed_consent_logs 
+        (id, seed_id, action, consent_status, model_version, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        log.id || `${Date.now()}-${Math.random()}`,
+        log.seedId,
+        log.action,
+        log.consentStatus,
+        log.modelVersion,
+        log.timestamp || new Date().toISOString()
+      );
+    });
+
+    // Upsert recall results
+    const recallStmt = sqlite.prepare(`
+      INSERT OR REPLACE INTO neuroseed_recall_results 
+      (id, seed_id, session_id, seed_title, condition, score, answer, checked_at, consent_model)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    (payload.recallResults || []).forEach(result => {
+      recallStmt.run(
+        result.id,
+        result.seedId,
+        result.sessionId,
+        result.seedTitle,
+        result.condition,
+        result.score,
+        result.answer,
+        result.checkedAt,
+        result.consentModel || "pilot-consent-v1"
+      );
+    });
+
+    // Return updated consent logs
+    const updatedLogs = sqlite.prepare("SELECT * FROM neuroseed_consent_logs ORDER BY timestamp DESC LIMIT 50").all();
+    return { ok: true, consentLogs: updatedLogs };
+  } catch (error) {
+    console.error("neuroseed:put-state error:", error);
+    return { ok: false, error: error.message };
+  }
+});
+
 ipcMain.handle("translator:get-state", async () => {
   if (!runtimeCache) await loadRuntime().catch(() => {});
   const config = getRuntimeConfig();
@@ -603,6 +749,14 @@ ipcMain.handle("translator:stop", async () => {
 });
 
 app.whenReady().then(async () => {
+  // Initialize database first
+  try {
+    const initDb = require("../lib/migrate").initializeDatabase;
+    initDb();
+  } catch (e) {
+    console.error("Database initialization:", e.message);
+  }
+  
   await loadRuntime().catch((e) => console.error("Runtime:", e.message));
   createWindow();
   app.on("activate", () => {
