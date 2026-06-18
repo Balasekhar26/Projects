@@ -17,12 +17,22 @@ FREE_LOCAL_STACK = [
 ]
 
 
-MODE_HINTS = {
-    "teach": ["teach", "walk me through", "training mode", "lesson mode"],
-    "guide": ["guide", "show me", "where to click", "cursor", "step by step"],
-    "assist": ["click", "type", "press", "open app", "fill", "select"],
-    "autonomous": ["do it", "complete it", "handle it", "automate", "finish the task"],
-    "observe": ["observe", "watch", "look", "inspect", "analyze", "check screen"],
+ACTION_HINTS = {
+    "screen_observation": ["observe", "watch", "look", "inspect", "analyze", "check screen", "screenshot"],
+    "human_guided_step": ["guide", "show me", "where to click", "cursor", "step by step", "teach", "walk me through"],
+    "approval_gated_action": [
+        "click",
+        "type",
+        "press",
+        "open app",
+        "fill",
+        "select",
+        "do it",
+        "complete it",
+        "handle it",
+        "automate",
+        "finish the task",
+    ],
 }
 
 STOP_WORDS = {
@@ -59,15 +69,12 @@ STOP_WORDS = {
 }
 
 
-def detect_operator_mode(text: str) -> str:
-    lower = text.lower()
-    for mode in ("observe", "teach", "guide", "assist", "autonomous"):
-        if f"[operator mode: {mode}]" in lower:
-            return mode
-    for mode, hints in MODE_HINTS.items():
-        if any(hint in lower for hint in hints):
-            return mode
-    return "guide"
+def detect_execution_path(text: str) -> str:
+    lower = _strip_legacy_mode_prefix(text).lower()
+    for path in ("approval_gated_action", "human_guided_step", "screen_observation"):
+        if any(hint in lower for hint in ACTION_HINTS[path]):
+            return path
+    return "reply_only"
 
 
 def build_operator_plan(
@@ -77,46 +84,43 @@ def build_operator_plan(
     screen_text: str | None = None,
     screen_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    mode = detect_operator_mode(request)
+    execution_path = detect_execution_path(request)
     config = load_config()
-    if mode == "teach" and not config.teach_mode_enabled:
-        mode = "guide"
-    needs_approval = mode in {"assist", "autonomous"}
-    steps = [
-        "Understand the user goal and current context.",
-        "Use only free/local tools unless the user explicitly changes that rule.",
-        "Explain the next action before touching the system.",
-    ]
+    if execution_path == "human_guided_step" and not config.teach_mode_enabled:
+        execution_path = "screen_observation"
+    needs_approval = execution_path == "approval_gated_action"
+    action_required = execution_path != "reply_only"
+    steps = ["Understand the order and choose the safest direct response."]
 
     if screen_text:
         steps.append("Use current screen text to identify likely controls and avoid blind clicks.")
-    if mode == "observe":
+    if execution_path == "reply_only":
+        steps.append("Reply in English without showing extra controls or action planning.")
+    elif execution_path == "screen_observation":
         steps.append("Return observations only; do not move the cursor or press keys.")
-    elif mode == "teach":
-        steps.append("Show one visual target and explain why it is the next safe human step.")
-    elif mode == "guide":
+    elif execution_path == "human_guided_step":
         steps.append("Show cursor guidance and exact human steps; do not act automatically.")
-    elif mode == "assist":
+    elif execution_path == "approval_gated_action":
         steps.append("Ask approval, then perform only the approved click/type/keypress action.")
-    else:
-        steps.append("Break the task into small approved actions and stop at each risky boundary.")
 
     visual_guidance = build_visual_guidance(
         request=request,
-        mode=mode,
+        execution_path=execution_path,
         screen_snapshot=screen_snapshot,
         approval_required=needs_approval,
-        enabled=config.guidance_overlay_enabled,
+        enabled=config.guidance_overlay_enabled and action_required,
     )
     if visual_guidance["enabled"]:
         steps.append(str(visual_guidance["instruction"]))
 
     return {
-        "mode": mode,
+        "execution_path": execution_path,
+        "intent": _execution_path_label(execution_path),
         "agent": selected_agent or "evaluator",
         "goal": request,
         "local_only": True,
         "free_stack": FREE_LOCAL_STACK,
+        "action_required": action_required,
         "needs_approval": needs_approval,
         "approval_policy": (
             "Required before desktop control, shell execution, file writes, installs, network actions, "
@@ -131,37 +135,28 @@ def build_operator_plan(
 
 def build_visual_guidance(
     request: str,
-    mode: str,
+    execution_path: str,
     screen_snapshot: dict[str, Any] | None,
     approval_required: bool,
     enabled: bool = True,
 ) -> dict[str, Any]:
-    safe_mode = mode in {"teach", "guide", "assist", "autonomous"}
-    if not enabled or not safe_mode:
-        return {"enabled": False, "reason": "Visual guidance is disabled for this mode."}
+    if not enabled or execution_path not in {"human_guided_step", "approval_gated_action"}:
+        return {"enabled": False, "reason": "Visual guidance is not needed for this order."}
+    if not _explicit_visual_guidance_requested(request):
+        return {"enabled": False, "reason": "The order does not ask for cursor or target guidance."}
 
     target = _find_best_ocr_target(request, screen_snapshot)
     matched = bool(target)
     if target is None:
-        target = {
-            "label": "next safe area",
-            "x": 0.5,
-            "y": 0.5,
-            "width": 0.18,
-            "height": 0.12,
-            "confidence": 0,
-            "source": "fallback",
-        }
+        return {"enabled": False, "reason": "No reliable screen target was found."}
 
     verb = "Review" if approval_required else "Move to"
     qualifier = "after approving this one step" if approval_required else "when you are ready"
     instruction = f"{verb} the highlighted target ({target['label']}) {qualifier}."
-    if mode == "teach":
-        instruction = f"Teach mode: highlighted target is the next safe focus area ({target['label']}); pause after this step."
 
     return {
         "enabled": True,
-        "mode": mode,
+        "execution_path": execution_path,
         "kind": "one_step_overlay",
         "requires_approval": approval_required,
         "matched_screen_text": matched,
@@ -172,6 +167,26 @@ def build_visual_guidance(
             "submit, install, delete, or change settings."
         ),
     }
+
+
+def _explicit_visual_guidance_requested(request: str) -> bool:
+    lower = _strip_legacy_mode_prefix(request).lower()
+    return any(
+        phrase in lower
+        for phrase in (
+            "cursor",
+            "highlight",
+            "show me where",
+            "where to click",
+            "point to",
+            "guide me to",
+            "click",
+            "select",
+            "press",
+            "type into",
+            "open app",
+        )
+    )
 
 
 def _find_best_ocr_target(request: str, screen_snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -222,7 +237,7 @@ def _find_best_ocr_target(request: str, screen_snapshot: dict[str, Any] | None) 
 
 
 def _request_terms(request: str) -> list[str]:
-    clean = re.sub(r"\[operator mode:[^\]]+\]", " ", request.lower())
+    clean = _strip_legacy_mode_prefix(request).lower()
     terms = []
     for raw in re.findall(r"[a-z0-9]{3,}", clean):
         if raw not in STOP_WORDS and raw not in terms:
@@ -232,3 +247,16 @@ def _request_terms(request: str) -> list[str]:
 
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
+
+
+def _strip_legacy_mode_prefix(request: str) -> str:
+    return re.sub(r"\[operator mode:[^\]]+\]", " ", request, flags=re.IGNORECASE)
+
+
+def _execution_path_label(execution_path: str) -> str:
+    return {
+        "reply_only": "Reply only",
+        "screen_observation": "Screen review",
+        "human_guided_step": "Guided human step",
+        "approval_gated_action": "Approval-gated action",
+    }.get(execution_path, "Automatic route")

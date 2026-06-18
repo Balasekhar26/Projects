@@ -95,7 +95,7 @@ def build_capability_ladder() -> dict[str, Any]:
     score = round(sum(level["score"] for level in levels) / len(levels))
     next_actions = [level["next_step"] for level in levels if level["status"] != "ready"][:5]
     if not next_actions:
-        next_actions.append("Run a real multi-step task in guide mode, then promote only proven steps to assist/autonomous mode.")
+        next_actions.append("Run a real multi-step task, then allow only proven risky steps through approval-gated actions.")
 
     return {
         "label": "AGI-like assistant maturity ladder",

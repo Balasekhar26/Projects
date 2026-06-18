@@ -10,6 +10,7 @@ from .hardening import HardeningLayer
 from .learning import BaselineStore
 from .logging_engine import JsonlLogger
 from .monitoring import MonitoringLoop
+from .network_scan import scan_local_network
 from .pipeline import run_pipeline
 from .reporting import ReportWriter
 from .response import ResponseEngine
@@ -32,6 +33,17 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands.add_parser("hardening-audit", help="Run local hardening audit")
     subcommands.add_parser("architecture-audit", help="Check ASA architecture and safety boundaries")
     subcommands.add_parser("report", help="Generate ASA report")
+    network_scan = subcommands.add_parser(
+        "network-scan",
+        help="Run a safe local/private TCP port scan with Nmap if installed or a socket fallback",
+    )
+    network_scan.add_argument("target", nargs="?", default="127.0.0.1")
+    network_scan.add_argument(
+        "--ports",
+        default="",
+        help="Comma-separated ports or small ranges, limited to 50 ports",
+    )
+    network_scan.add_argument("--no-nmap", action="store_true", help="Use the built-in socket fallback")
 
     contain = subcommands.add_parser("contain-pid", help="Safely contain a local process")
     contain.add_argument("pid", type=int)
@@ -102,6 +114,28 @@ def main() -> int:
         path = ReportWriter(config).write()
         logger.event("info", "report", "asa_report_created", "ASA report generated", path=str(path))
         print(path)
+        return 0
+
+    if args.command == "network-scan":
+        try:
+            result = scan_local_network(
+                args.target,
+                ports=args.ports,
+                prefer_nmap=not args.no_nmap,
+            )
+        except ValueError as exc:
+            print(f"Network scan blocked: {exc}")
+            return 1
+        logger.event(
+            "info",
+            "network_scan",
+            "local_network_scan_complete",
+            "Safe local/private network scan completed",
+            engine=result["engine"],
+            target=result["target"],
+            open_ports=result["observations"],
+        )
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return 0
 
     if args.command == "contain-pid":

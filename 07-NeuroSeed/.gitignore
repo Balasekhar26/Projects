@@ -9,4 +9,6 @@ logs/
 *.log
 *.tmp
 *.zip
-
+__pycache__/
+.pytest_cache/
+*.pyc

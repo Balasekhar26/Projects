@@ -6,10 +6,14 @@ from backend.core.config import load_config
 
 
 def take_screenshot(path: str | None = None) -> str:
+    config = load_config()
+    if not config.screen_capture_enabled:
+        raise PermissionError(
+            "Screen capture is disabled until setup enables KATTAPPA_SCREEN_CAPTURE_ENABLED=true."
+        )
     import mss
     from PIL import Image
 
-    config = load_config()
     config.screenshots_dir.mkdir(parents=True, exist_ok=True)
     target = Path(path) if path else config.screenshots_dir / "current_screen.png"
     capture_factory = getattr(mss, "MSS", mss.mss)

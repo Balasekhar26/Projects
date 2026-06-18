@@ -48,7 +48,8 @@ def test_cluster_plan_is_consent_based_and_capability_aware() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["mode"] == "consent_based_local_cluster"
-    assert data["can_run_as_one_system"] == "planned_not_enabled"
+    assert data["can_run_as_one_system"] == "enabled_for_explicit_paired_nodes"
+    assert data["runtime_status"] == "local_http_worker_handoff_enabled"
     assert data["pairing_policy"]["installation_agreement_disclosure_required"] is True
     assert data["pairing_policy"]["explicit_user_consent_required"] is True
     assert data["pairing_policy"]["no_hidden_install_or_silent_join"] is True
@@ -158,6 +159,39 @@ def test_installer_writes_cluster_safety_defaults(tmp_path, monkeypatch) -> None
     assert "KATTAPPA_PAIRED_IMPROVEMENT_CHECK_INTERVAL_HOURS=24" in text
     assert "KATTAPPA_SHARED_IMPROVEMENT_REPO_PATH=docs/IMPROVEMENT_REGISTRY.md" in text
     assert "KATTAPPA_SHARED_IMPROVEMENT_AUTO_APPLY=false" in text
+
+
+def test_windows_desktop_shortcut_uses_tauri_icon(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "kattappa"
+    icon = root / "apps" / "desktop" / "src-tauri" / "icons" / "icon.ico"
+    icon.parent.mkdir(parents=True)
+    icon.write_bytes(b"icon")
+    (root / "run.exe").write_bytes(b"launcher")
+    desktop = tmp_path / "Desktop"
+    captured_commands = []
+
+    monkeypatch.setattr(setup_kattappa, "ROOT", root)
+    monkeypatch.setattr(setup_kattappa, "DESKTOP_ICON", icon)
+    monkeypatch.setattr(setup_kattappa.platform, "system", lambda: "Windows")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("OneDrive", raising=False)
+    monkeypatch.setattr(
+        setup_kattappa.subprocess,
+        "check_output",
+        lambda *args, **kwargs: str(desktop),
+    )
+    monkeypatch.setattr(
+        setup_kattappa.subprocess,
+        "check_call",
+        lambda command, cwd: captured_commands.append(command),
+    )
+
+    setup_kattappa.create_desktop_shortcut()
+
+    assert captured_commands
+    powershell = captured_commands[0][-1]
+    assert "$shortcut.IconLocation" in powershell
+    assert f"{icon},0" in powershell
 
 
 def test_terminal_safe_prefix_cannot_smuggle_shell_control() -> None:

@@ -5,7 +5,21 @@ export type Message = {
   agent?: string;
   routingReason?: string;
   approvalId?: string;
+  relatedMessages?: RelatedChatMessage[];
   operatorPlan?: OperatorPlan;
+};
+
+export type RelatedChatMessage = {
+  id: string;
+  session_id: string;
+  session_title: string;
+  role: string;
+  content: string;
+  agent: string;
+  risk: string;
+  created_at: string;
+  matched_terms: string[];
+  score: number;
 };
 
 export type ChatSession = {
@@ -39,14 +53,14 @@ export type LongTask = {
   updated_at: string;
 };
 
-export type OperatorMode = "observe" | "guide" | "teach" | "assist" | "autonomous";
-
 export type OperatorPlan = {
-  mode: string;
+  execution_path: string;
+  intent: string;
   agent: string;
   goal: string;
   local_only: boolean;
   free_stack: string[];
+  action_required: boolean;
   needs_approval: boolean;
   approval_policy: string;
   next_steps: string[];
@@ -57,7 +71,7 @@ export type OperatorPlan = {
 
 export type VisualGuidance = {
   enabled: boolean;
-  mode?: string;
+  execution_path?: string;
   kind?: string;
   requires_approval?: boolean;
   matched_screen_text?: boolean;
@@ -81,6 +95,27 @@ export type Approval = {
   risk: string;
   status: string;
   created_at: string;
+  continuation_type?: string;
+  continuation_payload?: string;
+  continued_at?: string;
+  continuation_result?: string;
+};
+
+export type ApprovalContinuationResult = {
+  kind?: string;
+  status: string;
+  approval?: Approval;
+  message?: string;
+  response?: string;
+  state?: Record<string, unknown>;
+  previous_result?: unknown;
+  results?: unknown[];
+  manual_steps?: string[];
+  job?: Record<string, unknown>;
+  report?: Record<string, unknown>;
+  improvement?: Record<string, unknown>;
+  skill?: Record<string, unknown>;
+  publish?: Record<string, unknown>;
 };
 
 export type Health = {
@@ -101,6 +136,8 @@ export type VoicePipelineStatus = {
     installed: boolean;
     custom_models: string[];
     custom_models_configured: boolean;
+    threshold: number;
+    fallback_engine: string;
     primary_decision: string;
     status: string;
   };
@@ -108,10 +145,15 @@ export type VoicePipelineStatus = {
     engine: string;
     installed: boolean;
     status: string;
+    fallback: string;
   };
   tts: {
     preferred_engine: string;
     piper_installed: boolean;
+    piper_command: string;
+    piper_model: string;
+    piper_model_configured: boolean;
+    primary_decision: string;
     active_fallback: string;
     available: boolean;
   };
@@ -124,6 +166,13 @@ export type VoicePipelineStatus = {
     text_output_language?: string;
     policy: string;
   };
+  language_contract: {
+    primary_spoken_language: string;
+    secondary_spoken_language: string;
+    text_output_language: string;
+    voice_prompt_policy: string;
+    assistant_response_policy: string;
+  };
   safe_fallback: string;
 };
 
@@ -132,6 +181,17 @@ export type VoiceProcessResult = {
   reason: string;
   pipeline: VoicePipelineStatus;
   transcript: string;
+  wake_engine: string;
+  wake_result: {
+    engine: string;
+    used: boolean;
+    detected: boolean;
+    wake_name: string;
+    score: number;
+    scores: Record<string, number>;
+    threshold: number;
+    reason: string;
+  };
   wake_detected: boolean;
   wake_name: string;
   command: string;
@@ -286,6 +346,75 @@ export type BuilderProfile = {
   truth_boundary: string;
   capabilities: string[];
   protocol: { name: string; description: string }[];
+  local_builder_analytics?: LocalBuilderAnalytics;
+  codex_parity?: CodexParityReport;
+  free_replacements_from_references?: FreeReferenceReplacement[];
+};
+
+export type CodexParityItem = {
+  key: string;
+  codex_can: string;
+  kattappa_equivalent: string;
+  status: string;
+  status_label: string;
+  score: number;
+  evidence: string;
+  files: string[];
+  next_move: string;
+  free_local_rule: string;
+};
+
+export type CodexParityReport = {
+  name: string;
+  truth_boundary: string;
+  parity_percent: number;
+  fully_free_only: boolean;
+  local_first: boolean;
+  memory_count: number;
+  items: CodexParityItem[];
+  strongest_gaps: CodexParityItem[];
+  next_builds: string[];
+  user_order_contract: string[];
+};
+
+export type LocalBuilderAnalytics = {
+  mode: string;
+  cost: string;
+  privacy_boundary: string;
+  inspired_by: string[];
+  blocked_core_dependencies: string[];
+  archetype: string;
+  dimensions: {
+    key: string;
+    label: string;
+    score: number;
+    evidence: string;
+  }[];
+  growth_edges: string[];
+  repo_activity: {
+    changed_files: number;
+    recent_commits_30d: number;
+    has_dirty_worktree: boolean;
+  };
+  projects: {
+    id: string;
+    name: string;
+    path: string;
+    exists: boolean;
+    files_scanned: number;
+    signals: Record<string, number>;
+    strengths: string[];
+    next_local_moves: string[];
+  }[];
+  free_replacements: FreeReferenceReplacement[];
+};
+
+export type FreeReferenceReplacement = {
+  source: string;
+  not_added_reason: string;
+  fully_free_replacement: string;
+  added_to: string;
+  why_it_improves_products: string;
 };
 
 export type EcosystemProject = {
@@ -489,6 +618,7 @@ export type DashboardData = {
   skills: Skill[];
   reflections: Reflection[];
   builderProfile: BuilderProfile;
+  codexParity: CodexParityReport;
   projectEcosystem: ProjectEcosystem;
   sourcePolicy: SourcePolicy;
   projectIndex: ProjectIndex;

@@ -1,38 +1,39 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { fetchVoiceStatus, processVoiceAudio, speakWithLocalVoice } from "../lib/api";
-import type { Message, OperatorMode } from "../types";
-import { OperatorModeSelector } from "./OperatorModeSelector";
+import type { Message, OperatorPlan } from "../types";
 
 type VoiceState = "idle" | "listening" | "processing" | "unsupported";
 
 type ChatPanelProps = {
   messages: Message[];
   input: string;
-  operatorMode: OperatorMode;
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onInputChange: (input: string) => void;
-  onOperatorModeChange: (mode: OperatorMode) => void;
   onSendMessage: () => void;
   onVoiceCommand: (command: string) => void;
   onVoiceWake: () => void;
   onVoiceNotice: (message: string) => void;
   isWorking: boolean;
   queuedCount: number;
+  liveStatus: string;
+  currentTask: string;
+  queuedTurns: { text: string }[];
 };
 
 export function ChatPanel({
   messages,
   input,
-  operatorMode,
   messagesEndRef,
   onInputChange,
-  onOperatorModeChange,
   onSendMessage,
   onVoiceCommand,
   onVoiceWake,
   onVoiceNotice,
   isWorking,
   queuedCount,
+  liveStatus,
+  currentTask,
+  queuedTurns,
 }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -108,7 +109,7 @@ export function ChatPanel({
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setVoiceState("unsupported");
-      onVoiceNotice("Local microphone capture is unavailable in this desktop runtime. Type your command instead.");
+      onVoiceNotice("Voice unavailable");
       return;
     }
 
@@ -116,11 +117,8 @@ export function ChatPanel({
       const status = await fetchVoiceStatus();
       if (!status.stt.installed) {
         setVoiceState("unsupported");
-        onVoiceNotice("Local STT is not installed. Install faster-whisper from the tools panel, or type the command.");
+        onVoiceNotice("Voice setup needed");
         return;
-      }
-      if (status.wake.primary_decision !== "openwakeword_custom_models") {
-        onVoiceNotice("Custom openWakeWord wake models are not active, so Kattappa will use local STT wake-name parsing for this command.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = preferredAudioMimeType();
@@ -144,7 +142,7 @@ export function ChatPanel({
     } catch {
       setVoiceState("unsupported");
       stopMediaStream();
-      onVoiceNotice("Local backend voice pipeline is unavailable. Start Kattappa with run.exe, or type the command.");
+      onVoiceNotice("Voice unavailable");
     }
   };
 
@@ -163,7 +161,7 @@ export function ChatPanel({
   const processRecordedVoice = async (blob: Blob) => {
     if (blob.size === 0) {
       setVoiceState("idle");
-      onVoiceNotice("No voice audio was captured. Try again or type your command.");
+      onVoiceNotice("No voice audio");
       return;
     }
     setVoiceState("processing");
@@ -171,12 +169,12 @@ export function ChatPanel({
       const audio_base64 = await blobToBase64(blob);
       const result = await processVoiceAudio({ audio_base64, mime_type: blob.type || "audio/webm" });
       if (!result.ok) {
-        onVoiceNotice(result.transcript || "Local voice transcription is unavailable. Type your command instead.");
+        onVoiceNotice(result.transcript ? "Voice setup needed" : "Voice unavailable");
         setVoiceState("idle");
         return;
       }
       if (!result.wake_detected) {
-        onVoiceNotice("No wake name detected. Say Kattappa, Mama, or Kittu before the command.");
+        onVoiceNotice("Wake name needed");
         setVoiceState("idle");
         return;
       }
@@ -190,7 +188,7 @@ export function ChatPanel({
       speakNextAssistantRef.current = true;
       onVoiceCommand(result.command);
     } catch {
-      onVoiceNotice("Local voice processing failed. Type your command while the backend voice stack is checked.");
+      onVoiceNotice("Voice unavailable");
     } finally {
       setVoiceState("idle");
     }
@@ -200,10 +198,10 @@ export function ChatPanel({
     <>
       <div className="chatTopbar">
         <div className="chatHeaderInner">
-          <button className="modelButton" type="button" aria-label="Current assistant mode">
+          <div className="modelButton" aria-label="Kattappa automatic routing">
             <span>Kattappa AI</span>
-            <strong>{operatorMode}</strong>
-          </button>
+            <strong>Auto route</strong>
+          </div>
           <div className="chatHeaderActions">
             <button
               className={`voiceButton ${voiceState}`}
@@ -252,54 +250,9 @@ export function ChatPanel({
                 <header>
                   <strong>{getMessageName(message)}</strong>
                   {message.risk && <span>{message.risk}</span>}
-                  {message.approvalId && <span>{message.approvalId}</span>}
                 </header>
-                {message.routingReason && <small className="routingReason">{message.routingReason}</small>}
                 <MessageContent content={message.content} />
-                {message.operatorPlan && (
-                  <div className="operatorPlan">
-                    <div className="planHeader">
-                      <strong>{message.operatorPlan.mode}</strong>
-                      <span>{message.operatorPlan.local_only ? "free/local only" : "external allowed"}</span>
-                      <span>{message.operatorPlan.needs_approval ? "approval needed" : "no action approval"}</span>
-                    </div>
-                    {message.operatorPlan.visual_guidance?.enabled && message.operatorPlan.visual_guidance.target && (
-                      <div className="visualGuidanceCard">
-                        <div className="guideScreen" aria-label="Visual desktop guidance preview">
-                          <span
-                            className="guideTarget"
-                            style={{
-                              left: `${message.operatorPlan.visual_guidance.target.x * 100}%`,
-                              top: `${message.operatorPlan.visual_guidance.target.y * 100}%`,
-                              width: `${message.operatorPlan.visual_guidance.target.width * 100}%`,
-                              height: `${message.operatorPlan.visual_guidance.target.height * 100}%`,
-                            }}
-                          />
-                          <span
-                            className="guideCursor"
-                            style={{
-                              left: `${message.operatorPlan.visual_guidance.target.x * 100}%`,
-                              top: `${message.operatorPlan.visual_guidance.target.y * 100}%`,
-                            }}
-                          />
-                        </div>
-                        <p>{message.operatorPlan.visual_guidance.instruction}</p>
-                        <small>
-                          {message.operatorPlan.visual_guidance.requires_approval
-                            ? "Preview only until approved"
-                            : "Safe visual guide"}
-                          {" / "}
-                          {message.operatorPlan.visual_guidance.target.source}
-                        </small>
-                      </div>
-                    )}
-                    <ol>
-                      {message.operatorPlan.next_steps.map((step, stepIndex) => (
-                        <li key={stepIndex}>{step}</li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
+                <ActionPlanCard plan={message.operatorPlan} />
               </div>
             </article>
           ))}
@@ -324,14 +277,113 @@ export function ChatPanel({
           />
           <button className="sendButton" onClick={onSendMessage} disabled={!canSend} aria-label="Send message" />
         </div>
+        <WorkQueueStrip
+          isWorking={isWorking}
+          liveStatus={liveStatus}
+          currentTask={currentTask}
+          queuedTurns={queuedTurns}
+        />
         <div className="composerFooter">
-          <OperatorModeSelector operatorMode={operatorMode} onChange={onOperatorModeChange} />
           <span className={`turnStatus ${isWorking ? "working" : "ready"}`}>
-            {isWorking ? `Working${queuedCount ? ` / ${queuedCount} queued` : ""}` : "Ready"}
+            {isWorking ? liveStatus : liveStatus || "Ready"}
+            {queuedCount ? ` / ${queuedCount} queued` : ""}
           </span>
         </div>
       </div>
     </>
+  );
+}
+
+function WorkQueueStrip({
+  isWorking,
+  liveStatus,
+  currentTask,
+  queuedTurns,
+}: {
+  isWorking: boolean;
+  liveStatus: string;
+  currentTask: string;
+  queuedTurns: { text: string }[];
+}) {
+  if (!isWorking && queuedTurns.length === 0) return null;
+  const visibleQueue = queuedTurns.slice(0, 3);
+  const hiddenCount = Math.max(queuedTurns.length - visibleQueue.length, 0);
+  return (
+    <section className="workQueueStrip" aria-label="Task processing queue">
+      {isWorking && (
+        <div className="processingNow">
+          <span>{liveStatus || "Working"}</span>
+          <strong>{clipTask(currentTask || "Current task", 92)}</strong>
+        </div>
+      )}
+      {visibleQueue.length > 0 && (
+        <div className="queuedTasks">
+          <span>Next</span>
+          {visibleQueue.map((item, index) => (
+            <strong key={`${index}-${item.text}`}>{clipTask(item.text, 72)}</strong>
+          ))}
+          {hiddenCount > 0 && <em>+{hiddenCount} more</em>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function clipTask(text: string, limit: number) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length <= limit ? clean : `${clean.slice(0, limit - 1).trim()}...`;
+}
+
+function shouldShowOperatorPlan(plan?: OperatorPlan) {
+  if (!plan) return false;
+  return Boolean(plan.action_required || plan.needs_approval || plan.visual_guidance?.enabled);
+}
+
+function ActionPlanCard({ plan }: { plan?: OperatorPlan }) {
+  if (!plan || !shouldShowOperatorPlan(plan)) return null;
+  const guidance = plan.visual_guidance;
+  const target = guidance?.target;
+  return (
+    <div className="operatorPlan">
+      <div className="planHeader">
+        <strong>{plan.intent || "Action plan"}</strong>
+        <span>{plan.local_only ? "free/local only" : "external allowed"}</span>
+        <span>{plan.needs_approval ? "approval needed" : "no action approval"}</span>
+      </div>
+      {guidance?.enabled && target && (
+        <div className="visualGuidanceCard">
+          <div className="guideScreen" aria-label="Visual desktop guidance preview">
+            <span
+              className="guideTarget"
+              style={{
+                left: `${target.x * 100}%`,
+                top: `${target.y * 100}%`,
+                width: `${target.width * 100}%`,
+                height: `${target.height * 100}%`,
+              }}
+            />
+            <span
+              className="guideCursor"
+              style={{
+                left: `${target.x * 100}%`,
+                top: `${target.y * 100}%`,
+              }}
+            />
+          </div>
+          <p>{guidance.instruction}</p>
+          <small>
+            {guidance.requires_approval ? "Preview only until approved" : "Safe visual guide"}
+            {" / "}
+            {target.source}
+          </small>
+        </div>
+      )}
+      <ol>
+        {plan.next_steps.map((step, stepIndex) => (
+          <li key={stepIndex}>{step}</li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

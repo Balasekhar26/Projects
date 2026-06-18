@@ -21,6 +21,7 @@ memory:
 safety:
   shell_enabled: false
   desktop_enabled: false
+  screen_capture_enabled: false
   guidance_overlay_enabled: true
   teach_mode_enabled: true
   require_approval_for_medium_risk: true

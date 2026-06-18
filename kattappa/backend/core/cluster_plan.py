@@ -25,7 +25,8 @@ def cluster_plan() -> dict[str, Any]:
     delegated = _delegation_plan(profile, runnable)
     return {
         "mode": "consent_based_local_cluster",
-        "can_run_as_one_system": "planned_not_enabled",
+        "can_run_as_one_system": "enabled_for_explicit_paired_nodes",
+        "runtime_status": "local_http_worker_handoff_enabled",
         "node": profile,
         "local_tasks": runnable,
         "delegate_when_needed": delegated,
@@ -237,6 +238,7 @@ def cluster_plan() -> dict[str, Any]:
         "free_cluster_tools": {
             "inference": "exo_local_ai_cluster",
             "workers": "ray_local_cluster",
+            "current_runtime": "built_in_kattappa_local_http_worker_runtime",
         },
         "next_build_steps": [
             "Add signed pairing tokens for trusted devices.",

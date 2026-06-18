@@ -23,6 +23,7 @@ backend/memory/sqlite/*.db
 memory/screenshots/
 backend/data/screenshots/
 backend/data/audio/
+backend/data/cluster/
 logs/
 backend/data/logs/
 runtime/

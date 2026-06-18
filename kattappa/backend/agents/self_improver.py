@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from backend.core.memory import memory, remember
 from backend.core.model_router import ask_model
 
@@ -42,15 +44,17 @@ def self_improver_node(state):
     approval_id = memory.create_approval(
         action=f"Review self-improvement proposal {improvement_id} and draft skill {skill_id}: {user_request}",
         risk="medium",
+        continuation_type="self_improvement",
+        continuation_payload=json.dumps(
+            {
+                "improvement_id": improvement_id,
+                "skill_id": skill_id,
+                "user_request": user_request,
+            }
+        ),
     )
     state["approval_id"] = approval_id
     state["approval_required"] = True
-    state["result"] = (
-        "Self-improvement proposal saved. Approval required before applying changes.\n"
-        f"Improvement id: {improvement_id}\n"
-        f"Draft skill id: {skill_id}\n"
-        f"Approval id: {approval_id}\n\n"
-        + proposal
-    )
+    state["result"] = "Self-improvement draft saved. Approval needed to apply it."
     state["logs"].append("self_improver: backlog proposal and approval generated")
     return state

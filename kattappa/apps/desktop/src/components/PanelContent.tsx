@@ -1,13 +1,13 @@
 import type {
   BuilderProfile,
   CapabilityLadder,
+  CodexParityReport,
   FreeCapability,
   FreeStack,
   Health,
   Improvement,
   InstallResult,
   LongTask,
-  OperatorMode,
   ProjectEcosystem,
   ProjectIndex,
   Reflection,
@@ -21,7 +21,6 @@ import type {
   WritingResult,
 } from "../types";
 import { FinancePlayground } from "./FinancePlayground";
-import { OperatorModeSelector } from "./OperatorModeSelector";
 import { SystemDiagnostics } from "./SystemDiagnostics";
 
 type PanelContentProps = {
@@ -38,6 +37,7 @@ type PanelContentProps = {
   evolutionCycle: { reflections_scanned: number; draft_skills_created: { skill_id: string; approval_id: string; trigger: string }[]; next_step: string } | null;
   evolutionRunning: boolean;
   builderProfile: BuilderProfile | null;
+  codexParity: CodexParityReport | null;
   projectEcosystem: ProjectEcosystem | null;
   projectIndex: ProjectIndex | null;
   resumeResult: ResumeResult | null;
@@ -51,7 +51,6 @@ type PanelContentProps = {
   simulationDraft: { seed: string; horizon: string };
   simulationResult: SimulationResult | null;
   agentStatus: string;
-  operatorMode: OperatorMode;
   onTaskDraftChange: (draft: { title: string; goal: string; priority: string }) => void;
   onWritingDraftChange: (draft: { text: string; tone: string }) => void;
   onResearchDraftChange: (draft: { url: string; goal: string }) => void;
@@ -71,7 +70,6 @@ type PanelContentProps = {
   onStartToolAdoption: (reportId: string) => void;
   onRunSelfEvolution: () => void;
   onSetSkillTrust: (skillId: string, trust: "draft" | "approved" | "trusted" | "disabled") => void;
-  onOperatorModeChange: (mode: OperatorMode) => void;
 };
 
 export function PanelContent(props: PanelContentProps) {
@@ -436,7 +434,7 @@ function ToolsPanel({
         <dt>Terminal</dt>
         <dd>Allowlisted commands only unless approval is required.</dd>
         <dt>Desktop</dt>
-        <dd>Observe and guide do not need approval. Assist/autonomous pause before actions that change, install, delete, send, or control anything risky.</dd>
+        <dd>Replies directly when no action is needed. Desktop control pauses for approval before anything changes, installs, deletes, sends, or controls input.</dd>
         <dt>Vision</dt>
         <dd>Screenshot and OCR show installed, fallback, or missing status in the capability list below.</dd>
       </dl>
@@ -458,13 +456,12 @@ function ToolsPanel({
 
 function AgentsPanel({
   agentStatus,
-  operatorMode,
   builderProfile,
+  codexParity,
   evolutionRunning,
   evolutionCycle,
   capabilityLadder,
   skills,
-  onOperatorModeChange,
   onRunSelfEvolution,
   onSetSkillTrust,
 }: PanelContentProps) {
@@ -472,12 +469,44 @@ function AgentsPanel({
     <section className="panelView">
       <h2>Agents</h2>
       <p>Planner, memory, safety, evaluator, coder, browser, desktop, file, terminal, vision, voice, researcher, and self-improver are wired in the backend graph.</p>
-      <p>Operator modes: observe watches only with no approval, guide tells you where to move with no approval, assist/autonomous ask approval before risky actions.</p>
+      <p>Kattappa now takes one plain order by message or voice, then automatically replies, guides, or asks approval before running a risky action.</p>
       <p>Current route: {agentStatus}</p>
-      <div className="agentModePanel">
-        <h3>Operator Mode</h3>
-        <OperatorModeSelector operatorMode={operatorMode} onChange={onOperatorModeChange} />
-      </div>
+      {codexParity && (
+        <div className="builderPanel">
+          <h3>{codexParity.name}</h3>
+          <p>{codexParity.truth_boundary}</p>
+          <div className="maturityBar" aria-label="Codex workflow parity">
+            <span style={{ width: `${codexParity.parity_percent}%` }} />
+          </div>
+          <p>{codexParity.parity_percent}% local/free workflow parity across {codexParity.items.length} capability points.</p>
+          <div className="capabilityGrid">
+            {codexParity.items.map((item) => (
+              <article key={item.key} className={`capability ${statusTone(item.status)}`}>
+                <strong>{item.codex_can}</strong>
+                <span>{item.score}% / {statusLabel(item.status)}</span>
+                <p>{item.kattappa_equivalent}</p>
+                <small>{item.next_move}</small>
+              </article>
+            ))}
+          </div>
+          <h3>Order Contract</h3>
+          <ul className="nextSteps">
+            {codexParity.user_order_contract.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
+          </ul>
+          {codexParity.strongest_gaps.length > 0 && (
+            <>
+              <h3>Next Rival Moves</h3>
+              <ul className="nextSteps">
+                {codexParity.next_builds.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
       {builderProfile && (
         <div className="builderPanel">
           <h3>{builderProfile.name}</h3>
@@ -490,6 +519,47 @@ function AgentsPanel({
               </article>
             ))}
           </div>
+          {builderProfile.local_builder_analytics && (
+            <>
+              <h3>Local Builder Profile</h3>
+              <p>{builderProfile.local_builder_analytics.privacy_boundary}</p>
+              <div className="evolutionStatus">
+                <strong>{builderProfile.local_builder_analytics.archetype}</strong>
+                <span>
+                  {builderProfile.local_builder_analytics.repo_activity.changed_files} changed files /{" "}
+                  {builderProfile.local_builder_analytics.repo_activity.recent_commits_30d} recent commits
+                </span>
+              </div>
+              <div className="capabilityGrid">
+                {builderProfile.local_builder_analytics.dimensions.map((dimension) => (
+                  <article key={dimension.key} className="capability ready">
+                    <strong>{dimension.label}</strong>
+                    <span>{dimension.score}%</span>
+                    <p>{dimension.evidence}</p>
+                  </article>
+                ))}
+              </div>
+              <h3>Growth Edges</h3>
+              <ul className="nextSteps">
+                {builderProfile.local_builder_analytics.growth_edges.map((edge, index) => (
+                  <li key={index}>{edge}</li>
+                ))}
+              </ul>
+              <h3>Free Replacements Added</h3>
+              <div className="scoutList">
+                {builderProfile.local_builder_analytics.free_replacements.map((item) => (
+                  <article key={item.source} className="scoutItem ready">
+                    <header>
+                      <strong>{item.fully_free_replacement}</strong>
+                      <span>{item.added_to}</span>
+                    </header>
+                    <p>{item.why_it_improves_products}</p>
+                    <small>{item.source}: {item.not_added_reason}</small>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
       <button onClick={onRunSelfEvolution} disabled={evolutionRunning}>

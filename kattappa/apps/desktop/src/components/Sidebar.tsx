@@ -1,13 +1,8 @@
-import type { ChatSession } from "../types";
-
 type SidebarProps = {
   panels: string[];
   activePanel: string;
   connected: boolean;
-  chatSessions: ChatSession[];
-  currentSessionId: string | null;
-  onCreateChat: () => void;
-  onLoadChat: (sessionId: string) => void;
+  onOpenChat: () => void;
   onSelectPanel: (panel: string) => void;
 };
 
@@ -15,10 +10,7 @@ export function Sidebar({
   panels,
   activePanel,
   connected,
-  chatSessions,
-  currentSessionId,
-  onCreateChat,
-  onLoadChat,
+  onOpenChat,
   onSelectPanel,
 }: SidebarProps) {
   return (
@@ -28,24 +20,9 @@ export function Sidebar({
         <h1>Kattappa AI OS</h1>
       </div>
       <div className={connected ? "pill ok" : "pill"}>{connected ? "Local backend online" : "Backend offline"}</div>
-      <button className="newChatButton" onClick={onCreateChat}>New Chat</button>
-      <div className="chatHistory">
-        <h2>History</h2>
-        {chatSessions.length ? (
-          chatSessions.map((session) => (
-            <button
-              key={session.id}
-              className={currentSessionId === session.id ? "active" : ""}
-              onClick={() => onLoadChat(session.id)}
-              title={session.updated_at}
-            >
-              {session.title}
-            </button>
-          ))
-        ) : (
-          <p>No saved chats yet.</p>
-        )}
-      </div>
+      <button className={activePanel === "Chat" ? "openChatButton active" : "openChatButton"} onClick={onOpenChat}>
+        Open Chat
+      </button>
       <nav>
         {panels.map((panel) => (
           <button key={panel} className={activePanel === panel ? "active" : ""} onClick={() => onSelectPanel(panel)}>

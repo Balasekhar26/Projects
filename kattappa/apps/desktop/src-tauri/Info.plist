@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Kattappa AI OS only reads Desktop files when you ask it to work with a Desktop file or create a Desktop shortcut.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Kattappa AI OS only reads project files when you ask it to inspect or work on a selected local project.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Kattappa AI OS only reads Downloads files when you ask it to open, inspect, or process a downloaded file.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Kattappa AI OS uses the microphone only when you press Voice for local wake-name commands and speech-to-text.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Kattappa AI OS uses Screen Recording only for approved local screen-reading or cursor-guidance tasks.</string>
+</dict>
+</plist>

@@ -30,6 +30,11 @@ def evaluator_node(state):
         if is_model_timeout(final):
             final = built_in_answer(state["user_input"]) or final
         state["result"] = final
+    if state.get("ephemeral_worker"):
+        state["logs"].append("evaluator: skipped durable memory for ephemeral worker task")
+        state["logs"].append("evaluator: finalized")
+        return state
+
     remember(f"User: {state['user_input']}\nResult: {final}", category="conversation")
     if _should_scout(state["user_input"]):
         scout_for_task_background(state["user_input"], final)

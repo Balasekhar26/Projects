@@ -39,27 +39,40 @@ run.exe status     # backend health
 run.exe stop       # stop services started by Kattappa AI OS
 ```
 
-## macOS/Linux Development Launch
+## macOS/Linux Native Desktop Launch
 
-The native Windows `run.exe` remains the canonical packaged launcher. On macOS
-and Linux, use the existing Python installer directly:
+On macOS and Linux, use the Python installer for the backend and dependencies,
+then build the OS-native Tauri desktop app from `apps/desktop`:
 
 ```bash
 python3 installer/setup_kattappa.py --accept-agreement
+cd apps/desktop
+npm install
+npm run tauri:build
+```
+
+After the native app is built, launch Kattappa through the installer:
+
+```bash
 python3 installer/setup_kattappa.py --accept-agreement --launch
 ```
 
-The backend runs on `http://127.0.0.1:8000` and the React desktop UI runs from
-`apps/desktop` with:
+The launcher starts the backend on `http://127.0.0.1:8000` and opens the built
+native desktop app when it is available. On macOS the app bundle is:
 
-```bash
-cd apps/desktop
-npm install
-npm run dev
+```text
+apps/desktop/src-tauri/target/release/bundle/macos/Kattappa AI OS.app
 ```
 
-Native Tauri packages must be built on the target OS because Windows `.exe`,
-macOS `.app`/`.dmg`, and Linux AppImage/deb/rpm bundles are OS-specific.
+The browser desktop UI at `http://127.0.0.1:5173` is only a fallback for a fresh
+install before the native app has been built. Native Tauri packages must be
+built on the target OS because Windows `.exe`, macOS `.app`/`.dmg`, and Linux
+AppImage/deb/rpm bundles are OS-specific.
+
+On macOS, setup prepares Kattappa's runtime data under
+`~/Library/Application Support/Kattappa AI OS` and runs the Screen Recording
+preflight once. Normal desktop opening uses quiet health checks and does not
+run project indexing or screen capture until you ask for a task that needs it.
 
 Older root-level wrappers were removed so this project has one setup file and one run executable.
 
@@ -70,6 +83,9 @@ Older root-level wrappers were removed so this project has one setup file and on
 - Model router: Ollama at `backend\core\model_router.py`
 - Memory: ChromaDB + SQLite at `backend\core\memory.py`
 - Agents: planner, memory, safety, evaluator, coder, browser, researcher, desktop, vision, voice, file, terminal, finance, self-improver
+- Local Builder Profile: free/local coding-process analytics inspired by builder-profile tools, using only repo structure and git metadata with no transcript or code upload
+- Local Creator Tools: free replacements for Pitch/Gamma/Napkin/Headroom/CodeRabbit/GSD/Ralph/MarkItDown/Pomelli/Blackbox-style workflows, including Markdown deck outlines, Mermaid diagrams, local context compression, local code review, plan-execute-verify-fix workflows, document-to-Markdown fallback, and marketing kits
+- Local Assistant Patterns: FRIDAY/JARVIS/personal-assistant style voice, screen, memory, and tool routing through Kattappa's desktop app with local-first fallbacks and approval gates
 - Finance Brain: OHLCV/K-line forecasting with a local baseline, Kronos readiness status, and baseline-vs-Kronos comparison workflow
 - Safety: approval gates, blocked keywords, command allowlist, desktop control off by default
 

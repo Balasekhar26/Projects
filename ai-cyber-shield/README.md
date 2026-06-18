@@ -12,6 +12,7 @@ The project now has two layers:
 
 - Scans running processes for suspicious names, paths, and high resource usage.
 - Watches established network connections for risky ports and known blocked endpoints.
+- Runs safe local/private TCP port checks with Nmap when installed, or a built-in socket fallback.
 - Creates local honeypot files with fake secrets and detects tampering.
 - Contains local user-owned processes safely with `TERM` by default.
 - Adds suspicious IPs to a local blocklist for evidence and future alerts.
@@ -72,6 +73,7 @@ Python ASA flow from this folder:
 
 ```bash
 python -m asa.cli scan
+python -m asa.cli network-scan 127.0.0.1
 python -m asa.cli hardening-audit
 python -m asa.cli report
 ```
@@ -120,6 +122,7 @@ watch [seconds]           Run the ASA monitoring loop
 baseline                  Save normal behavior baseline
 hardening-audit           Audit local hardening state
 architecture-audit        Check ASA architecture and safety boundaries
+network-scan [target]     Scan loopback/private/link-local TCP ports with Nmap or socket fallback
 report                    Generate ASA incident report
 contain-pid <pid>         Dry-run local process containment
 contain-pid <pid> --apply Actually send TERM to a safe local process
@@ -145,6 +148,8 @@ This tool does not retaliate against outside systems. That is intentional. Relia
 - preserve evidence,
 - rotate credentials,
 - report abuse to the right provider or authority.
+
+The `network-scan` command is for user-owned loopback/private/link-local networks only. It does not run exploit scripts and it refuses public internet targets by default.
 
 ## Notes
 

@@ -21,6 +21,10 @@ AGENT_PROFILES = [
             "how you work",
             "your workflow",
             "codex",
+            "rival",
+            "rival to you",
+            "what can you do",
+            "list out what can",
             "builder brain",
             "your files",
             "your code",
@@ -100,7 +104,7 @@ AGENT_PROFILES = [
     ),
     AgentProfile(
         "desktop",
-        "guides or controls desktop actions through observe/guide/assist/autonomous modes",
+        "guides or controls desktop actions through automatic routing and approval gates",
         (
             "desktop",
             "click",
@@ -185,6 +189,10 @@ AGENT_PROFILES = [
 
 def route_task(text: str) -> dict[str, object]:
     lower = text.lower()
+    direct = _direct_route(lower)
+    if direct:
+        return direct
+
     scores: list[dict[str, object]] = []
     for profile in AGENT_PROFILES:
         matches = [keyword for keyword in profile.keywords if keyword in lower]
@@ -215,6 +223,21 @@ def route_task(text: str) -> dict[str, object]:
 
 
 def planner_node(state):
+    if state.get("result") and state.get("selected_agent"):
+        state["tool_request"] = state.get("tool_request") or {
+            "agent_routing": {
+                "agent": state["selected_agent"],
+                "reason": "Handled directly before planner routing.",
+                "scores": [],
+            }
+        }
+        state["plan"] = state.get("plan") or "Direct command already handled."
+        state["operator_plan"] = build_operator_plan(
+            state["user_input"], state["selected_agent"], state.get("memory_context")
+        )
+        state["logs"].append(f"planner: preserved direct handler {state['selected_agent']}")
+        return state
+
     routing = route_task(state["user_input"])
     selected = str(routing["agent"])
     state["selected_agent"] = selected
@@ -230,3 +253,52 @@ def planner_node(state):
     )
     state["logs"].append(f"planner: {selected} - {routing['reason']}")
     return state
+
+
+def _direct_route(lower: str) -> dict[str, object] | None:
+    if lower.startswith(
+        (
+            "remember ",
+            "remember that ",
+            "remember this ",
+            "please remember ",
+            "save this memory",
+            "store this memory",
+            "keep in memory",
+        )
+    ):
+        return {
+            "agent": "memory",
+            "reason": "Explicit user memory command.",
+            "scores": [],
+        }
+
+    if any(word in lower for word in ("delete", "remove", "erase", "rename")):
+        return {
+            "agent": "file",
+            "reason": "File or data-changing verb needs the file/action safety path.",
+            "scores": [],
+        }
+
+    desktop_action = any(
+        phrase in lower
+        for phrase in (
+            "cursor",
+            "where to click",
+            "guide me",
+            "click",
+            "type into",
+            "press key",
+            "open app",
+            "select",
+            "drag",
+        )
+    )
+    if desktop_action:
+        return {
+            "agent": "desktop",
+            "reason": "Desktop/cursor action should use the desktop guidance and approval path.",
+            "scores": [],
+        }
+
+    return None

@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "verified_on": "2026-06-07",
+  "version": 2,
+  "verified_on": "2026-06-14",
   "policy": "Add only fully free/open/local-first capabilities to the seven-project core. Paid, rate-limited, account-dependent, unknown-license, or heavy setup tools are blocked from core and replaced with Kattappa-built local behavior or a small optional adapter.",
   "source_evidence": {
     "google_antigravity": "https://www.antigravity.google/",
@@ -9,7 +9,29 @@
     "stripe_pricing": "https://stripe.com/pricing",
     "posthog_github": "https://github.com/PostHog/posthog",
     "inngest_github": "https://github.com/inngest/inngest",
-    "pocketbase": "https://pocketbase.io/"
+    "pocketbase": "https://pocketbase.io/",
+    "homebrew": "https://brew.sh/",
+    "pitch": "https://pitch.com/",
+    "gamma_pricing": "https://gamma.app/pricing",
+    "napkin_pricing": "https://www.napkin.ai/pricing/",
+    "vela": "https://tryvela.ai/",
+    "headroom": "https://github.com/chopratejas/headroom",
+    "ui_tars_desktop": "https://github.com/bytedance/UI-TARS-desktop",
+    "openjarvis": "https://github.com/open-jarvis/OpenJarvis",
+    "openbci": "https://openbci.com/",
+    "mne_python": "https://mne.tools/",
+    "gsd": "https://github.com/gsd-build/get-shit-done",
+    "ralph_coding": "https://github.com/snarktank/ralph",
+    "coderabbit_pricing": "https://coderabbit.ai/pricing",
+    "coderabbit_docs": "https://docs.coderabbit.ai/",
+    "markitdown": "https://github.com/microsoft/markitdown",
+    "pomelli": "https://labs.google.com/pomelli/about",
+    "pomelli_blog": "https://blog.google/innovation-and-ai/models-and-research/google-labs/pomelli/",
+    "nmap": "https://nmap.org/",
+    "nmap_github": "https://github.com/nmap/nmap",
+    "friday_tony_stark_demo": "https://github.com/SAGAR-TAMANG/friday-tony-stark-demo",
+    "blackbox_ai_pricing": "https://www.blackbox.ai/pricing",
+    "personal_assistant_reference": "https://github.com/shashank-77-77/Virtual-Assistant-Engg-Project"
   },
   "free_capabilities": {
     "sqlite_builtin_backend": {
@@ -59,6 +81,160 @@
       "network_required": false,
       "status": "add_now",
       "replaces": ["stripe_core_dependency"]
+    },
+    "local_deck_generator": {
+      "purpose": "Prompt-to-deck Markdown outline generator for pitch decks, project demos, investor notes, and README-ready presentations without Pitch or Gamma accounts.",
+      "license": "Kattappa-built local creator workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.local_creator_tools.create_local_deck_outline",
+      "replaces": ["pitch_ai_core_dependency", "gamma_ai_core_dependency"]
+    },
+    "mermaid_diagram_generator": {
+      "purpose": "Text-to-flowchart and text-to-mindmap Mermaid generator for architecture, repair workflows, incident reports, learning maps, and product docs.",
+      "license": "Kattappa-built local workflow plus Mermaid-compatible output",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.local_creator_tools.create_mermaid_diagram",
+      "replaces": ["napkin_ai_core_dependency"]
+    },
+    "local_context_compressor": {
+      "purpose": "Headroom-style deterministic compression for logs, tool output, notes, and file snippets before they enter local agent context.",
+      "license": "Kattappa-built local compression workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.local_creator_tools.compress_context",
+      "replaces": ["hosted_context_compression", "paid_context_compression"]
+    },
+    "local_schedule_planner": {
+      "purpose": "Vela-style scheduling plan templates using local tasks, reminders, and calendar-ready text instead of hosted scheduling agents.",
+      "license": "Kattappa-built local workflow",
+      "network_required": false,
+      "status": "add_now",
+      "replaces": ["vela_hosted_scheduling_dependency"]
+    },
+    "ui_tars_inspired_operator_policy": {
+      "purpose": "GUI-agent policy for observe, guide, assist, and autonomous modes using screen/OCR/accessibility evidence and approval gates.",
+      "license": "Kattappa-built local policy inspired by open GUI-agent research",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.core.operator",
+      "replaces": ["uncontrolled_gui_agent_dependency"]
+    },
+    "openjarvis_local_assistant_patterns": {
+      "purpose": "Local-first assistant design patterns for voice, screen, memory, tools, and privacy-preserving evaluation.",
+      "license": "Kattappa-built local implementation; upstream pattern only",
+      "network_required": false,
+      "status": "add_now",
+      "replaces": ["jarvis_repo_code_copying"]
+    },
+    "openbci_mne_research_adapter": {
+      "purpose": "Safe research-only BCI/EEG analysis path using OpenBCI-style hardware concepts and MNE-Python-style analysis without invasive-device claims.",
+      "license": "Research adapter boundary; verify dataset and hardware licenses before use",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "replaces": ["neuralink_or_neuracle_implant_dependency"],
+      "guardrails": [
+        "research and education only",
+        "no medical diagnosis",
+        "no invasive device workflow",
+        "no mind reading or memory upload claims"
+      ]
+    },
+    "local_code_review": {
+      "purpose": "CodeRabbit-style local diff review for secrets, unsafe shell, debug leftovers, broad exceptions, TODO/FIXME markers, and simple SQL injection risks.",
+      "license": "Kattappa-built local review workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.local_creator_tools.local_code_review",
+      "replaces": ["coderabbit_core_dependency"]
+    },
+    "local_gsd_workflow": {
+      "purpose": "Plan, execute, verify, and fix workflow for coding tasks inspired by GSD, Ralph coding loops, and agentic development platforms.",
+      "license": "Kattappa-built local workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.local_creator_tools.create_gsd_workflow",
+      "replaces": ["antigravity_core_dependency", "gsd_external_framework", "ralph_coding_loop_dependency"]
+    },
+    "local_document_markdown": {
+      "purpose": "Built-in text, HTML, and CSV to Markdown conversion for AI-friendly document notes without a mandatory external converter.",
+      "license": "Kattappa-built local converter fallback",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.local_creator_tools.convert_document_text_to_markdown",
+      "replaces": ["markitdown_required_dependency"]
+    },
+    "markitdown_optional_adapter": {
+      "purpose": "Optional open-source Microsoft MarkItDown adapter for richer PDF, DOCX, PPTX, XLSX, image, audio, and HTML conversion when installed locally after approval.",
+      "license": "MIT",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "source": "https://github.com/microsoft/markitdown",
+      "replaces": ["hosted_document_conversion", "manual_document_retyping"],
+      "guardrails": [
+        "not required by default",
+        "local files stay local",
+        "adapter can be removed without breaking the built-in fallback"
+      ]
+    },
+    "local_marketing_kit": {
+      "purpose": "Pomelli/Ralph-style local brand hooks, campaign posts, email subjects, and CTAs without connecting ad accounts, stores, or hosted brand tools.",
+      "license": "Kattappa-built local marketing workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.local_creator_tools.create_marketing_kit",
+      "replaces": ["pomelli_core_dependency", "ralph_ecommerce_marketing_dependency"]
+    },
+    "local_network_scanner": {
+      "purpose": "Safe Nmap-style local/private TCP port checks for AI Cyber Shield, with Nmap used only when already installed and a Python socket fallback otherwise.",
+      "license": "Kattappa/Cyber Shield-built local scanner workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "ai-cyber-shield.asa.network_scan.scan_local_network",
+      "replaces": ["nmap_required_dependency"],
+      "guardrails": [
+        "loopback, private, or link-local targets only",
+        "small port lists only",
+        "no exploit or vulnerability script execution"
+      ]
+    },
+    "nmap_optional_adapter": {
+      "purpose": "Optional Nmap CLI adapter for network discovery and security auditing on user-owned local/private networks.",
+      "license": "Nmap Public Source License; free for end users, inspect redistribution terms before bundling",
+      "network_required": false,
+      "status": "adapter_candidate",
+      "source": "https://nmap.org/",
+      "replaces": ["manual_port_inventory"],
+      "guardrails": [
+        "not bundled by default",
+        "user-owned networks only",
+        "no NSE exploit or intrusive scan profiles in default app flow"
+      ]
+    },
+    "local_friday_voice_assistant_patterns": {
+      "purpose": "FRIDAY-style voice-first assistant flow using Kattappa's local wake-word, STT/TTS fallback, MCP-like tool boundaries, approvals, and desktop app shell.",
+      "license": "Kattappa-built local voice/tool workflow; upstream demo as pattern only",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.voice_tools",
+      "replaces": ["friday_cloud_voice_stack_dependency", "livekit_required_dependency", "openai_tts_required_dependency", "sarvam_required_dependency"]
+    },
+    "local_blackbox_coding_assistant": {
+      "purpose": "Blackbox-style coding help using local project index, local code review, plan-execute-verify-fix workflow, and local repo prompt export.",
+      "license": "Kattappa-built local coding assistant workflow",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.tools.local_creator_tools.local_code_review",
+      "replaces": ["blackbox_ai_core_dependency"]
+    },
+    "local_personal_assistant_patterns": {
+      "purpose": "Personal-assistant app patterns for opening apps, schedule/task helpers, screenshots, and local automation behind Kattappa approval gates.",
+      "license": "Kattappa-built local assistant workflow; external repos as pattern references only",
+      "network_required": false,
+      "status": "add_now",
+      "adapter": "backend.core.operator",
+      "replaces": ["personal_assistant_repo_code_copying"]
     }
   },
   "topics": [
@@ -66,7 +242,7 @@
       "id": 1,
       "topic": "Google Antigravity 2.0",
       "decision": "Do not add as a core dependency because it is an account/cloud agent platform with usage tiers. Add the useful pattern locally: manager-worker coding agents, browser evidence, approval gates, test logs, and resumable tasks.",
-      "free_replacements": ["local_multi_agent_orchestrator", "opencode_local_coding_loop", "local_repo_prompt_exporter", "local_eval_harness"],
+      "free_replacements": ["local_multi_agent_orchestrator", "local_gsd_workflow", "local_code_review", "opencode_local_coding_loop", "local_repo_prompt_exporter", "local_eval_harness"],
       "projects": ["kattappa", "neuroseed"]
     },
     {
@@ -110,6 +286,139 @@
       "decision": "Do not copy repo code unless license/source review approves it. Keep the useful idea as a local AI workspace pattern using Kattappa memory, project index, local model profiles, and approved adapters.",
       "free_replacements": ["local_multi_agent_orchestrator", "chromadb", "local_repo_prompt_exporter", "opencode_local_coding_loop"],
       "projects": ["kattappa", "neuroseed"]
+    },
+    {
+      "id": 8,
+      "topic": "Homebrew",
+      "decision": "Keep as an optional setup helper for macOS/Linux only. Do not make it a Windows-first requirement.",
+      "free_replacements": ["homebrew"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 9,
+      "topic": "Pitch / Pitch AI",
+      "decision": "Freemium/account presentation tools are blocked from core. Add a local Markdown deck generator for pitch decks and project demos.",
+      "free_replacements": ["local_deck_generator"],
+      "projects": ["kattappa", "pcb-doctor", "ai-cyber-shield", "universal-translator", "dews", "neuroseed"]
+    },
+    {
+      "id": 10,
+      "topic": "Gamma",
+      "decision": "Gamma has a free plan but paid tiers/branding/credits make it unsuitable as a core dependency. Add the same local deck generator instead.",
+      "free_replacements": ["local_deck_generator"],
+      "projects": ["kattappa", "pcb-doctor", "universal-translator", "dews", "neuroseed"]
+    },
+    {
+      "id": 11,
+      "topic": "Napkin AI",
+      "decision": "Napkin is useful for text-to-visual thinking but its credit/paid plan model is not a fully free core dependency. Add Mermaid diagram generation locally.",
+      "free_replacements": ["mermaid_diagram_generator", "mermaid", "excalidraw"],
+      "projects": ["all"]
+    },
+    {
+      "id": 12,
+      "topic": "Vela scheduling assistants",
+      "decision": "Hosted scheduling agents are not core dependencies. Add local scheduling-plan templates and route durable follow-ups through Kattappa long tasks.",
+      "free_replacements": ["local_schedule_planner", "local_workflow_queue"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 13,
+      "topic": "Headroom context compression",
+      "decision": "Headroom is open-source and useful, but Kattappa now has a built-in deterministic local compressor so no dependency is required for the core.",
+      "free_replacements": ["local_context_compressor"],
+      "projects": ["kattappa", "ai-cyber-shield", "universal-translator", "neuroseed"]
+    },
+    {
+      "id": 14,
+      "topic": "Hector2221 JARVIS / OpenJarvis-style assistant repos",
+      "decision": "Use JARVIS repos as pattern references only. Kattappa keeps its own local assistant stack for voice, screen, memory, tools, approvals, and evaluation.",
+      "free_replacements": ["openjarvis_local_assistant_patterns", "local_multi_agent_orchestrator", "chromadb"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 15,
+      "topic": "UI-TARS",
+      "decision": "The open-source GUI-agent direction is useful, but Kattappa should not hand uncontrolled desktop access to a model. Add the policy locally: observe/guide first, approval before assist/autonomous actions.",
+      "free_replacements": ["ui_tars_inspired_operator_policy"],
+      "projects": ["kattappa", "pcb-doctor", "ai-cyber-shield", "dews"]
+    },
+    {
+      "id": 16,
+      "topic": "Neuralink / Neuracle NEO",
+      "decision": "Implantable BCIs are medical devices and are blocked from product core. Add only safe research notes and non-invasive/open EEG analysis paths for NeuroSeed learning research.",
+      "free_replacements": ["openbci_mne_research_adapter"],
+      "projects": ["neuroseed"]
+    },
+    {
+      "id": 17,
+      "topic": "Get Shit Done (GSD)",
+      "decision": "The useful idea is the disciplined plan, execute, verify, fix loop. Add that workflow locally instead of making an external coding framework a core dependency.",
+      "free_replacements": ["local_gsd_workflow", "local_context_compressor", "local_code_review"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 18,
+      "topic": "Ralph coding AI",
+      "decision": "Use autonomous coding-loop ideas as a reference only. Kattappa keeps the loop local, approval-gated, test-first, and scoped to one project at a time.",
+      "free_replacements": ["local_gsd_workflow", "local_multi_agent_orchestrator", "local_context_compressor"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 19,
+      "topic": "CodeRabbit",
+      "decision": "Hosted PR review is not a core dependency because project code should stay local by default. Add a local heuristic reviewer and keep Git/test checks as the verification baseline.",
+      "free_replacements": ["local_code_review", "local_eval_harness", "git_cli_safety_workflow"],
+      "projects": ["all"]
+    },
+    {
+      "id": 20,
+      "topic": "MarkItDown / Marketdown AI",
+      "decision": "Microsoft MarkItDown is a useful open-source adapter, but Kattappa should still work without installing it. Add a built-in Markdown fallback and list MarkItDown as an optional local adapter.",
+      "free_replacements": ["local_document_markdown", "markitdown_optional_adapter", "local_context_compressor"],
+      "projects": ["kattappa", "pcb-doctor", "universal-translator", "neuroseed"]
+    },
+    {
+      "id": 21,
+      "topic": "Pomelli AI",
+      "decision": "Hosted marketing/brand generation is useful but not a fully free local core dependency. Add local campaign-kit drafting for project pages, demos, and release notes.",
+      "free_replacements": ["local_marketing_kit", "local_deck_generator"],
+      "projects": ["kattappa", "pcb-doctor", "universal-translator", "musical-keyboard", "dews", "neuroseed"]
+    },
+    {
+      "id": 22,
+      "topic": "Ralph eCommerce marketing",
+      "decision": "Store automation and ad-account marketing tools stay outside the core. Use a local marketing-kit generator for copy drafts and manual export until a project explicitly needs commerce integration.",
+      "free_replacements": ["local_marketing_kit", "local_product_analytics"],
+      "projects": ["kattappa", "pcb-doctor", "universal-translator", "musical-keyboard", "dews", "neuroseed"]
+    },
+    {
+      "id": 23,
+      "topic": "Nmap",
+      "decision": "Nmap is a useful free network discovery/security-audit tool, but it should stay optional rather than bundled. Add a safe local/private network scanner to Cyber Shield and use Nmap only when already installed.",
+      "free_replacements": ["local_network_scanner", "nmap_optional_adapter"],
+      "projects": ["ai-cyber-shield"]
+    },
+    {
+      "id": 24,
+      "topic": "FRIDAY Tony Stark Demo",
+      "decision": "Use the voice-agent/tool-routing architecture as a reference only. Do not add Gemini, LiveKit, OpenAI TTS, Sarvam, or any hosted voice stack as a required dependency.",
+      "free_replacements": ["local_friday_voice_assistant_patterns", "local_multi_agent_orchestrator", "ui_tars_inspired_operator_policy"],
+      "projects": ["kattappa"]
+    },
+    {
+      "id": 25,
+      "topic": "BLACKBOX AI",
+      "decision": "Blackbox AI is useful as a coding-assistant idea but has paid tiers and hosted account flows, so it is not a core dependency. Add local coding assistant behavior instead.",
+      "free_replacements": ["local_blackbox_coding_assistant", "local_code_review", "local_gsd_workflow", "local_repo_prompt_exporter"],
+      "projects": ["all"]
+    },
+    {
+      "id": 26,
+      "topic": "Personal-asistant / personal AI assistant repos",
+      "decision": "Use personal-assistant repos as pattern references only. Kattappa keeps its own desktop app, voice, screen, task, and approval architecture.",
+      "free_replacements": ["local_personal_assistant_patterns", "openjarvis_local_assistant_patterns", "local_workflow_queue"],
+      "projects": ["kattappa"]
     }
   ],
   "free_project_applications_patch": {
@@ -119,47 +428,109 @@
       "local_product_analytics",
       "local_workflow_queue",
       "local_multi_agent_orchestrator",
-      "manual_export_billing_playbook"
+      "manual_export_billing_playbook",
+      "local_deck_generator",
+      "mermaid_diagram_generator",
+      "local_context_compressor",
+      "local_schedule_planner",
+      "ui_tars_inspired_operator_policy",
+      "openjarvis_local_assistant_patterns",
+      "local_code_review",
+      "local_gsd_workflow",
+      "local_document_markdown",
+      "markitdown_optional_adapter",
+      "local_marketing_kit",
+      "local_friday_voice_assistant_patterns",
+      "local_blackbox_coding_assistant",
+      "local_personal_assistant_patterns"
     ],
     "pcb-doctor": [
       "sqlite_builtin_backend",
       "pocketbase_optional_backend",
       "local_product_analytics",
       "local_workflow_queue",
-      "local_multi_agent_orchestrator"
+      "local_multi_agent_orchestrator",
+      "local_deck_generator",
+      "mermaid_diagram_generator",
+      "local_context_compressor",
+      "ui_tars_inspired_operator_policy",
+      "local_code_review",
+      "local_document_markdown",
+      "markitdown_optional_adapter",
+      "local_marketing_kit",
+      "local_blackbox_coding_assistant"
     ],
     "ai-cyber-shield": [
       "sqlite_builtin_backend",
       "pocketbase_optional_backend",
       "local_product_analytics",
       "local_workflow_queue",
-      "local_multi_agent_orchestrator"
+      "local_multi_agent_orchestrator",
+      "local_deck_generator",
+      "mermaid_diagram_generator",
+      "local_context_compressor",
+      "ui_tars_inspired_operator_policy",
+      "local_code_review",
+      "local_document_markdown",
+      "local_network_scanner",
+      "nmap_optional_adapter",
+      "local_blackbox_coding_assistant"
     ],
     "universal-translator": [
       "sqlite_builtin_backend",
       "pocketbase_optional_backend",
       "local_product_analytics",
       "local_workflow_queue",
-      "local_multi_agent_orchestrator"
+      "local_multi_agent_orchestrator",
+      "local_deck_generator",
+      "mermaid_diagram_generator",
+      "local_context_compressor",
+      "local_code_review",
+      "local_document_markdown",
+      "markitdown_optional_adapter",
+      "local_marketing_kit",
+      "local_blackbox_coding_assistant"
     ],
     "musical-keyboard": [
       "local_product_analytics",
       "local_workflow_queue",
-      "local_multi_agent_orchestrator"
+      "local_multi_agent_orchestrator",
+      "local_deck_generator",
+      "mermaid_diagram_generator",
+      "local_code_review",
+      "local_marketing_kit",
+      "local_blackbox_coding_assistant"
     ],
     "dews": [
       "sqlite_builtin_backend",
       "pocketbase_optional_backend",
       "local_product_analytics",
       "local_workflow_queue",
-      "local_multi_agent_orchestrator"
+      "local_multi_agent_orchestrator",
+      "local_deck_generator",
+      "mermaid_diagram_generator",
+      "local_context_compressor",
+      "ui_tars_inspired_operator_policy",
+      "local_code_review",
+      "local_document_markdown",
+      "local_marketing_kit",
+      "local_blackbox_coding_assistant"
     ],
     "neuroseed": [
       "sqlite_builtin_backend",
       "pocketbase_optional_backend",
       "local_product_analytics",
       "local_workflow_queue",
-      "local_multi_agent_orchestrator"
+      "local_multi_agent_orchestrator",
+      "local_deck_generator",
+      "mermaid_diagram_generator",
+      "local_context_compressor",
+      "openbci_mne_research_adapter",
+      "local_code_review",
+      "local_document_markdown",
+      "markitdown_optional_adapter",
+      "local_marketing_kit",
+      "local_blackbox_coding_assistant"
     ]
   },
   "blocked_or_restricted": [
@@ -171,6 +542,28 @@
     "turboquant",
     "turnoquant",
     "odysseus_repo_until_license_reviewed",
-    "supabase_default_docker_stack"
+    "supabase_default_docker_stack",
+    "pitch_ai_core_dependency",
+    "gamma_ai_core_dependency",
+    "napkin_ai_core_dependency",
+    "vela_hosted_scheduling_dependency",
+    "neuralink_or_neuracle_implant_dependency",
+    "uncontrolled_gui_agent_dependency",
+    "jarvis_repo_code_copying",
+    "coderabbit_core_dependency",
+    "antigravity_core_dependency",
+    "gsd_external_framework",
+    "ralph_coding_loop_dependency",
+    "ralph_ecommerce_marketing_dependency",
+    "pomelli_core_dependency",
+    "markitdown_required_dependency",
+    "hosted_marketing_automation_dependency",
+    "nmap_required_dependency",
+    "friday_cloud_voice_stack_dependency",
+    "livekit_required_dependency",
+    "openai_tts_required_dependency",
+    "sarvam_required_dependency",
+    "blackbox_ai_core_dependency",
+    "personal_assistant_repo_code_copying"
   ]
 }

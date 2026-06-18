@@ -7,12 +7,28 @@ if /I "%MODE%"=="help" goto help
 if /I "%MODE%"=="/?" goto help
 if /I "%MODE%"=="status" goto status
 
-if not exist "node_modules\" (
-  echo Dependencies are missing. Run setup.bat first.
-  exit /b 1
-)
+call :ensure_setup
+if errorlevel 1 exit /b 1
 
 call npm run electron
+exit /b %errorlevel%
+
+:ensure_setup
+where node >nul 2>nul
+if errorlevel 1 (
+  echo Node.js is required. Install Node.js from https://nodejs.org and rerun setup.bat.
+  exit /b 1
+)
+where npm >nul 2>nul
+if errorlevel 1 (
+  echo npm is required and normally installs with Node.js.
+  exit /b 1
+)
+if exist "node_modules\" (
+  if exist ".ult-runtime\" exit /b 0
+)
+echo First run setup required. Installing Universal Translator dependencies...
+call "%CD%\setup.bat" --setup-only
 exit /b %errorlevel%
 
 :status

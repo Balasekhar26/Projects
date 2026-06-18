@@ -24,6 +24,7 @@ run.exe
 macOS/Linux can open the same local prototype directly:
 
 ```bash
+python3 backend/server.py
 python3 -m webbrowser prototype/index.html
 ```
 
@@ -42,6 +43,6 @@ Avoid claiming:
 ## Production Gate
 
 - Keep `setup.bat` as the only setup entrypoint and `run.exe` as the only root run executable.
-- Keep the prototype local-first with no network assets.
-- Preserve the consent boundary: awake approval, user-selected content, local storage, and user-triggered export only.
+- Keep the prototype local-first with no network assets; `07-NeuroSeed/backend/server.py` owns the local SQLite/optional-Chroma memory backend at `http://127.0.0.1:8077`.
+- Preserve the consent boundary: awake approval, user-selected content, local memory storage, and user-triggered export only.
 - Do not claim direct brain upload, unconscious information injection, or memory copying.

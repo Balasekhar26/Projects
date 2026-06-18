@@ -105,14 +105,27 @@ def build_graph():
 compiled_graph = build_graph()
 
 
-def run_graph(user_input: str) -> AgentState:
+def run_graph(
+    user_input: str,
+    approved_approval_id: str | None = None,
+    chat_session_id: str | None = None,
+    current_chat_message_id: str | None = None,
+    memory_query: str | None = None,
+    ephemeral_worker: bool = False,
+) -> AgentState:
     state: AgentState = {
         "user_input": user_input,
+        "memory_query": memory_query,
+        "chat_session_id": chat_session_id,
+        "current_chat_message_id": current_chat_message_id,
+        "ephemeral_worker": ephemeral_worker,
         "plan": None,
         "selected_agent": None,
         "memory_context": None,
+        "related_messages": [],
         "tool_request": None,
         "approval_id": None,
+        "approved_approval_id": approved_approval_id,
         "approval_required": False,
         "risk_level": "unknown",
         "result": None,

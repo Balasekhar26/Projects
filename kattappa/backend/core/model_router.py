@@ -40,7 +40,11 @@ def ask_model(prompt: str, role: str = "general", system: str | None = None) -> 
         {
             "role": "system",
             "content": system
-            or "You are Kattappa AI OS Assistant, a local-first autonomous assistant. You also answer to Kattappa, Mama, and Kittu. Be useful, safe, and concise.",
+            or (
+                "You are Kattappa AI OS Assistant, a local-first autonomous assistant. "
+                "Answer in English. Be direct and concise by default: 2-5 short sentences or tight bullets. "
+                "Only give long explanations when the user asks for detail."
+            ),
         },
         {"role": "user", "content": prompt},
     ]
@@ -67,9 +71,7 @@ def ask_model(prompt: str, role: str = "general", system: str | None = None) -> 
             errors.append(f"{model}: {exc}")
             log_event(f"model_failed role={role} model={model} error={exc}")
     return (
-        "The local AI model did not answer quickly enough. "
-        "Try the question again, or pull a faster/smaller Ollama model for this computer. "
-        f"Attempts: {'; '.join(errors[-3:])}"
+        "Local model timed out. Try again or use a smaller Ollama model."
     )
 
 

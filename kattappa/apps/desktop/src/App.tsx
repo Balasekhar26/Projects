@@ -7,7 +7,7 @@ import { Sidebar } from "./components/Sidebar";
 import {
   API_BASE_URL as API,
   checkWriting,
-  continueToolAdoptionForApproval,
+  continueApprovedWork,
   createChatSession,
   createLongTask as createLongTaskRequest,
   decideApproval as decideApprovalRequest,
@@ -16,11 +16,11 @@ import {
   fetchChatSessionMessages,
   fetchChatSessions,
   fetchDashboardData,
+  fetchHealth,
   fetchLongTasks,
   requestMissingInstalls as requestMissingInstallsRequest,
   resumeLongTask,
   rewriteWriting,
-  runApprovedInstallJob,
   runSelfEvolution,
   runSimulation,
   runToolScout,
@@ -33,9 +33,11 @@ import {
 import { PANELS, initialMessages } from "./state/appState";
 import type {
   Approval,
+  ApprovalContinuationResult,
   BuilderProfile,
   CapabilityLadder,
   ChatSession,
+  CodexParityReport,
   EvolutionCycle,
   FreeStack,
   Health,
@@ -43,15 +45,16 @@ import type {
   InstallResult,
   LongTask,
   Message,
-  OperatorMode,
   ProjectEcosystem,
   ProjectIndex,
   Reflection,
+  RelatedChatMessage,
   ResearchResult,
   ResumeResult,
   SimulationResult,
   Skill,
   SourcePolicy,
+  StoredMessage,
   ToolAdoptionJob,
   ToolScoutStatus,
   VisualGuidance,
@@ -60,18 +63,66 @@ import type {
 
 type QueuedTurn = {
   text: string;
-  operatorMode: OperatorMode;
 };
 
 const VISUAL_GUIDANCE_AUTO_HIDE_MS = 6500;
+
+function storedMessagesToChat(stored: StoredMessage[]): Message[] {
+  return stored.length
+    ? stored.map((item) => ({
+        role: item.role,
+        content: item.content,
+        agent: item.agent || undefined,
+        risk: item.risk || undefined,
+      }))
+    : initialMessages();
+}
+
+function approvalContinuationMessage(data: ApprovalContinuationResult) {
+  const kind = data.kind ? data.kind.replace(/_/g, " ") : "approval";
+  const message = data.message ?? `${kind}: ${data.status}.`;
+  const finalApprovalId = data.job?.["final_approval_id"];
+  const nextApproval =
+    typeof finalApprovalId === "string" && finalApprovalId
+      ? " Next approval needed."
+      : "";
+  return `${message}${nextApproval}`;
+}
+
+function compactLiveStatus(raw: string) {
+  const text = raw.trim();
+  const lower = text.toLowerCase();
+  if (!text) return "Working";
+  if (lower.includes("planning") || lower.includes("planner:")) return "Routing";
+  if (lower.includes("memory:")) return "Memory";
+  if (lower.includes("safety:")) return lower.includes("approved") ? "Approved" : "Safety";
+  if (lower.includes("approval") && lower.includes("waiting")) return "Approval needed";
+  if (lower.includes("approval")) return "Approval";
+  if (lower.includes("desktop:")) return "Desktop";
+  if (lower.includes("coder:")) return "Coding";
+  if (lower.includes("builder:")) return "Builder";
+  if (lower.includes("file:")) return "Files";
+  if (lower.includes("voice:")) return "Voice";
+  if (lower.includes("finalized") || lower.includes("completed")) return "Done";
+  return text.length > 28 ? `${text.slice(0, 25).trim()}...` : text;
+}
+
+function compactVoiceStatus(raw: string) {
+  const lower = raw.toLowerCase();
+  if (lower.includes("wake")) return "Wake name needed";
+  if (lower.includes("stt") || lower.includes("transcription")) return "Voice setup needed";
+  if (lower.includes("audio")) return "No voice audio";
+  if (lower.includes("microphone") || lower.includes("voice")) return "Voice unavailable";
+  return compactLiveStatus(raw);
+}
 
 function App() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [activePanel, setActivePanel] = useState("Chat");
   const [input, setInput] = useState("");
-  const [operatorMode, setOperatorMode] = useState<OperatorMode>("guide");
   const [connected, setConnected] = useState(false);
   const [agentStatus, setAgentStatus] = useState("Backend not connected");
+  const [liveStatus, setLiveStatus] = useState("Ready");
   const [health, setHealth] = useState<Health | null>(null);
   const [freeStack, setFreeStack] = useState<FreeStack | null>(null);
   const [sourcePolicy, setSourcePolicy] = useState<SourcePolicy | null>(null);
@@ -84,6 +135,7 @@ function App() {
   const [evolutionCycle, setEvolutionCycle] = useState<EvolutionCycle | null>(null);
   const [evolutionRunning, setEvolutionRunning] = useState(false);
   const [builderProfile, setBuilderProfile] = useState<BuilderProfile | null>(null);
+  const [codexParity, setCodexParity] = useState<CodexParityReport | null>(null);
   const [projectEcosystem, setProjectEcosystem] = useState<ProjectEcosystem | null>(null);
   const [projectIndex, setProjectIndex] = useState<ProjectIndex | null>(null);
   const [resumeResult, setResumeResult] = useState<ResumeResult | null>(null);
@@ -101,6 +153,8 @@ function App() {
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
   const [assistantWorking, setAssistantWorking] = useState(false);
   const [queuedCount, setQueuedCount] = useState(0);
+  const [currentTask, setCurrentTask] = useState("");
+  const [queuedTurns, setQueuedTurns] = useState<QueuedTurn[]>([]);
   const [hiddenGuidanceKey, setHiddenGuidanceKey] = useState<string | null>(null);
   const [launchProgress, setLaunchProgress] = useState(8);
   const [launchStatus, setLaunchStatus] = useState("Opening Kattappa AI OS");
@@ -135,8 +189,12 @@ function App() {
     }
   };
 
-  const refreshHealth = async () => {
+  const refreshHealth = async (mode: "quiet" | "full" = "full") => {
     try {
+      if (mode === "quiet") {
+        setHealth(await fetchHealth());
+        return;
+      }
       const data = await fetchDashboardData();
       setHealth(data.health);
       setFreeStack(data.freeStack);
@@ -145,6 +203,7 @@ function App() {
       setSkills(data.skills);
       setReflections(data.reflections);
       setBuilderProfile(data.builderProfile);
+      setCodexParity(data.codexParity);
       setProjectEcosystem(data.projectEcosystem);
       setSourcePolicy(data.sourcePolicy);
       setProjectIndex(data.projectIndex);
@@ -158,6 +217,7 @@ function App() {
       setSkills([]);
       setReflections([]);
       setBuilderProfile(null);
+      setCodexParity(null);
       setProjectEcosystem(null);
       setSourcePolicy(null);
       setProjectIndex(null);
@@ -168,7 +228,14 @@ function App() {
 
   const refreshChatSessions = async () => {
     try {
-      setChatSessions(await fetchChatSessions());
+      const sessions = await fetchChatSessions();
+      setChatSessions(sessions);
+      if (!currentSessionRef.current && sessions[0]) {
+        setCurrentSessionId(sessions[0].id);
+        currentSessionRef.current = sessions[0].id;
+        const stored = await fetchChatSessionMessages(sessions[0].id);
+        setMessages(storedMessagesToChat(stored));
+      }
     } catch {
       setChatSessions([]);
     }
@@ -182,28 +249,10 @@ function App() {
     }
   };
 
-  const createNewChat = async () => {
-    setMessages(initialMessages());
-    setActivePanel("Chat");
-    try {
-      const session = await createChatSession();
-      setCurrentSessionId(session.id);
-      currentSessionRef.current = session.id;
-      await refreshChatSessions();
-      return session.id;
-    } catch {
-      setCurrentSessionId(null);
-      currentSessionRef.current = null;
-      return null;
-    }
-  };
-
-  const ensureChatSession = async () => currentSessionRef.current ?? createNewChat();
-
   const ensureMessageSession = async () => {
     if (currentSessionRef.current) return currentSessionRef.current;
     try {
-      const session = await createChatSession();
+      const session = await createChatSession("Kattappa Chat");
       setCurrentSessionId(session.id);
       currentSessionRef.current = session.id;
       refreshChatSessions();
@@ -217,18 +266,26 @@ function App() {
     const stored = await fetchChatSessionMessages(sessionId);
     setCurrentSessionId(sessionId);
     currentSessionRef.current = sessionId;
-    setMessages(
-      stored.length
-        ? stored.map((item) => ({
-            role: item.role,
-            content: item.content,
-            agent: item.agent || undefined,
-            risk: item.risk || undefined,
-          }))
-        : initialMessages(),
-    );
+    setMessages(storedMessagesToChat(stored));
     setActivePanel("Chat");
   };
+
+  const openChat = async () => {
+    setActivePanel("Chat");
+    if (currentSessionRef.current) return currentSessionRef.current;
+    try {
+      const sessions = chatSessions.length ? chatSessions : await fetchChatSessions();
+      if (sessions[0]) {
+        await loadChatSession(sessions[0].id);
+        return sessions[0].id;
+      }
+    } catch {
+      // Opening chat should stay local and quiet; message sending will surface real failures.
+    }
+    return ensureMessageSession();
+  };
+
+  const ensureChatSession = async () => currentSessionRef.current ?? openChat();
 
   const persistChatMessage = async (sessionId: string | null, message: Message) => {
     if (!sessionId || message.role === "progress") return;
@@ -308,9 +365,9 @@ function App() {
         const response = await fetch(`${API}/ready`);
         if (!response.ok) throw new Error("not ready");
         if (cancelled) return;
-        setLaunchStatus("Connecting workspace");
+        setLaunchStatus("Connecting local chat");
         setLaunchProgress((value) => Math.max(value, 70));
-        await refreshHealth();
+        await refreshHealth("quiet");
       } catch {
         if (!cancelled) setLaunchStatus("Waiting for backend");
       }
@@ -395,15 +452,17 @@ function App() {
     socket.onopen = () => {
       setConnected(true);
       setAgentStatus("Connected");
+      setLiveStatus("Ready");
     };
     socket.onclose = () => {
       setConnected(false);
       setAgentStatus("Disconnected");
+      setLiveStatus("Reconnecting");
       if (assistantWorkingRef.current) {
         const message: Message = {
           role: "assistant",
           agent: "Kattappa AI",
-          content: "The live connection dropped before the reply finished. I kept the chat usable and will continue with the next queued message.",
+          content: "Connection dropped. I released the composer.",
         };
         setMessages((prev) => [...prev, message]);
         persistChatMessage(currentSessionRef.current, message);
@@ -415,6 +474,12 @@ function App() {
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data.type === "progress" || data.type === "system") {
+          const status = compactLiveStatus(String(data.content || ""));
+          setLiveStatus(status);
+          setAgentStatus(status);
+          return;
+        }
         const message: Message = {
           role: data.type === "assistant" ? "assistant" : data.type,
           content: data.content,
@@ -422,17 +487,24 @@ function App() {
           agent: data.selected_agent,
           routingReason: data.routing?.reason,
           approvalId: data.approval_id,
+          relatedMessages: data.related_messages,
           operatorPlan: data.operator_plan,
         };
         setMessages((prev) => [...prev, message]);
-        persistChatMessage(currentSessionRef.current, message);
+        if (data.session_id && !currentSessionRef.current) {
+          setCurrentSessionId(data.session_id);
+          currentSessionRef.current = data.session_id;
+        }
         if (data.selected_agent) setAgentStatus(`${data.selected_agent} / ${data.risk_level}`);
         if (data.approval_required) refreshApprovals();
-        if (data.type === "assistant") finishAssistantTurn();
+        if (data.type === "assistant") {
+          setLiveStatus(data.approval_required ? "Approval needed" : "Done");
+          refreshChatSessions();
+          finishAssistantTurn();
+        }
       } catch {
         const message: Message = { role: "assistant", content: event.data };
         setMessages((prev) => [...prev, message]);
-        persistChatMessage(currentSessionRef.current, message);
         finishAssistantTurn();
       }
     };
@@ -447,12 +519,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    refreshHealth();
+    refreshHealth("quiet");
     refreshApprovals();
     refreshChatSessions();
     refreshLongTasks();
     const interval = window.setInterval(() => {
-      refreshHealth();
+      refreshHealth("quiet");
       refreshApprovals();
       refreshChatSessions();
       refreshLongTasks();
@@ -461,20 +533,23 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (activePanel !== "Chat") refreshHealth();
+  }, [activePanel]);
+
+  useEffect(() => {
     if (activePanel === "Chat") {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [messages, activePanel]);
 
   const latestVisualGuidanceItem = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const guidance = messages[index].operatorPlan?.visual_guidance;
-      if (guidance?.enabled && guidance.target) {
-        return {
-          guidance,
-          key: `${index}:${guidance.target.label}:${guidance.target.x}:${guidance.target.y}`,
-        };
-      }
+    const index = messages.length - 1;
+    const guidance = messages[index]?.operatorPlan?.visual_guidance;
+    if (guidance?.enabled && guidance.target) {
+      return {
+        guidance,
+        key: `${index}:${guidance.target.label}:${guidance.target.x}:${guidance.target.y}`,
+      };
     }
     return null;
   }, [messages]);
@@ -498,6 +573,11 @@ function App() {
     setAssistantWorking(value);
   };
 
+  const syncQueueState = () => {
+    setQueuedCount(messageQueueRef.current.length);
+    setQueuedTurns([...messageQueueRef.current]);
+  };
+
   const clearTurnTimeout = () => {
     if (turnTimeoutRef.current) {
       window.clearTimeout(turnTimeoutRef.current);
@@ -512,7 +592,7 @@ function App() {
       const message: Message = {
         role: "assistant",
         agent: "Kattappa AI",
-        content: "This reply is taking too long, so I released the composer and kept any next messages queued. Send again if you want me to retry the last request.",
+        content: "This took too long. I released the composer; send again to retry.",
       };
       setMessages((prev) => [...prev, message]);
       persistChatMessage(currentSessionRef.current, message);
@@ -523,56 +603,52 @@ function App() {
   const finishAssistantTurn = () => {
     clearTurnTimeout();
     const next = messageQueueRef.current.shift();
-    setQueuedCount(messageQueueRef.current.length);
+    syncQueueState();
     if (next) {
+      setCurrentTask(next.text);
+      setLiveStatus("Starting next");
       window.setTimeout(() => {
-        void sendMessageText(next.text, true, next.operatorMode);
+        void sendMessageText(next.text, true);
       }, 150);
       return;
     }
+    setCurrentTask("");
     setWorking(false);
+    setLiveStatus("Ready");
   };
 
   const sendMessage = async () => {
     await sendMessageText(input);
   };
 
-  const sendMessageText = async (rawText: string, fromQueue = false, turnMode: OperatorMode = operatorMode) => {
+  const sendMessageText = async (rawText: string, fromQueue = false) => {
     const text = rawText.trim();
     if (!text) return;
     if (assistantWorkingRef.current && !fromQueue) {
-      messageQueueRef.current.push({ text, operatorMode: turnMode });
-      setQueuedCount(messageQueueRef.current.length);
+      messageQueueRef.current.push({ text });
+      syncQueueState();
       setInput("");
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "system",
-          content: `Queued message ${messageQueueRef.current.length}: ${text}`,
-        },
-      ]);
+      setLiveStatus(`Queued ${messageQueueRef.current.length}`);
       return;
     }
     setWorking(true);
+    setCurrentTask(text);
+    setLiveStatus("Working");
     startTurnTimeout();
     const userMessage: Message = { role: "user", content: text };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
 
     const sessionId = await ensureMessageSession();
-    if (sessionId) {
-      persistChatMessage(sessionId, userMessage);
-    }
 
-    const routedText = `[operator mode: ${turnMode}]\n${text}`;
     if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(routedText);
+      ws.current.send(text);
       return;
     }
 
-    setMessages((prev) => [...prev, { role: "progress", content: "WebSocket offline. Using HTTP chat fallback..." }]);
+    setLiveStatus("HTTP fallback");
     try {
-      const data = await sendChatMessage(routedText, sessionId ?? undefined);
+      const data = await sendChatMessage(text, sessionId ?? undefined);
       const assistantMessage: Message = {
         role: "assistant",
         content: data.response ?? "No response returned.",
@@ -580,12 +656,18 @@ function App() {
         agent: data.state?.selected_agent as string | undefined,
         routingReason: (data.state?.tool_request as { agent_routing?: { reason?: string } } | undefined)?.agent_routing?.reason,
         approvalId: data.state?.approval_id as string | undefined,
+        relatedMessages: data.state?.related_messages as RelatedChatMessage[] | undefined,
         operatorPlan: data.state?.operator_plan as Message["operatorPlan"],
       };
       setMessages((prev) => [...prev, assistantMessage]);
-      persistChatMessage(sessionId, assistantMessage);
+      if (data.session?.id) {
+        setCurrentSessionId(data.session.id);
+        currentSessionRef.current = data.session.id;
+      }
       if (data.state?.selected_agent) setAgentStatus(`${data.state.selected_agent} / ${data.state.risk_level}`);
       if (data.state?.approval_required) refreshApprovals();
+      setLiveStatus(data.state?.approval_required ? "Approval needed" : "Done");
+      refreshChatSessions();
       connectSocket();
       finishAssistantTurn();
     } catch {
@@ -594,8 +676,7 @@ function App() {
         {
           role: "assistant",
           agent: "Kattappa AI",
-          content:
-            "I am ready in the interface, but the local backend is not reachable yet. Start Kattappa AI OS with run.exe, then send the message again and I will route it through the local agent stack.",
+          content: "Backend is offline. Start Kattappa, then send again.",
         },
       ]);
       finishAssistantTurn();
@@ -614,62 +695,82 @@ function App() {
   };
 
   const showVoiceNotice = (content: string) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "system",
-        content,
-      },
-    ]);
+    const status = compactVoiceStatus(content);
+    setLiveStatus(status);
+    setAgentStatus(status);
+  };
+
+  const handleApprovalContinuation = async (
+    approvalId: string,
+    continuation?: ApprovalContinuationResult,
+  ) => {
+    const data = continuation ?? await continueApprovedWork(approvalId);
+    const kind = data.kind ?? "approval";
+    setLiveStatus(data.status === "completed" ? "Done" : compactLiveStatus(`${kind}: ${data.status}`));
+    if (kind === "install_job") {
+      setInstallResult(data as unknown as InstallResult);
+    }
+    if (kind === "chat" && data.status === "completed") {
+      const state = data.state ?? {};
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: data.response || "The approved task completed.",
+        risk: state.risk_level as string | undefined,
+        agent: state.selected_agent as string | undefined,
+        routingReason: (state.tool_request as { agent_routing?: { reason?: string } } | undefined)?.agent_routing?.reason,
+        approvalId: state.approval_id as string | undefined,
+        relatedMessages: state.related_messages as RelatedChatMessage[] | undefined,
+        operatorPlan: state.operator_plan as Message["operatorPlan"],
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      if (state.selected_agent) setAgentStatus(`${state.selected_agent} / ${state.risk_level}`);
+      if (state.approval_required) refreshApprovals();
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "system",
+          content: approvalContinuationMessage(data),
+        },
+      ]);
+    }
+    refreshChatSessions();
+    refreshApprovals();
+    return !["approval_missing", "rejected", "waiting_for_approval"].includes(data.status);
   };
 
   const decideApproval = async (approvalId: string, status: "approved" | "rejected") => {
     setDecidingApprovals((current) => [...current, approvalId]);
     setApprovals((current) => current.filter((approval) => approval.id !== approvalId));
     try {
-      await decideApprovalRequest(approvalId, status);
+      const decisionData = await decideApprovalRequest(approvalId, status);
       if (status === "approved") {
+        setLiveStatus("Continuing");
         setApprovalNotice({
           tone: "working",
           title: "Approved",
-          message: "Approval accepted. The approved task is running or being checked now.",
+          message: "Continuing.",
         });
-        const installData = await runApprovedInstallJob(approvalId);
-        if (installData.status !== "not_install_job") {
-          setInstallResult(installData);
-          setMessages((prev) => [
-            ...prev,
-            { role: "system", content: `Install job ${installData.status}: ${approvalId}` },
-          ]);
-        }
-        const adoptionData = await continueToolAdoptionForApproval(approvalId);
-        if (adoptionData.status !== "not_tool_adoption_job") {
-          setMessages((prev) => [
-            ...prev,
-            { role: "system", content: `Tool adoption ${adoptionData.status}: ${approvalId}` },
-          ]);
-        }
+        const followUpRan = await handleApprovalContinuation(approvalId, decisionData.continuation);
         setApprovalNotice({
           tone: "ready",
-          title: "Completed",
-          message: "The approved task finished or no install/adoption work was required.",
+          title: followUpRan ? "Continued" : "Approved",
+          message: followUpRan ? "Done." : "No follow-up attached.",
         });
       } else {
+        setLiveStatus("Rejected");
         setApprovalNotice({
           tone: "danger",
           title: "Rejected",
-          message: "The task was rejected and nothing risky will run.",
+          message: "Stopped.",
         });
       }
-      setMessages((prev) => [
-        ...prev,
-        { role: "system", content: `Approval ${status}: ${approvalId}` },
-      ]);
     } catch {
+      setLiveStatus("Approval failed");
       setApprovalNotice({
         tone: "danger",
-        title: "Action Failed",
-        message: "The approval decision was sent, but the follow-up task did not complete.",
+        title: "Failed",
+        message: "Follow-up did not complete.",
       });
     } finally {
       setDecidingApprovals((current) => current.filter((id) => id !== approvalId));
@@ -688,10 +789,7 @@ function App() {
         panels={PANELS}
         activePanel={activePanel}
         connected={connected}
-        chatSessions={chatSessions}
-        currentSessionId={currentSessionId}
-        onCreateChat={createNewChat}
-        onLoadChat={loadChatSession}
+        onOpenChat={openChat}
         onSelectPanel={setActivePanel}
       />
 
@@ -700,16 +798,17 @@ function App() {
           <ChatPanel
             messages={messages}
             input={input}
-            operatorMode={operatorMode}
             messagesEndRef={messagesEndRef}
             onInputChange={setInput}
-            onOperatorModeChange={setOperatorMode}
             onSendMessage={sendMessage}
             onVoiceCommand={sendMessageText}
             onVoiceWake={acknowledgeVoiceWake}
             onVoiceNotice={showVoiceNotice}
             isWorking={assistantWorking}
             queuedCount={queuedCount}
+            liveStatus={liveStatus}
+            currentTask={currentTask}
+            queuedTurns={queuedTurns}
           />
         ) : (
           <PanelContent
@@ -726,6 +825,7 @@ function App() {
             evolutionCycle={evolutionCycle}
             evolutionRunning={evolutionRunning}
             builderProfile={builderProfile}
+            codexParity={codexParity}
             projectEcosystem={projectEcosystem}
             projectIndex={projectIndex}
             resumeResult={resumeResult}
@@ -739,7 +839,6 @@ function App() {
             simulationDraft={simulationDraft}
             simulationResult={simulationResult}
             agentStatus={agentStatus}
-            operatorMode={operatorMode}
             onTaskDraftChange={setTaskDraft}
             onWritingDraftChange={setWritingDraft}
             onResearchDraftChange={setResearchDraft}
@@ -759,15 +858,12 @@ function App() {
             onStartToolAdoption={startToolAdoption}
             onRunSelfEvolution={runSelfEvolutionCycle}
             onSetSkillTrust={setSkillTrust}
-            onOperatorModeChange={setOperatorMode}
           />
         )}
       </main>
 
       {showRightPanel && (
         <RightPanel
-          operatorMode={operatorMode}
-          onOperatorModeChange={setOperatorMode}
           agentStatus={agentStatus}
           health={health}
           freeStack={freeStack}
