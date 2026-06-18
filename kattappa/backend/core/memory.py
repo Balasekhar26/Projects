@@ -1827,6 +1827,28 @@ def recall(query: str, n_results: int = 5) -> list[str]:
     return memory.recall(query, n_results=n_results)
 
 
+def get_git_status() -> str:
+    import subprocess
+    try:
+        config = load_config()
+        workspace = config.workspace_dir
+        res = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            cwd=workspace,
+            timeout=3,
+        )
+        if res.returncode == 0:
+            lines = res.stdout.strip().splitlines()
+            if not lines:
+                return "Git workspace is clean."
+            return "Active changes in workspace:\n" + "\n".join(f"- {line}" for line in lines[:15])
+        return "Not a git repository or git command failed."
+    except Exception as exc:
+        return f"Could not retrieve git status: {exc}"
+
+
 def build_memory_context(
     prompt: str,
     chat_session_id: str | None = None,
@@ -1845,12 +1867,30 @@ def build_memory_context(
         )
     )
     task_hits = memory.find_relevant_long_tasks(prompt, limit=5)
+    
+    recent_messages = []
+    if chat_session_id:
+        try:
+            all_msgs = memory.list_chat_messages(chat_session_id, limit=50)
+            filtered = [m for m in all_msgs if m["id"] != current_chat_message_id]
+            recent_messages = filtered[-6:]
+        except Exception:
+            pass
+
     sections: list[str] = []
+    if recent_messages:
+        sections.append(
+            "Recent session thread history (chronological):\n"
+            + "\n".join(
+                f"- {m['role']}: {_clip(str(m['content']))}"
+                for m in recent_messages
+            )
+        )
     if docs:
         sections.append("Stored semantic memories:\n" + "\n".join(f"- {_clip(doc)}" for doc in docs))
     if chat_hits:
         sections.append(
-            "Related older chat history:\n"
+            "Related older chat history (semantic search hits):\n"
             + "\n".join(
                 f"- [{item['created_at']}] {item['role']} "
                 + f"(score {item.get('score', 1)}): {_clip(str(item['content']))}"
@@ -1869,4 +1909,8 @@ def build_memory_context(
                 for item in task_hits
             )
         )
+        
+    git_status = get_git_status()
+    sections.append(f"Local Workspace Status:\n{git_status}")
+    
     return "\n\n".join(sections)
