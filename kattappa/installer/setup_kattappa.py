@@ -457,9 +457,15 @@ def create_desktop_shortcut() -> None:
         print("Skipping shortcut: run.exe is missing.")
         return
     try:
-        desktop_candidates = {Path(os.environ.get("USERPROFILE", str(ROOT))) / "Desktop"}
+        desktop_candidates: set[Path] = set()
+        # Standard user desktop
+        user_profile = os.environ.get("USERPROFILE", "")
+        if user_profile:
+            desktop_candidates.add(Path(user_profile) / "Desktop")
+        # OneDrive-synced desktop
         if os.environ.get("OneDrive"):
             desktop_candidates.add(Path(os.environ["OneDrive"]) / "Desktop")
+        # Shell folder (handles redirected desktops)
         try:
             shell_desktop = subprocess.check_output(
                 [
@@ -475,14 +481,16 @@ def create_desktop_shortcut() -> None:
                 desktop_candidates.add(Path(shell_desktop))
         except Exception:
             pass
+
+        # Always use the branded .ico if it exists, otherwise fall back to the exe
+        icon_source = DESKTOP_ICON if DESKTOP_ICON.exists() else launcher
+        icon_location = f"{icon_source},0"
+
         shortcut_paths: list[Path] = []
         for desktop in sorted(desktop_candidates):
             desktop.mkdir(parents=True, exist_ok=True)
             shortcut_paths.append(desktop / "Kattappa AI OS.lnk")
-            legacy = desktop / "Kattappa AI OS.lnk"
-            if legacy.exists():
-                shortcut_paths.append(legacy)
-        icon_location = f"{DESKTOP_ICON if DESKTOP_ICON.exists() else launcher},0"
+
         commands = ["$shell = New-Object -ComObject WScript.Shell;"]
         for shortcut in shortcut_paths:
             commands.extend(
@@ -496,9 +504,7 @@ def create_desktop_shortcut() -> None:
                     "$shortcut.Save();",
                 ]
             )
-        ps = (
-            " ".join(commands)
-        )
+        ps = " ".join(commands)
         subprocess.check_call(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
             cwd=ROOT,
@@ -516,17 +522,16 @@ def create_linux_desktop_shortcut() -> None:
         if not desktop.exists():
             return
         shortcut = desktop / "kattappa-ai-os.desktop"
-        if shortcut.exists():
-            return
         launcher = ROOT / "setup.sh"
+        icon_path = ROOT / "apps" / "desktop" / "src-tauri" / "icons" / "icon.png"
         content = f"""[Desktop Entry]
 Type=Application
 Name=Kattappa AI OS
-Comment=Kattappa AI OS Assistant
+Comment=Kattappa AI OS – Your 10× Better JARVIS
 Exec={launcher}
-Icon={ROOT / "apps" / "desktop" / "src-tauri" / "icons" / "icon.png"}
+Icon={icon_path}
 Terminal=true
-Categories=Utility;Development;
+Categories=Utility;Development;ArtificialIntelligence;
 """
         shortcut.write_text(content, encoding="utf-8")
         shortcut.chmod(0o755)
