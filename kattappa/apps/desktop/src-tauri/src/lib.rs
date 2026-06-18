@@ -134,6 +134,9 @@ fn shutdown_owned_services() {
             let _ = std::process::Command::new("powershell")
                 .args([
                     "-NoProfile",
+                    "-NonInteractive",
+                    "-WindowStyle",
+                    "Hidden",
                     "-ExecutionPolicy",
                     "Bypass",
                     "-File",

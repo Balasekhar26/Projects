@@ -21,7 +21,7 @@ if /I "%MODE%"=="build" goto build
 if /I "%MODE%"=="status" goto status
 if /I "%MODE%"=="stop" goto stop
 if /I "%MODE%"=="help" goto help
-if /I "%MODE%"=="/?" goto help
+if /I "%MODE%"=="/?\" goto help
 
 echo Unknown option: %MODE%
 goto help
@@ -96,11 +96,11 @@ echo Checking Kattappa AI OS backend...
 if exist "setup.bat" (echo setup.bat: ready) else (echo setup.bat: missing & exit /b 1)
 if exist "run.exe" (echo run.exe: ready) else (echo run.exe: missing & exit /b 1)
 if exist "ai_system_env\Scripts\python.exe" (echo python env: ready) else (echo python env: missing - run setup.bat)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-RestMethod -Uri 'http://127.0.0.1:8000/ready' -TimeoutSec 3 | Out-Null; Write-Host 'backend: online at http://127.0.0.1:8000'; try { $r=Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 15; $r | ConvertTo-Json -Depth 5 } catch { Write-Host 'backend: ready, detailed health slow' } } catch { Write-Host 'backend: offline (normal if app is not running)' }"
+powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "try { Invoke-RestMethod -Uri 'http://127.0.0.1:8000/ready' -TimeoutSec 3 | Out-Null; Write-Host 'backend: online at http://127.0.0.1:8000'; try { $r=Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 15; $r | ConvertTo-Json -Depth 5 } catch { Write-Host 'backend: ready, detailed health slow' } } catch { Write-Host 'backend: offline (normal if app is not running)' }"
 exit /b 0
 
 :stop
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_ROOT%\scripts\Shutdown_Kattappa_AI_OS.ps1"
+powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "%PROJECT_ROOT%\scripts\Shutdown_Kattappa_AI_OS.ps1"
 exit /b %errorlevel%
 
 :help
@@ -141,7 +141,7 @@ if not errorlevel 1 (
   exit /b 0
 )
 echo Starting Ollama...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$runtime='%PROJECT_ROOT%\runtime'; if(!(Test-Path $runtime)){New-Item -ItemType Directory -Path $runtime | Out-Null}; $p=Start-Process -WindowStyle Hidden -FilePath 'ollama' -ArgumentList 'serve' -PassThru; Set-Content -LiteralPath (Join-Path $runtime 'ollama.pid') -Value $p.Id; Set-Content -LiteralPath (Join-Path $runtime 'ollama-started-by-kattappa.flag') -Value (Get-Date -Format o)"
+powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$runtime='%PROJECT_ROOT%\runtime'; if(!(Test-Path $runtime)){New-Item -ItemType Directory -Path $runtime | Out-Null}; $p=Start-Process -WindowStyle Hidden -FilePath 'ollama' -ArgumentList 'serve' -PassThru; Set-Content -LiteralPath (Join-Path $runtime 'ollama.pid') -Value $p.Id; Set-Content -LiteralPath (Join-Path $runtime 'ollama-started-by-kattappa.flag') -Value (Get-Date -Format o)"
 exit /b 0
 
 :ensure_backend
@@ -157,9 +157,9 @@ if not exist "ai_system_env\Scripts\python.exe" (
 )
 echo Starting backend...
 if exist "ai_system_env\Scripts\pythonw.exe" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%PROJECT_ROOT%\ai_system_env\Scripts\pythonw.exe' -ArgumentList '%PROJECT_ROOT%\backend\run_server.py' -PassThru; Set-Content -LiteralPath '%PROJECT_ROOT%\runtime\backend.pid' -Value $p.Id"
+  powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%PROJECT_ROOT%\ai_system_env\Scripts\pythonw.exe' -ArgumentList '%PROJECT_ROOT%\backend\run_server.py' -PassThru; Set-Content -LiteralPath '%PROJECT_ROOT%\runtime\backend.pid' -Value $p.Id"
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%PROJECT_ROOT%\ai_system_env\Scripts\python.exe' -ArgumentList '%PROJECT_ROOT%\backend\run_server.py' -PassThru; Set-Content -LiteralPath '%PROJECT_ROOT%\runtime\backend.pid' -Value $p.Id"
+  powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%PROJECT_ROOT%\ai_system_env\Scripts\python.exe' -ArgumentList '%PROJECT_ROOT%\backend\run_server.py' -PassThru; Set-Content -LiteralPath '%PROJECT_ROOT%\runtime\backend.pid' -Value $p.Id"
 )
 exit /b 0
 
@@ -197,7 +197,7 @@ if errorlevel 1 (
   echo npm not found. Install Node.js to run the desktop UI, or build the native app on a machine with Node installed.
   exit /b 1
 )
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$listen=Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue; if($listen){ exit 0 }; exit 1"
+powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$listen=Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue; if($listen){ exit 0 }; exit 1"
 if errorlevel 1 (
   if not exist "apps\desktop\node_modules" (
     echo Installing desktop UI packages...
@@ -207,13 +207,13 @@ if errorlevel 1 (
     cd /d "%PROJECT_ROOT%"
   )
   echo Starting browser desktop UI...
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -WindowStyle Hidden -FilePath $env:ComSpec -ArgumentList '/c', '\"%~f0\" ui-foreground'"
+  powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Start-Process -WindowStyle Hidden -FilePath $env:ComSpec -ArgumentList '/c', '\"%~f0\" ui-foreground'"
 )
 echo Waiting for browser desktop UI...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ok=$false; for($i=0;$i -lt 45;$i++){ try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:5173' -UseBasicParsing -TimeoutSec 2; if($r.StatusCode -lt 500){ $ok=$true; break } } catch {}; Start-Sleep -Seconds 1 }; if(-not $ok){ exit 1 }"
+powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$ok=$false; for($i=0;$i -lt 45;$i++){ try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:5173' -UseBasicParsing -TimeoutSec 2; if($r.StatusCode -lt 500){ $ok=$true; break } } catch {}; Start-Sleep -Seconds 1 }; if(-not $ok){ exit 1 }"
 if errorlevel 1 (
   echo Browser desktop UI did not become ready. Try: run.bat dev
   exit /b 1
 )
-powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path '${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe') { Start-Process '${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe' -ArgumentList '--app=http://127.0.0.1:5173' } else { Start-Process 'http://127.0.0.1:5173' }"
+powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "if (Test-Path '${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe') { Start-Process '${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe' -ArgumentList '--app=http://127.0.0.1:5173' } else { Start-Process 'http://127.0.0.1:5173' }"
 exit /b 0
