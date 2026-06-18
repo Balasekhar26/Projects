@@ -3,15 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from backend.tools.voice_tools import voice_profile
+from backend.tools.voice_tools import normalize_spoken_text, voice_profile
 
 
 @dataclass
 class VoiceIO:
     whisper_model_size: str = "small"
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, purpose: str = "assistant_response") -> None:
         profile = voice_profile()
+        spoken_text = normalize_spoken_text(text, purpose=purpose)
+        if not spoken_text:
+            return
         try:
             import pyttsx3
         except Exception as exc:
@@ -20,7 +23,7 @@ class VoiceIO:
         engine = pyttsx3.init()
         engine.setProperty("rate", profile["rate"])
         engine.setProperty("volume", profile["volume"])
-        engine.say(text)
+        engine.say(spoken_text)
         engine.runAndWait()
 
     def transcribe_file(self, audio_path: Path) -> str:

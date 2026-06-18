@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from backend.core.free_tool_catalog import developer_toolbox_audit
+
 
 PROJECTS_ROOT = Path(__file__).resolve().parents[3]
 
@@ -14,7 +16,7 @@ PROJECT_BLUEPRINTS: list[dict[str, Any]] = [
         "name": "Kattappa AI OS Assistant",
         "motive": "Personal and professional installed-system assistant: a manager worker reads chat input, assigns expert workers, uses fully free/local-first tools, scouts the internet for better free technologies, can wrap fully free external tools that run locally or in the cloud, and evolves through approval-gated self-improvement.",
         "priority_reason": "Core brain that helps build and control the other projects.",
-        "next_build": "Finish voice input/output, skill plugin registry, cursor highlight/teach mode, Hybrid/Graph/Corrective RAG checks, local eval harness, Second Brain/GOAT memory, Finance Brain, diagram generation, and installer diagnostics.",
+        "next_build": "Finish voice input/output, skill plugin registry, cursor-highlight guidance, Hybrid/Graph/Corrective RAG checks, local eval harness, Second Brain/GOAT memory, Finance Brain, diagram generation, and installer diagnostics.",
         "integration_role": "Central manager and orchestrator: LLM brain, RAG books, agent hands, MCP/tool connections, specialist workers, approvals, and automation workflows for all other projects.",
         "safety_boundary": "Risky actions require approval; destructive/security/payment/credential actions stay gated.",
         "free_tools": [
@@ -257,11 +259,17 @@ PROJECT_BLUEPRINTS: list[dict[str, Any]] = [
 
 def project_ecosystem() -> dict[str, Any]:
     projects = []
+    toolbox_patch = developer_toolbox_audit().get("free_project_applications_patch", {})
     for item in PROJECT_BLUEPRINTS:
         path = Path(item["path"])
+        project_item = dict(item)
+        project_item["free_tools"] = _merged_free_tools(
+            item.get("free_tools", []),
+            toolbox_patch.get(item["id"], []),
+        )
         projects.append(
             {
-                **item,
+                **project_item,
                 "exists": path.exists(),
                 "status": "present" if path.exists() else "missing",
             }
@@ -272,3 +280,11 @@ def project_ecosystem() -> dict[str, Any]:
         "free_tool_rule": "Everything mapped into the seven projects must be fully free: free/open-source/local-first where practical, with no paid or freemium service dependency in the core project plan. If a named tool is paid, freemium, trial-limited, reward-based, closed, or privacy-risky, first search for a similar fully free replacement and add only the replacement when it improves a project.",
         "projects": projects,
     }
+
+
+def _merged_free_tools(base: list[str], patch: list[str]) -> list[str]:
+    merged = list(base)
+    for tool in patch:
+        if tool not in merged:
+            merged.append(tool)
+    return merged

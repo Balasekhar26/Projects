@@ -48,8 +48,12 @@ def hotkey(*keys: str) -> str:
 
 
 def screenshot(path: str | None = None) -> str:
-    pyautogui = _pyautogui()
     config = load_config()
+    if not config.screen_capture_enabled:
+        raise PermissionError(
+            "Screen capture is disabled until setup enables KATTAPPA_SCREEN_CAPTURE_ENABLED=true."
+        )
+    pyautogui = _pyautogui()
     config.screenshots_dir.mkdir(parents=True, exist_ok=True)
     target = Path(path) if path else config.screenshots_dir / "desktop_screen.png"
     image = pyautogui.screenshot()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ class BackendConfig:
     memory_collection: str
     shell_enabled: bool
     desktop_enabled: bool
+    screen_capture_enabled: bool
     guidance_overlay_enabled: bool
     teach_mode_enabled: bool
     screenshots_dir: Path
@@ -42,6 +44,34 @@ def _bool_env(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.lower() in {"1", "true", "yes", "on"}
+
+
+def _uses_app_data_root() -> bool:
+    return bool(os.getenv("KATTAPPA_DATA_DIR")) or platform.system().lower() == "darwin"
+
+
+def runtime_data_root() -> Path:
+    raw = os.getenv("KATTAPPA_DATA_DIR")
+    if raw:
+        return Path(raw).expanduser().resolve()
+    if platform.system().lower() == "darwin":
+        return (Path.home() / "Library" / "Application Support" / "Kattappa AI OS").resolve()
+    return ROOT
+
+
+def _resolve_runtime_path(value: str | None, fallback: str) -> Path:
+    path = Path(value or fallback).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    base = runtime_data_root() if _uses_app_data_root() else ROOT
+    return (base / path).resolve()
+
+
+def legacy_runtime_path(value: str | None, fallback: str) -> Path:
+    path = Path(value or fallback).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (ROOT / path).resolve()
 
 
 def load_config() -> BackendConfig:
@@ -74,18 +104,27 @@ def load_config() -> BackendConfig:
                 "KATTAPPA_MODEL_REASONING", models.get("reasoning", "gpt-oss:20b")
             ),
         },
-        chroma_path=(
-            ROOT / memory.get("chroma_path", "backend/memory/chroma")
-        ).resolve(),
-        sqlite_path=(
-            ROOT / memory.get("sqlite_path", "backend/memory/sqlite/kattappa_ai_os.db")
-        ).resolve(),
+        chroma_path=_resolve_runtime_path(
+            memory.get("chroma_path"), "backend/memory/chroma"
+        ),
+        sqlite_path=_resolve_runtime_path(
+            memory.get("sqlite_path"), "backend/memory/sqlite/kattappa_ai_os.db"
+        ),
         memory_collection=memory.get("collection", "kattappa_memory"),
         shell_enabled=_bool_env(
             "KATTAPPA_SHELL_ENABLED", bool(safety.get("shell_enabled", False))
         ),
         desktop_enabled=_bool_env(
             "KATTAPPA_DESKTOP_ENABLED", bool(safety.get("desktop_enabled", False))
+        ),
+        screen_capture_enabled=_bool_env(
+            "KATTAPPA_SCREEN_CAPTURE_ENABLED",
+            bool(
+                safety.get(
+                    "screen_capture_enabled",
+                    platform.system().lower() != "darwin",
+                )
+            ),
         ),
         guidance_overlay_enabled=_bool_env(
             "KATTAPPA_GUIDANCE_OVERLAY_ENABLED",
@@ -94,10 +133,10 @@ def load_config() -> BackendConfig:
         teach_mode_enabled=_bool_env(
             "KATTAPPA_TEACH_MODE_ENABLED", bool(safety.get("teach_mode_enabled", True))
         ),
-        screenshots_dir=(
-            ROOT / paths.get("screenshots", "backend/data/screenshots")
-        ).resolve(),
-        audio_dir=(ROOT / paths.get("audio", "backend/data/audio")).resolve(),
-        logs_dir=(ROOT / paths.get("logs", "backend/data/logs")).resolve(),
-        workspace_dir=(ROOT / paths.get("workspace", "workspace")).resolve(),
+        screenshots_dir=_resolve_runtime_path(
+            paths.get("screenshots"), "backend/data/screenshots"
+        ),
+        audio_dir=_resolve_runtime_path(paths.get("audio"), "backend/data/audio"),
+        logs_dir=_resolve_runtime_path(paths.get("logs"), "backend/data/logs"),
+        workspace_dir=_resolve_runtime_path(paths.get("workspace"), "workspace"),
     )

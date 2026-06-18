@@ -18,6 +18,7 @@ def request_tool_adoption(report_id: str) -> dict[str, Any] | None:
                 "this approval is only for installing/running external tools."
             ),
             risk="medium",
+            continuation_type="tool_adoption",
         )
     job = memory.create_tool_adoption_job(report_id, install_approval_id)
     if install_approval_id:
@@ -84,6 +85,7 @@ def _run_observe_build_test(job: dict[str, str]) -> dict[str, Any]:
             f"{report['capability']}. Approve only after reviewing observation, build-own plan, and tests."
         ),
         risk="medium",
+        continuation_type="tool_adoption",
     )
     updated = memory.update_tool_adoption_job(
         job["id"],

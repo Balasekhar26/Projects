@@ -1,7 +1,6 @@
 import type { Message } from "../types";
 
 export const PANELS = [
-  "Chat",
   "Projects",
   "Memory",
   "Tasks",

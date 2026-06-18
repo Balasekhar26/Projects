@@ -16,6 +16,11 @@ def voice_node(state):
     lines = [
         "Voice agent free/local readiness:",
         f"Assistant voice: {profile['name']} ({profile['style']}).",
+        (
+            f"Language contract: speaks {profile['primary_spoken_language']} first, "
+            f"{profile['secondary_spoken_language']} second; typed output remains "
+            f"{profile['text_output_language']}."
+        ),
         f"Voice boundary: {profile['policy']}",
     ]
     for item in voice_items:
@@ -26,7 +31,7 @@ def voice_node(state):
     )
     lines.append(
         f"Wake: {pipeline['wake']['primary_decision']} ({pipeline['wake']['status']}); STT: {pipeline['stt']['status']}; "
-        f"TTS available: {pipeline['tts']['available']}."
+        f"TTS: {pipeline['tts']['primary_decision']} (available: {pipeline['tts']['available']})."
     )
     state["result"] = "\n".join(lines)
     state["logs"].append("voice: ready")

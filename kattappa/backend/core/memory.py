@@ -1,21 +1,51 @@
 from __future__ import annotations
 
 import sqlite3
+import shutil
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from backend.core.config import load_config
+from backend.core.config import legacy_runtime_path, load_config
+
+
+PRIMARY_CHAT_SESSION_ID = "kattappa-main-chat"
+PRIMARY_CHAT_TITLE = "Kattappa Main Chat"
 
 
 class MemorySystem:
     def __init__(self) -> None:
         self.config = load_config()
+        self._migrate_repo_memory_once()
         self.config.chroma_path.mkdir(parents=True, exist_ok=True)
         self.config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         self.chroma: Any | None = None
         self.collection: Any | None = None
         self._init_sqlite()
+
+    def _migrate_repo_memory_once(self) -> None:
+        legacy_sqlite = legacy_runtime_path(
+            "backend/memory/sqlite/kattappa_ai_os.db",
+            "backend/memory/sqlite/kattappa_ai_os.db",
+        )
+        if (
+            self.config.sqlite_path != legacy_sqlite
+            and legacy_sqlite.exists()
+            and not self.config.sqlite_path.exists()
+        ):
+            self.config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(legacy_sqlite, self.config.sqlite_path)
+
+        legacy_chroma = legacy_runtime_path(
+            "backend/memory/chroma", "backend/memory/chroma"
+        )
+        if (
+            self.config.chroma_path != legacy_chroma
+            and legacy_chroma.exists()
+            and not self.config.chroma_path.exists()
+        ):
+            self.config.chroma_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(legacy_chroma, self.config.chroma_path)
 
     def _collection(self) -> Any:
         if self.collection is None:
@@ -64,10 +94,18 @@ class MemorySystem:
                     action TEXT NOT NULL,
                     risk TEXT NOT NULL,
                     status TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    continuation_type TEXT NOT NULL DEFAULT 'manual',
+                    continuation_payload TEXT NOT NULL DEFAULT '{}',
+                    continued_at TEXT NOT NULL DEFAULT '',
+                    continuation_result TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
+            self._ensure_column(conn, "approvals", "continuation_type", "TEXT NOT NULL DEFAULT 'manual'")
+            self._ensure_column(conn, "approvals", "continuation_payload", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(conn, "approvals", "continued_at", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "approvals", "continuation_result", "TEXT NOT NULL DEFAULT ''")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS improvement_backlog (
@@ -295,28 +333,55 @@ class MemorySystem:
             row = conn.execute("SELECT COUNT(*) FROM memories").fetchone()
         return int(row[0]) if row else 0
 
-    def create_chat_session(self, title: str = "New chat") -> dict[str, str]:
-        session_id = str(uuid4())
+    def get_or_create_primary_chat_session(self) -> dict[str, str]:
         now = datetime.now().isoformat(timespec="seconds")
         with sqlite3.connect(self.config.sqlite_path) as conn:
-            conn.execute(
-                "INSERT INTO chat_sessions(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (session_id, title.strip()[:80] or "New chat", now, now),
-            )
-        return {"id": session_id, "title": title.strip()[:80] or "New chat", "created_at": now, "updated_at": now}
+            row = conn.execute(
+                "SELECT id, title, created_at, updated_at FROM chat_sessions WHERE id = ?",
+                (PRIMARY_CHAT_SESSION_ID,),
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    "INSERT INTO chat_sessions(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                    (PRIMARY_CHAT_SESSION_ID, PRIMARY_CHAT_TITLE, now, now),
+                )
+                return {
+                    "id": PRIMARY_CHAT_SESSION_ID,
+                    "title": PRIMARY_CHAT_TITLE,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            if row[1] != PRIMARY_CHAT_TITLE:
+                conn.execute(
+                    "UPDATE chat_sessions SET title = ? WHERE id = ?",
+                    (PRIMARY_CHAT_TITLE, PRIMARY_CHAT_SESSION_ID),
+                )
+                row = (row[0], PRIMARY_CHAT_TITLE, row[2], row[3])
+        return {"id": row[0], "title": row[1], "created_at": row[2], "updated_at": row[3]}
+
+    def create_chat_session(self, title: str = "New chat") -> dict[str, str]:
+        return self.get_or_create_primary_chat_session()
 
     def list_chat_sessions(self, limit: int = 50) -> list[dict[str, str]]:
+        if limit <= 0:
+            return []
+        primary = self.get_or_create_primary_chat_session()
         with sqlite3.connect(self.config.sqlite_path) as conn:
-            rows = conn.execute(
-                """
-                SELECT id, title, created_at, updated_at
-                FROM chat_sessions
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-        return [{"id": row[0], "title": row[1], "created_at": row[2], "updated_at": row[3]} for row in rows]
+            row = conn.execute(
+                "SELECT id, title, created_at, updated_at FROM chat_sessions WHERE id = ?",
+                (primary["id"],),
+            ).fetchone()
+        if row is None:
+            return [primary]
+        return [{"id": row[0], "title": row[1], "created_at": row[2], "updated_at": row[3]}]
+
+    def rename_primary_chat_from_first_message(self, content: str) -> None:
+        primary = self.get_or_create_primary_chat_session()
+        with sqlite3.connect(self.config.sqlite_path) as conn:
+            conn.execute(
+                "UPDATE chat_sessions SET title = ? WHERE id = ? AND title = ?",
+                (_chat_title(content), primary["id"], PRIMARY_CHAT_TITLE),
+            )
 
     def add_chat_message(
         self,
@@ -342,13 +407,6 @@ class MemorySystem:
                 (message_id, session_id, role, content, agent, risk, metadata, now),
             )
             conn.execute("UPDATE chat_sessions SET updated_at = ? WHERE id = ?", (now, session_id))
-            if role == "user":
-                current = conn.execute("SELECT title FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
-                if current and current[0] == "New chat":
-                    conn.execute(
-                        "UPDATE chat_sessions SET title = ? WHERE id = ?",
-                        (_chat_title(content), session_id),
-                    )
         return {
             "id": message_id,
             "session_id": session_id,
@@ -396,37 +454,61 @@ class MemorySystem:
             for row in rows
         ]
 
-    def search_chat_messages(self, query: str, limit: int = 8) -> list[dict[str, str]]:
+    def search_chat_messages(
+        self,
+        query: str,
+        limit: int = 8,
+        session_id: str | None = None,
+        exclude_message_id: str | None = None,
+    ) -> list[dict[str, object]]:
         terms = _search_terms(query)
         if not terms:
             return []
         clauses = " OR ".join(["m.content LIKE ?" for _ in terms])
         params = [f"%{term}%" for term in terms]
+        filters = [f"({clauses})"]
+        if session_id:
+            filters.append("m.session_id = ?")
+            params.append(session_id)
+        if exclude_message_id:
+            filters.append("m.id != ?")
+            params.append(exclude_message_id)
+        fetch_limit = max(limit * 5, 20)
         with sqlite3.connect(self.config.sqlite_path) as conn:
             rows = conn.execute(
                 f"""
                 SELECT m.id, m.session_id, s.title, m.role, m.content, m.agent, m.risk, m.created_at
                 FROM chat_messages m
                 JOIN chat_sessions s ON s.id = m.session_id
-                WHERE {clauses}
+                WHERE {" AND ".join(filters)}
                 ORDER BY m.created_at DESC
                 LIMIT ?
                 """,
-                [*params, limit],
+                [*params, fetch_limit],
             ).fetchall()
-        return [
-            {
-                "id": row[0],
-                "session_id": row[1],
-                "session_title": row[2],
-                "role": row[3],
-                "content": row[4],
-                "agent": row[5],
-                "risk": row[6],
-                "created_at": row[7],
-            }
-            for row in rows
-        ]
+        matches: list[dict[str, object]] = []
+        for row in rows:
+            content = str(row[4])
+            matched_terms = [term for term in terms if term in content.lower()]
+            if not matched_terms:
+                continue
+            score = sum(max(len(term), 3) for term in matched_terms)
+            matches.append(
+                {
+                    "id": row[0],
+                    "session_id": row[1],
+                    "session_title": row[2],
+                    "role": row[3],
+                    "content": content,
+                    "agent": row[5],
+                    "risk": row[6],
+                    "created_at": row[7],
+                    "matched_terms": matched_terms,
+                    "score": score,
+                }
+            )
+        matches.sort(key=lambda item: (int(item["score"]), str(item["created_at"])), reverse=True)
+        return matches[:limit]
 
     def create_long_task(
         self,
@@ -703,17 +785,41 @@ class MemorySystem:
             )
         return self.get_tool_adoption_job(job_id)
 
-    def create_approval(self, action: str, risk: str) -> str:
+    def create_approval(
+        self,
+        action: str,
+        risk: str,
+        continuation_type: str = "manual",
+        continuation_payload: str = "{}",
+    ) -> str:
         approval_id = str(uuid4())
         with sqlite3.connect(self.config.sqlite_path) as conn:
             conn.execute(
-                "INSERT INTO approvals(id, action, risk, status, created_at) VALUES (?, ?, ?, ?, ?)",
-                (approval_id, action, risk, "pending", datetime.now().isoformat(timespec="seconds")),
+                """
+                INSERT INTO approvals(
+                    id, action, risk, status, created_at,
+                    continuation_type, continuation_payload, continued_at, continuation_result
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, '', '')
+                """,
+                (
+                    approval_id,
+                    action,
+                    risk,
+                    "pending",
+                    datetime.now().isoformat(timespec="seconds"),
+                    continuation_type,
+                    continuation_payload,
+                ),
             )
         return approval_id
 
     def list_approvals(self, status: str | None = None, limit: int = 25) -> list[dict[str, str]]:
-        sql = "SELECT id, action, risk, status, created_at FROM approvals"
+        sql = """
+            SELECT id, action, risk, status, created_at,
+                   continuation_type, continuation_payload, continued_at, continuation_result
+            FROM approvals
+        """
         params: list[object] = []
         if status:
             sql += " WHERE status = ?"
@@ -722,10 +828,7 @@ class MemorySystem:
         params.append(limit)
         with sqlite3.connect(self.config.sqlite_path) as conn:
             rows = conn.execute(sql, params).fetchall()
-        return [
-            {"id": row[0], "action": row[1], "risk": row[2], "status": row[3], "created_at": row[4]}
-            for row in rows
-        ]
+        return [_approval_row(row) for row in rows]
 
     def update_approval(self, approval_id: str, status: str) -> dict[str, str] | None:
         if status not in {"approved", "rejected"}:
@@ -733,22 +836,44 @@ class MemorySystem:
         with sqlite3.connect(self.config.sqlite_path) as conn:
             conn.execute("UPDATE approvals SET status = ? WHERE id = ?", (status, approval_id))
             row = conn.execute(
-                "SELECT id, action, risk, status, created_at FROM approvals WHERE id = ?",
+                """
+                SELECT id, action, risk, status, created_at,
+                       continuation_type, continuation_payload, continued_at, continuation_result
+                FROM approvals
+                WHERE id = ?
+                """,
                 (approval_id,),
             ).fetchone()
         if row is None:
             return None
-        return {"id": row[0], "action": row[1], "risk": row[2], "status": row[3], "created_at": row[4]}
+        return _approval_row(row)
 
     def get_approval(self, approval_id: str) -> dict[str, str] | None:
         with sqlite3.connect(self.config.sqlite_path) as conn:
             row = conn.execute(
-                "SELECT id, action, risk, status, created_at FROM approvals WHERE id = ?",
+                """
+                SELECT id, action, risk, status, created_at,
+                       continuation_type, continuation_payload, continued_at, continuation_result
+                FROM approvals
+                WHERE id = ?
+                """,
                 (approval_id,),
             ).fetchone()
         if row is None:
             return None
-        return {"id": row[0], "action": row[1], "risk": row[2], "status": row[3], "created_at": row[4]}
+        return _approval_row(row)
+
+    def record_approval_continuation(self, approval_id: str, result: str) -> dict[str, str] | None:
+        with sqlite3.connect(self.config.sqlite_path) as conn:
+            conn.execute(
+                """
+                UPDATE approvals
+                SET continued_at = ?, continuation_result = ?
+                WHERE id = ?
+                """,
+                (datetime.now().isoformat(timespec="seconds"), result, approval_id),
+            )
+        return self.get_approval(approval_id)
 
     def create_install_job(self, approval_id: str, plan: str) -> None:
         now = datetime.now().isoformat(timespec="seconds")
@@ -1041,6 +1166,20 @@ def _long_task_row(row: tuple[object, ...]) -> dict[str, str]:
     }
 
 
+def _approval_row(row: tuple[object, ...]) -> dict[str, str]:
+    return {
+        "id": str(row[0]),
+        "action": str(row[1]),
+        "risk": str(row[2]),
+        "status": str(row[3]),
+        "created_at": str(row[4]),
+        "continuation_type": str(row[5] or "manual"),
+        "continuation_payload": str(row[6] or "{}"),
+        "continued_at": str(row[7] or ""),
+        "continuation_result": str(row[8] or ""),
+    }
+
+
 def _tool_scout_row(row: tuple[object, ...]) -> dict[str, str]:
     return {
         "id": str(row[0]),
@@ -1079,8 +1218,9 @@ def _chat_title(content: str) -> str:
 def _search_terms(query: str) -> list[str]:
     stop_words = {
         "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "for", "from",
-        "how", "i", "in", "is", "it", "me", "my", "of", "on", "or", "task", "tasks",
-        "that", "the", "this", "to", "with", "work", "you",
+        "about", "anything", "did", "does", "how", "i", "in", "is", "it", "me", "more",
+        "my", "of", "older", "on", "or", "related", "say", "said", "task", "tasks",
+        "tell", "that", "the", "this", "to", "what", "with", "work", "you",
     }
     terms: list[str] = []
     for raw in query.lower().replace("\n", " ").split():
@@ -1106,18 +1246,33 @@ def recall(query: str, n_results: int = 5) -> list[str]:
     return memory.recall(query, n_results=n_results)
 
 
-def build_memory_context(prompt: str) -> str:
+def build_memory_context(
+    prompt: str,
+    chat_session_id: str | None = None,
+    current_chat_message_id: str | None = None,
+    related_messages: list[dict[str, object]] | None = None,
+) -> str:
     docs = recall(prompt, n_results=5)
-    chat_hits = memory.search_chat_messages(prompt, limit=8)
+    chat_hits = (
+        related_messages
+        if related_messages is not None
+        else memory.search_chat_messages(
+            prompt,
+            limit=8,
+            session_id=chat_session_id,
+            exclude_message_id=current_chat_message_id,
+        )
+    )
     task_hits = memory.find_relevant_long_tasks(prompt, limit=5)
     sections: list[str] = []
     if docs:
         sections.append("Stored semantic memories:\n" + "\n".join(f"- {_clip(doc)}" for doc in docs))
     if chat_hits:
         sections.append(
-            "Relevant saved chat history:\n"
+            "Related older chat history:\n"
             + "\n".join(
-                f"- [{item['created_at']}] {item['session_title']} / {item['role']}: {_clip(item['content'])}"
+                f"- [{item['created_at']}] {item['role']} "
+                + f"(score {item.get('score', 1)}): {_clip(str(item['content']))}"
                 for item in chat_hits
             )
         )

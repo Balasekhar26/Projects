@@ -42,7 +42,7 @@ def build_capability_ladder() -> dict[str, Any]:
             "Can become wake-word, speech-to-text, and local TTS driven.",
             _ready(True),
             evidence=_capability_evidence(capabilities, ["faster_whisper", "piper", "openwakeword"]),
-            next_step="Ready for typed chat. Optional: install voice packages for speech mode.",
+            next_step="Ready for typed chat. Optional: install voice packages for spoken orders.",
         ),
         _level(
             "L3",
@@ -50,15 +50,15 @@ def build_capability_ladder() -> dict[str, Any]:
             "Can see browser/screen state and automate web workflows.",
             _ready(True),
             evidence=_capability_evidence(capabilities, ["playwright", "mss", "pytesseract", "tesseract"]),
-            next_step="Ready in guide mode. Optional: install Playwright and OCR for direct screen understanding.",
+            next_step="Ready for automatic guidance. Optional: install Playwright and OCR for direct screen understanding.",
         ),
         _level(
             "L4",
             "Cursor-guided desktop control",
-            "Supports observe, guide, assist, and autonomous modes with approval gates.",
+            "Automatically replies, guides, or pauses for approval before desktop control.",
             _ready(True),
             evidence=f"desktop_enabled={config.desktop_enabled}; {_capability_evidence(capabilities, ['pyautogui', 'pywinauto'])}",
-            next_step="Ready in safe guide mode. Optional: enable desktop control after testing.",
+            next_step="Ready for safe guidance. Optional: enable desktop control after testing.",
         ),
         _level(
             "L5",
@@ -92,7 +92,7 @@ def build_capability_ladder() -> dict[str, Any]:
     score = round(sum(level["score"] for level in levels) / len(levels))
     next_actions = [level["next_step"] for level in levels if level["status"] != "ready"][:5]
     if not next_actions:
-        next_actions.append("Run a real multi-step task in guide mode, then promote only proven steps to assist/autonomous mode.")
+        next_actions.append("Run a real multi-step task, then allow only proven risky steps through approval-gated actions.")
 
     return {
         "label": "AGI-like assistant maturity ladder",

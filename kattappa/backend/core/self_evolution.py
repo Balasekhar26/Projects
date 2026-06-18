@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 from typing import Any
 
 from backend.core.memory import memory
@@ -34,6 +35,8 @@ def run_self_evolution_cycle(limit: int = 25) -> dict[str, Any]:
         approval_id = memory.create_approval(
             action=f"Review and approve draft self-evolution skill {skill_id}: {trigger}",
             risk="medium",
+            continuation_type="self_evolution",
+            continuation_payload=json.dumps({"skill_id": skill_id, "trigger": trigger}),
         )
         created.append({"skill_id": skill_id, "approval_id": approval_id, "trigger": trigger})
         existing_triggers.add(trigger.lower())

@@ -1,9 +1,6 @@
-import type { Approval, CapabilityLadder, FreeStack, Health, OperatorMode } from "../types";
-import { OperatorModeSelector } from "./OperatorModeSelector";
+import type { Approval, CapabilityLadder, FreeStack, Health } from "../types";
 
 type RightPanelProps = {
-  operatorMode: OperatorMode;
-  onOperatorModeChange: (mode: OperatorMode) => void;
   agentStatus: string;
   health: Health | null;
   freeStack: FreeStack | null;
@@ -18,8 +15,6 @@ type RightPanelProps = {
 };
 
 export function RightPanel({
-  operatorMode,
-  onOperatorModeChange,
   agentStatus,
   health,
   freeStack,
@@ -32,8 +27,8 @@ export function RightPanel({
     <aside className="rightPanel">
       <h2>Agent Status</h2>
       <dl>
-        <dt>Mode</dt>
-        <dd>{operatorMode}</dd>
+        <dt>Input</dt>
+        <dd>Message or voice order</dd>
         <dt>Backend</dt>
         <dd>{agentStatus}</dd>
         <dt>Ollama</dt>
@@ -51,7 +46,6 @@ export function RightPanel({
         <dt>Maturity</dt>
         <dd>{capabilityLadder ? `${capabilityLadder.maturity_percent}%` : "Checking"}</dd>
       </dl>
-      <OperatorModeSelector operatorMode={operatorMode} onChange={onOperatorModeChange} compact />
       <div className={`approvalBox ${activeApproval ? "danger" : approvalNotice?.tone ?? "ready"}`}>
         <h3>Approval Panel</h3>
         {activeApproval ? (

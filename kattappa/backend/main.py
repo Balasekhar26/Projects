@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import json
+
 import httpx
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, Header, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.core.capability_ladder import build_capability_ladder
-from backend.core.builder_brain import builder_profile, workspace_map
+from backend.core.builder_brain import builder_profile, local_builder_analytics, workspace_map
 from backend.core.cluster_plan import cluster_plan
+from backend.core.cluster_runtime import (
+    cluster_runtime_status,
+    execute_worker_task,
+    list_paired_nodes,
+    register_paired_node,
+    remove_paired_node,
+    route_cluster_task,
+    worker_token_is_valid,
+)
 from backend.core.config import load_config
+from backend.core.codex_parity import codex_parity_report
+from backend.core.approval_continuation import continue_approved_work
 from backend.core.free_tool_catalog import free_tool_decision_report
 from backend.core.free_stack import free_stack_report
 from backend.core.hardware_requirements import hardware_requirements
@@ -51,7 +64,18 @@ from backend.tools.finance_brain import (
     kronos_status,
     load_ohlcv_csv,
 )
+from backend.tools.local_creator_tools import (
+    compress_context,
+    convert_document_text_to_markdown,
+    create_gsd_workflow,
+    create_local_deck_outline,
+    create_marketing_kit,
+    create_mermaid_diagram,
+    local_code_review,
+    toolbox_replacement_report,
+)
 from backend.tools.voice_tools import (
+    normalize_spoken_text,
     parse_wake_command,
     process_voice_audio,
     speak,
@@ -62,10 +86,22 @@ from backend.tools.writing.grammar_api import check_grammar, writing_status
 from backend.tools.writing.rewrite_helper import improve_text
 
 
-def _run_graph(message: str) -> dict[str, object]:
+def _run_graph(
+    message: str,
+    approved_approval_id: str | None = None,
+    chat_session_id: str | None = None,
+    current_chat_message_id: str | None = None,
+    memory_query: str | None = None,
+) -> dict[str, object]:
     from backend.core.graph import run_graph
 
-    return run_graph(message)
+    return run_graph(
+        message,
+        approved_approval_id=approved_approval_id,
+        chat_session_id=chat_session_id,
+        current_chat_message_id=current_chat_message_id,
+        memory_query=memory_query,
+    )
 
 
 class ChatRequest(BaseModel):
@@ -159,6 +195,28 @@ class OperatorPlanRequest(BaseModel):
     message: str
 
 
+class ClusterNodeRequest(BaseModel):
+    name: str
+    base_url: str
+    token: str
+    capabilities: dict[str, object] = {}
+
+
+class ClusterTaskRouteRequest(BaseModel):
+    message: str
+    task_kind: str = "basic_chat"
+    sensitivity: str = "normal"
+    force_remote: bool = False
+
+
+class ClusterWorkerTaskRequest(BaseModel):
+    task_id: str
+    task_kind: str
+    message: str
+    origin_node: dict[str, object] = {}
+    privacy: dict[str, object] = {}
+
+
 class ToolScoutRequest(BaseModel):
     task: str
     outcome: str = ""
@@ -171,6 +229,45 @@ class WritingCheckRequest(BaseModel):
 class WritingRewriteRequest(BaseModel):
     text: str
     tone: str = "clear"
+
+
+class LocalDeckRequest(BaseModel):
+    topic: str
+    audience: str = "users"
+    project: str = ""
+    slide_count: int = 8
+
+
+class LocalDiagramRequest(BaseModel):
+    text: str
+    diagram_type: str = "flowchart"
+
+
+class ContextCompressRequest(BaseModel):
+    text: str
+    max_points: int = 12
+
+
+class LocalReviewRequest(BaseModel):
+    diff_text: str
+    project: str = ""
+
+
+class LocalGsdWorkflowRequest(BaseModel):
+    goal: str
+    project: str = ""
+
+
+class DocumentMarkdownRequest(BaseModel):
+    filename: str
+    text: str
+
+
+class MarketingKitRequest(BaseModel):
+    brand: str
+    product: str
+    audience: str = "customers"
+    channel: str = "social"
 
 
 class VoiceSpeakRequest(BaseModel):
@@ -316,6 +413,56 @@ def writing_rewrite(request: WritingRewriteRequest) -> dict[str, object]:
     return improve_text(request.text, tone=request.tone)
 
 
+@app.get("/toolbox/replacements")
+def toolbox_replacements() -> dict[str, object]:
+    return toolbox_replacement_report()
+
+
+@app.post("/creator/deck")
+def creator_deck(request: LocalDeckRequest) -> dict[str, object]:
+    return create_local_deck_outline(
+        request.topic,
+        audience=request.audience,
+        project=request.project,
+        slide_count=request.slide_count,
+    )
+
+
+@app.post("/creator/diagram")
+def creator_diagram(request: LocalDiagramRequest) -> dict[str, object]:
+    return create_mermaid_diagram(request.text, diagram_type=request.diagram_type)
+
+
+@app.post("/context/compress")
+def context_compress(request: ContextCompressRequest) -> dict[str, object]:
+    return compress_context(request.text, max_points=request.max_points)
+
+
+@app.post("/creator/code-review")
+def creator_code_review(request: LocalReviewRequest) -> dict[str, object]:
+    return local_code_review(request.diff_text, project=request.project)
+
+
+@app.post("/creator/gsd-workflow")
+def creator_gsd_workflow(request: LocalGsdWorkflowRequest) -> dict[str, object]:
+    return create_gsd_workflow(request.goal, project=request.project)
+
+
+@app.post("/creator/document-markdown")
+def creator_document_markdown(request: DocumentMarkdownRequest) -> dict[str, object]:
+    return convert_document_text_to_markdown(request.filename, request.text)
+
+
+@app.post("/creator/marketing-kit")
+def creator_marketing_kit(request: MarketingKitRequest) -> dict[str, object]:
+    return create_marketing_kit(
+        request.brand,
+        request.product,
+        audience=request.audience,
+        channel=request.channel,
+    )
+
+
 @app.get("/voice/status")
 def voice_status() -> dict[str, object]:
     return voice_pipeline_status()
@@ -323,13 +470,14 @@ def voice_status() -> dict[str, object]:
 
 @app.post("/voice/speak")
 def voice_speak(request: VoiceSpeakRequest) -> dict[str, object]:
-    spoken_text = request.text.strip()
+    spoken_text = normalize_spoken_text(request.text, purpose=request.purpose)
     if not spoken_text:
         return {"ok": False, "result": "empty_text", "pipeline": voice_pipeline_status()}
     return {
         "ok": True,
         "purpose": request.purpose,
-        "result": speak(spoken_text),
+        "spoken_text": spoken_text,
+        "result": speak(spoken_text, purpose=request.purpose),
         "pipeline": voice_pipeline_status(),
     }
 
@@ -384,6 +532,70 @@ def system_platform_support() -> dict[str, object]:
 @app.get("/cluster/plan")
 def kattappa_cluster_plan() -> dict[str, object]:
     return cluster_plan()
+
+
+@app.get("/cluster/status")
+def kattappa_cluster_status() -> dict[str, object]:
+    return cluster_runtime_status()
+
+
+@app.get("/cluster/nodes")
+def kattappa_cluster_nodes() -> dict[str, object]:
+    return {"items": list_paired_nodes()}
+
+
+@app.post("/cluster/nodes")
+def kattappa_register_cluster_node(request: ClusterNodeRequest) -> dict[str, object]:
+    try:
+        item = register_paired_node(
+            request.name,
+            request.base_url,
+            request.token,
+            capabilities=dict(request.capabilities),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item}
+
+
+@app.delete("/cluster/nodes/{node_id}")
+def kattappa_remove_cluster_node(node_id: str) -> dict[str, object]:
+    if not remove_paired_node(node_id):
+        raise HTTPException(status_code=404, detail="Paired node not found")
+    return {"removed": True, "node_id": node_id}
+
+
+@app.post("/cluster/tasks/route")
+def kattappa_route_cluster_task(request: ClusterTaskRouteRequest) -> dict[str, object]:
+    try:
+        return route_cluster_task(
+            request.message,
+            task_kind=request.task_kind,
+            sensitivity=request.sensitivity,
+            force_remote=request.force_remote,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/cluster/worker/tasks")
+def kattappa_worker_task(
+    request: ClusterWorkerTaskRequest,
+    x_kattappa_cluster_token: str | None = Header(default=None),
+) -> dict[str, object]:
+    if not worker_token_is_valid(x_kattappa_cluster_token):
+        raise HTTPException(status_code=403, detail="Invalid Kattappa cluster token")
+    try:
+        return execute_worker_task(
+            request.task_id,
+            request.task_kind,
+            request.message,
+            origin_node=dict(request.origin_node),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/finance/kronos/status")
@@ -484,6 +696,16 @@ def get_builder_profile() -> dict[str, object]:
     return builder_profile()
 
 
+@app.get("/builder/codex-parity")
+def get_codex_parity() -> dict[str, object]:
+    return codex_parity_report()
+
+
+@app.get("/builder/analytics")
+def get_builder_analytics() -> dict[str, object]:
+    return local_builder_analytics()
+
+
 @app.get("/builder/workspace-map")
 def get_workspace_map(limit: int = 80) -> dict[str, object]:
     return workspace_map(limit=limit)
@@ -523,20 +745,24 @@ def check_shared_project_improvements() -> dict[str, object]:
 
 @app.post("/chat")
 def chat(request: ChatRequest) -> dict[str, object]:
-    if request.session_id:
-        memory.add_chat_message(
-            request.session_id, "user", _strip_operator_prefix(request.message)
-        )
-    state = _run_graph(request.message)
-    if request.session_id:
-        memory.add_chat_message(
-            request.session_id,
-            "assistant",
-            str(state.get("result") or ""),
-            agent=str(state.get("selected_agent") or ""),
-            risk=str(state.get("risk_level") or ""),
-        )
-    return {"response": state.get("result"), "state": state}
+    session = memory.get_or_create_primary_chat_session()
+    clean_message = _strip_operator_prefix(request.message)
+    user_message = memory.add_chat_message(session["id"], "user", clean_message)
+    state = _run_graph(
+        request.message,
+        chat_session_id=session["id"],
+        current_chat_message_id=user_message["id"],
+        memory_query=clean_message,
+    )
+    memory.add_chat_message(
+        session["id"],
+        "assistant",
+        str(state.get("result") or ""),
+        agent=str(state.get("selected_agent") or ""),
+        risk=str(state.get("risk_level") or ""),
+        metadata=_chat_state_metadata(state),
+    )
+    return {"response": state.get("result"), "state": state, "session": session}
 
 
 @app.websocket("/ws/chat")
@@ -545,10 +771,26 @@ async def chat_socket(websocket: WebSocket) -> None:
     await websocket.send_json({"type": "system", "content": "Kattappa AI OS connected."})
     while True:
         user_message = await websocket.receive_text()
+        session = memory.get_or_create_primary_chat_session()
+        clean_message = _strip_operator_prefix(user_message)
+        stored_user_message = memory.add_chat_message(session["id"], "user", clean_message)
         await websocket.send_json(
             {"type": "progress", "content": "Planning and routing..."}
         )
-        state = _run_graph(user_message)
+        state = _run_graph(
+            user_message,
+            chat_session_id=session["id"],
+            current_chat_message_id=stored_user_message["id"],
+            memory_query=clean_message,
+        )
+        memory.add_chat_message(
+            session["id"],
+            "assistant",
+            str(state.get("result") or ""),
+            agent=str(state.get("selected_agent") or ""),
+            risk=str(state.get("risk_level") or ""),
+            metadata=_chat_state_metadata(state),
+        )
         for line in state.get("logs", []):
             await websocket.send_json({"type": "progress", "content": line})
         await websocket.send_json(
@@ -565,6 +807,8 @@ async def chat_socket(websocket: WebSocket) -> None:
                     else None
                 ),
                 "operator_plan": state.get("operator_plan"),
+                "related_messages": state.get("related_messages", []),
+                "session_id": session["id"],
             }
         )
 
@@ -686,7 +930,15 @@ def decide_approval(approval_id: str, decision: ApprovalDecision) -> dict[str, o
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="Approval not found")
-    return {"item": item}
+    result: dict[str, object] = {"item": item}
+    if decision.status == "approved":
+        result["continuation"] = continue_approved_work(approval_id)
+    return result
+
+
+@app.post("/approvals/{approval_id}/continue")
+def continue_approval(approval_id: str) -> dict[str, object]:
+    return continue_approved_work(approval_id)
 
 
 @app.get("/improvements")
@@ -841,3 +1093,16 @@ def _strip_operator_prefix(message: str) -> str:
     if lines and lines[0].startswith("[operator mode:"):
         return "\n".join(lines[1:]).strip()
     return message
+
+
+def _chat_state_metadata(state: dict[str, object]) -> str:
+    return json.dumps(
+        {
+            "approval_id": state.get("approval_id"),
+            "related_message_ids": [
+                item.get("id")
+                for item in state.get("related_messages", [])
+                if isinstance(item, dict)
+            ],
+        }
+    )

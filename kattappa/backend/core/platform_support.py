@@ -58,14 +58,14 @@ def platform_support_report() -> dict[str, object]:
             "ready",
             "Playwright Chromium optional adapter",
             "Optional upgrade: run python -m playwright install chromium.",
-            "Browser tasks degrade to planning/guide mode when the adapter is unavailable.",
+            "Browser tasks degrade to planning and human-readable guidance when the adapter is unavailable.",
         ),
         FeatureSupport(
             "screen_capture",
             "ready",
             "mss + Pillow optional adapter",
             "Optional upgrade: " + _screen_hint(lower),
-            "Screen tasks stay in guide mode when native capture permission or packages are unavailable.",
+            "Screen tasks stay as human-readable guidance when native capture permission or packages are unavailable.",
         ),
         FeatureSupport(
             "ocr",
@@ -94,7 +94,7 @@ def platform_support_report() -> dict[str, object]:
             _desktop_adapter(lower),
             "Safe default: " + _desktop_hint(lower),
             (
-                "Desktop action is green but gated. It stays in observe/guide mode until "
+                "Desktop action is ready but gated. It stays as guidance until "
                 "KATTAPPA_DESKTOP_ENABLED=true and the user approves risky actions."
             ),
         ),
@@ -172,7 +172,7 @@ def _tauri_hint(system: str) -> str:
 
 def _screen_hint(system: str) -> str:
     if system == "darwin":
-        return "Grant Screen Recording permission to the terminal or packaged app."
+        return "Run setup once so the macOS Screen Recording preflight can enable task-time capture."
     if system == "linux":
         return "Use an X11/Wayland session that allows screenshots; install mss and Pillow."
     return "Install mss and Pillow."

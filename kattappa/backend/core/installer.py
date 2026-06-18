@@ -29,7 +29,7 @@ PACKAGE_SOURCE_NOTES = {
     "langgraph": "Open-source Python agent/workflow framework; use only as graph adapter, not as Kattappa's identity.",
     "chromadb": "Open-source local vector database; use as replaceable semantic memory storage.",
     "playwright": "Open-source browser automation framework; use as replaceable browser-control adapter.",
-    "pyautogui": "Open-source desktop input library; use only behind approval-gated operator modes.",
+    "pyautogui": "Open-source desktop input library; use only behind approval-gated desktop actions.",
     "mss": "Open-source screen capture utility; use only for local screenshots.",
     "pytesseract": "Open-source Python bridge to Tesseract OCR; keep OCR adapter replaceable.",
     "faster_whisper": "Open-source Whisper inference implementation; local STT adapter only.",
@@ -112,6 +112,7 @@ def request_missing_install_approval() -> dict[str, Any]:
             f"{plan['summary']} Automatic commands will run only after approval."
         ),
         risk="medium",
+        continuation_type="install_job",
     )
     memory.create_install_job(approval_id, json.dumps(plan))
     return {

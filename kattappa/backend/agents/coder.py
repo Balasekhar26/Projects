@@ -26,6 +26,9 @@ CODE_ACTION_WORDS = (
     "test",
     "code",
     "file",
+    "delete",
+    "remove",
+    "erase",
 )
 
 

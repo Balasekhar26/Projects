@@ -11,6 +11,14 @@ const state = {
   recallResults: []
 };
 
+const memoryBridge = {
+  baseUrl: localStorage.getItem("neuroseed-memory-url") || "http://127.0.0.1:8077",
+  online: false,
+  hydrating: false,
+  syncTimer: null,
+  lastSyncedAt: null
+};
+
 const stageNames = ["N1", "N2", "N3", "REM"];
 const consentModel = {
   version: "pilot-consent-v1",
@@ -20,7 +28,7 @@ const consentModel = {
   hiddenPersuasionBlocked: true,
   removableLocalStorage: true,
   exportRequiresUserAction: true,
-  safetyNote: "NeuroSeed stores only user-entered study text, consent choices, cue events, and recall checks in this browser."
+  safetyNote: "NeuroSeed stores only user-entered study text, consent choices, cue events, and recall checks in local memory."
 };
 const sampleText = `Hippocampus helps bind new episodic memories before they are gradually integrated with cortical networks.
 Targeted memory reactivation links learned content with a sound or odor cue, then replays the cue during sleep to bias consolidation.
@@ -37,6 +45,8 @@ document.addEventListener("DOMContentLoaded", () => {
   drawMemoryMap();
   window.setInterval(drawMemoryMap, 80);
   renderIcons();
+  updateMemoryStatus();
+  hydrateFromMemory();
 });
 
 function bindElements() {
@@ -72,6 +82,7 @@ function bindElements() {
     "resetBtn",
     "viewTitle",
     "consentStatus",
+    "memoryStatus",
     "sessionCountStat",
     "cuedRecallStat",
     "uncuedRecallStat",
@@ -101,6 +112,132 @@ function bindEvents() {
   els.exportCsvBtn.addEventListener("click", exportCsv);
   els.volumeSlider.addEventListener("input", updateLoadStatus);
   els.hapticSlider.addEventListener("input", updateLoadStatus);
+}
+
+async function hydrateFromMemory() {
+  memoryBridge.hydrating = true;
+  let shouldSyncLocal = false;
+  updateMemoryStatus("Checking");
+  try {
+    const response = await memoryFetch("/neuroseed/state");
+    if (!response.ok) throw new Error(`Memory backend returned ${response.status}`);
+    const payload = await response.json();
+    memoryBridge.online = true;
+    const remoteState = payload.state || {};
+    if (hasStoredState(remoteState)) {
+      applyStoredState(remoteState);
+      persistLocalState();
+      toastLog("Memory", "NeuroSeed local Chroma/SQLite memory loaded.");
+      renderAll();
+    } else if (hasStoredState(currentStatePayload())) {
+      shouldSyncLocal = true;
+    }
+    updateMemoryStatus();
+  } catch {
+    memoryBridge.online = false;
+    updateMemoryStatus("Browser");
+  } finally {
+    memoryBridge.hydrating = false;
+    if (shouldSyncLocal) scheduleMemorySync(10);
+  }
+}
+
+function scheduleMemorySync(delay = 250) {
+  if (memoryBridge.hydrating) return;
+  window.clearTimeout(memoryBridge.syncTimer);
+  memoryBridge.syncTimer = window.setTimeout(syncMemoryState, delay);
+}
+
+async function syncMemoryState() {
+  try {
+    const response = await memoryFetch("/neuroseed/state", {
+      method: "POST",
+      body: JSON.stringify(currentStatePayload())
+    });
+    if (!response.ok) throw new Error(`Memory backend returned ${response.status}`);
+    const payload = await response.json();
+    memoryBridge.online = true;
+    memoryBridge.lastSyncedAt = new Date().toISOString();
+    if (payload.state && hasStoredState(payload.state)) {
+      applyStoredState(payload.state);
+      persistLocalState();
+      renderAll();
+    }
+    updateMemoryStatus();
+  } catch {
+    memoryBridge.online = false;
+    updateMemoryStatus("Browser");
+  }
+}
+
+async function resetMemoryState() {
+  try {
+    const response = await memoryFetch("/neuroseed/state", { method: "DELETE" });
+    memoryBridge.online = response.ok;
+  } catch {
+    memoryBridge.online = false;
+  }
+  updateMemoryStatus();
+}
+
+function memoryFetch(path, options = {}) {
+  return fetch(`${memoryBridge.baseUrl}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+}
+
+function currentStatePayload() {
+  return {
+    dataModel: consentModel,
+    seeds: state.seeds,
+    logs: state.logs,
+    sessions: state.sessions,
+    cuedIds: [...state.cuedIds],
+    activeSessionId: state.activeSessionId,
+    recallResults: state.recallResults
+  };
+}
+
+function hasStoredState(payload) {
+  return Boolean(
+    (payload.seeds && payload.seeds.length) ||
+      (payload.sessions && payload.sessions.length) ||
+      (payload.recallResults && payload.recallResults.length)
+  );
+}
+
+function applyStoredState(payload) {
+  state.seeds = (payload.seeds || []).map((seed) => ({
+    ...seed,
+    consent: seed.consent || {
+      status: seed.approved ? "awake-approved" : "pending",
+      model: consentModel.version,
+      approvedAt: null
+    }
+  }));
+  state.logs = payload.logs || [];
+  state.sessions = payload.sessions || [];
+  state.cuedIds = new Set(payload.cuedIds || []);
+  state.activeSessionId = payload.activeSessionId || null;
+  state.recallResults = normalizeRecallResults(payload.recallResults);
+  finalizeActiveSession();
+}
+
+function persistLocalState() {
+  localStorage.setItem(stateKey, JSON.stringify(currentStatePayload()));
+}
+
+function updateMemoryStatus(label) {
+  if (!els.memoryStatus) return;
+  if (label) {
+    els.memoryStatus.textContent = label;
+    return;
+  }
+  els.memoryStatus.textContent = memoryBridge.online ? "Shared" : "Browser";
 }
 
 function setView(view) {
@@ -532,18 +669,11 @@ function findSeed(id) {
 }
 
 function saveState(showLog = true) {
-  const payload = {
-    dataModel: consentModel,
-    seeds: state.seeds,
-    logs: state.logs,
-    sessions: state.sessions,
-    cuedIds: [...state.cuedIds],
-    activeSessionId: state.activeSessionId,
-    recallResults: state.recallResults
-  };
-  localStorage.setItem(stateKey, JSON.stringify(payload));
+  persistLocalState();
+  scheduleMemorySync();
   if (showLog) {
     toastLog("Storage", "Prototype state saved.");
+    persistLocalState();
     renderAll();
   }
 }
@@ -553,20 +683,7 @@ function restoreState() {
   if (!raw) return;
   try {
     const payload = JSON.parse(raw);
-    state.seeds = (payload.seeds || []).map((seed) => ({
-      ...seed,
-      consent: seed.consent || {
-        status: seed.approved ? "awake-approved" : "pending",
-        model: consentModel.version,
-        approvedAt: null
-      }
-    }));
-    state.logs = payload.logs || [];
-    state.sessions = payload.sessions || [];
-    state.cuedIds = new Set(payload.cuedIds || []);
-    state.activeSessionId = payload.activeSessionId || null;
-    state.recallResults = normalizeRecallResults(payload.recallResults);
-    finalizeActiveSession();
+    applyStoredState(payload);
   } catch {
     localStorage.removeItem(stateKey);
   }
@@ -581,6 +698,7 @@ function resetState() {
   state.activeSessionId = null;
   state.recallResults = [];
   localStorage.removeItem(stateKey);
+  resetMemoryState();
   renderAll();
 }
 
@@ -703,6 +821,11 @@ function analysisPayload() {
   return {
     exportedAt: new Date().toISOString(),
     dataModel: consentModel,
+    memory: {
+      backend: memoryBridge.online ? "neuroseed_sqlite_chroma" : "browser_fallback",
+      endpoint: memoryBridge.baseUrl,
+      lastSyncedAt: memoryBridge.lastSyncedAt
+    },
     seeds: state.seeds,
     sessions: state.sessions,
     recallResults: state.recallResults,

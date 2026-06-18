@@ -34,7 +34,7 @@ export function DesktopGuidanceOverlay({
         }}
       />
       <div className="desktopGuideHint">
-        <strong>{guidance.requires_approval ? "Approve one step" : guidance.mode === "teach" ? "Teach mode" : "Guide mode"}</strong>
+        <strong>{guidance.requires_approval ? "Approve one step" : "Next safe step"}</strong>
         <span>{guidance.instruction}</span>
       </div>
     </div>

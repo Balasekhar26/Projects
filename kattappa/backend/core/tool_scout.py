@@ -147,6 +147,210 @@ CATALOG = [
         ),
     ),
     ToolCandidate(
+        capability="local deck generator",
+        tool="Kattappa Markdown deck outline generator",
+        source="local implementation inspired by Pitch/Gamma presentation workflows",
+        license_note=(
+            "Pitch and Gamma are freemium/account tools. Keep the core free by generating Markdown deck "
+            "outlines locally; export through Markdown, Marp, Reveal.js, or manual PPT conversion."
+        ),
+        best_for=("pitch", "gamma", "deck", "presentation", "slides", "investor", "demo"),
+        build_own_plan=(
+            "Use backend.tools.local_creator_tools.create_local_deck_outline to create project pitch/demo "
+            "slides with local templates and no cloud upload."
+        ),
+    ),
+    ToolCandidate(
+        capability="local diagram generator",
+        tool="Kattappa Mermaid diagram generator",
+        source="local implementation inspired by Napkin AI text-to-visual workflows",
+        license_note=(
+            "Napkin is freemium/credit-based. Generate Mermaid locally and render through free Mermaid-compatible tools."
+        ),
+        best_for=("napkin", "diagram", "flowchart", "mind map", "architecture", "visual", "mermaid"),
+        build_own_plan=(
+            "Use backend.tools.local_creator_tools.create_mermaid_diagram to turn text into flowcharts or "
+            "mind maps for architecture docs, PCB repair flows, DEWS incidents, and NeuroSeed learning maps."
+        ),
+    ),
+    ToolCandidate(
+        capability="local context compression",
+        tool="Kattappa deterministic context compressor",
+        source="local implementation inspired by Headroom context compression",
+        license_note=(
+            "Headroom is open-source, but Kattappa has a tiny built-in compressor first. Consider Headroom only "
+            "as an optional adapter after license/source review."
+        ),
+        best_for=("headroom", "compress", "context", "token", "logs", "tool output", "long file"),
+        build_own_plan=(
+            "Use backend.tools.local_creator_tools.compress_context to preserve high-signal lines from logs, "
+            "tool output, and notes before adding them to local model context."
+        ),
+    ),
+    ToolCandidate(
+        capability="local code review",
+        tool="Kattappa heuristic diff reviewer",
+        source="local implementation inspired by CodeRabbit PR review workflows",
+        license_note=(
+            "CodeRabbit is a hosted review product with pricing tiers. Keep core review local with deterministic "
+            "checks; optional external review must be explicitly approved and must not receive private code."
+        ),
+        best_for=(
+            "coderabbit",
+            "code review",
+            "pr review",
+            "review diff",
+            "security issue",
+            "bug review",
+        ),
+        build_own_plan=(
+            "Use backend.tools.local_creator_tools.local_code_review to scan diffs for secrets, unsafe shell, "
+            "debug leftovers, broad exceptions, TODO/FIXME markers, and simple SQL injection patterns."
+        ),
+    ),
+    ToolCandidate(
+        capability="local coding assistant",
+        tool="Kattappa project index + review + GSD workflow",
+        source="local implementation inspired by Blackbox AI coding-assistant workflows",
+        license_note=(
+            "Blackbox AI is a hosted/freemium coding assistant. Keep Kattappa's core code help local through "
+            "project indexing, deterministic review, repo prompt export, and plan-execute-verify-fix loops."
+        ),
+        best_for=(
+            "blackbox",
+            "blackbox ai",
+            "coding assistant",
+            "code completion",
+            "ai ide",
+            "vscode assistant",
+        ),
+        build_own_plan=(
+            "Use local project index/search, local_code_review, create_gsd_workflow, and git status/diff checks "
+            "to provide coding help without uploading project code to a hosted assistant."
+        ),
+    ),
+    ToolCandidate(
+        capability="local GSD coding workflow",
+        tool="Kattappa plan-execute-verify-fix workflow",
+        source="local implementation inspired by Antigravity, GSD, and Ralph coding loops",
+        license_note=(
+            "Use external coding-agent projects as architecture references only. The core workflow remains "
+            "Kattappa-built, local, approval-gated, and test-first."
+        ),
+        best_for=(
+            "antigravity",
+            "gsd",
+            "get shit done",
+            "ralph",
+            "autonomous coding loop",
+            "plan execute verify fix",
+        ),
+        build_own_plan=(
+            "Use backend.tools.local_creator_tools.create_gsd_workflow to turn a goal into plan, execute, "
+            "verify, and fix phases with explicit project boundaries and verification commands."
+        ),
+    ),
+    ToolCandidate(
+        capability="local document markdown conversion",
+        tool="Kattappa text/HTML/CSV to Markdown fallback",
+        source="local fallback with optional Microsoft MarkItDown adapter after approval",
+        license_note=(
+            "Microsoft MarkItDown is open-source and useful, but Kattappa keeps a built-in fallback first so "
+            "PDF/DOCX/PPTX adapters never become mandatory core dependencies."
+        ),
+        best_for=(
+            "markitdown",
+            "marketdown",
+            "pdf to markdown",
+            "docx to markdown",
+            "document markdown",
+            "convert document",
+        ),
+        build_own_plan=(
+            "Use backend.tools.local_creator_tools.convert_document_text_to_markdown for built-in text, HTML, "
+            "and CSV conversion; add MarkItDown only as an optional richer-format adapter after license review."
+        ),
+    ),
+    ToolCandidate(
+        capability="local marketing kit",
+        tool="Kattappa local brand and campaign draft generator",
+        source="local implementation inspired by Pomelli and Ralph eCommerce marketing workflows",
+        license_note=(
+            "Hosted marketing generators and store automations are not core dependencies. Generate campaign "
+            "drafts locally and let each project export or publish manually."
+        ),
+        best_for=(
+            "pomelli",
+            "ralph ecommerce",
+            "shopify marketing",
+            "brand content",
+            "ads",
+            "social posts",
+            "campaign",
+        ),
+        build_own_plan=(
+            "Use backend.tools.local_creator_tools.create_marketing_kit to draft hooks, posts, email subjects, "
+            "and CTAs locally without connecting stores, ad accounts, or hosted brand tools."
+        ),
+    ),
+    ToolCandidate(
+        capability="safe local network scanner",
+        tool="AI Cyber Shield Nmap-compatible local/private scanner",
+        source="local implementation with optional Nmap adapter",
+        license_note=(
+            "Nmap is free for end users, but Cyber Shield keeps its own socket fallback and does not bundle "
+            "or require Nmap. Scans are limited to loopback, private, and link-local targets."
+        ),
+        best_for=(
+            "nmap",
+            "network scan",
+            "open ports",
+            "service detection",
+            "os detection",
+            "port scan",
+        ),
+        build_own_plan=(
+            "Use ai-cyber-shield/asa/network_scan.py for safe local/private TCP checks. If Nmap is installed, "
+            "use it as an optional adapter; otherwise use the built-in socket fallback."
+        ),
+    ),
+    ToolCandidate(
+        capability="voice-first personal assistant",
+        tool="Kattappa local FRIDAY/JARVIS-style desktop assistant",
+        source="local implementation inspired by FRIDAY and personal assistant repo patterns",
+        license_note=(
+            "Do not copy assistant repo code or require hosted Gemini/LiveKit/OpenAI/Sarvam services. Kattappa "
+            "keeps voice, screen, memory, and tool routing local with approval gates."
+        ),
+        best_for=(
+            "friday",
+            "tony stark",
+            "personal assistant",
+            "jarvis",
+            "voice assistant",
+            "open app",
+            "screenshot",
+        ),
+        build_own_plan=(
+            "Use Kattappa's local wake-word/STT/TTS pipeline, operator policy, task memory, and tool routes as "
+            "the desktop assistant path, adding only repo-native skills with tests."
+        ),
+    ),
+    ToolCandidate(
+        capability="local scheduling planner",
+        tool="Kattappa local schedule plan + long-task follow-up",
+        source="local implementation inspired by Vela scheduling-assistant workflows",
+        license_note=(
+            "Hosted scheduling agents are not a core dependency. Keep schedules as local tasks, reminders, "
+            "calendar-ready text, and approval-gated outbound messages."
+        ),
+        best_for=("vela", "schedule", "meeting", "calendar", "follow up", "appointment"),
+        build_own_plan=(
+            "Create local task plans with candidate time windows, follow-up drafts, and durable long-task reminders; "
+            "do not connect email/SMS/calendar without explicit approval."
+        ),
+    ),
+    ToolCandidate(
         capability="local workflow queue",
         tool="SQLite job queue with approvals and retries",
         source="local implementation inspired by workflow orchestration patterns",
@@ -207,11 +411,25 @@ CATALOG = [
         capability="screen and cursor guidance",
         tool="OCR + Windows UI Automation adapter",
         source="local adapters: pytesseract, mss, pywinauto, pyautogui",
-        license_note="Use small adapters only behind approval-gated observe/guide/assist/autonomous modes.",
+        license_note="Use small adapters only behind automatic routing and approval-gated desktop actions.",
         best_for=("screen", "cursor", "desktop", "ocr", "guide", "assist"),
         build_own_plan=(
             "Build our own operator policy: screenshot, OCR/accessibility map, target ranking, visual guide, "
             "approval before click/type, and action trace."
+        ),
+    ),
+    ToolCandidate(
+        capability="safe BCI research adapter",
+        tool="OpenBCI/MNE-style non-invasive research notes",
+        source="https://openbci.com/ and https://mne.tools/",
+        license_note=(
+            "Neuralink/NEO are medical implant-device topics and are blocked from product core. Use only "
+            "non-invasive/open research references, no diagnosis, no claims of mind reading or memory upload."
+        ),
+        best_for=("neuralink", "neuracle", "neo", "bci", "brain computer", "eeg", "openbci", "mne"),
+        build_own_plan=(
+            "Keep NeuroSeed BCI work to consent-first education/research notes: EEG data literacy, MNE-style "
+            "analysis concepts, and safety boundaries. No implant workflow or clinical claim."
         ),
     ),
 ]

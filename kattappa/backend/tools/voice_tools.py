@@ -2,14 +2,28 @@ from __future__ import annotations
 
 import base64
 import importlib.util
+import os
 import platform
 import shutil
 import subprocess
 import tempfile
+import wave
 from pathlib import Path
+from typing import Any
 
 
 WAKE_NAMES = ("kattappa", "mama", "kittu")
+WAKE_SAMPLE_RATE = 16000
+WAKE_CHUNK_SAMPLES = 1280
+WAKE_THRESHOLD = 0.5
+
+KATTAPPA_LANGUAGE_CONTRACT = {
+    "primary_spoken_language": "Telugu",
+    "secondary_spoken_language": "English",
+    "text_output_language": "English",
+    "voice_prompt_policy": "Spoken voice prompts are Telugu-first with English support.",
+    "assistant_response_policy": "Typed assistant responses stay English-only; speech may add Telugu-first cues.",
+}
 
 KATTAPPA_VOICE_PROFILE = {
     "id": "kattappa_original_loyal_warrior",
@@ -18,45 +32,76 @@ KATTAPPA_VOICE_PROFILE = {
     "rate": 145,
     "volume": 0.95,
     "pitch": 42,
-    "primary_spoken_language": "Telugu",
-    "secondary_spoken_language": "English",
-    "text_output_language": "English",
+    "primary_spoken_language": KATTAPPA_LANGUAGE_CONTRACT["primary_spoken_language"],
+    "secondary_spoken_language": KATTAPPA_LANGUAGE_CONTRACT["secondary_spoken_language"],
+    "text_output_language": KATTAPPA_LANGUAGE_CONTRACT["text_output_language"],
     "policy": (
         "Original assistant voice profile only. It must not clone, imitate, or claim to be "
         "any movie character, actor, or identifiable person's voice."
     ),
 }
 
+KATTAPPA_SPOKEN_PROMPTS = {
+    "wake_prompt": "వింటున్నాను. Say Kattappa, Mama, or Kittu, then your command.",
+    "wake_ack": "చెప్పండి. I am listening.",
+    "command_ack": "సరే. Okay.",
+}
 
-def speak(text: str) -> str:
+
+def speak(text: str, purpose: str = "assistant_response") -> str:
+    spoken_text = normalize_spoken_text(text, purpose=purpose)
+    if not spoken_text:
+        return "Speech output skipped: empty text"
+    piper_result = _speak_with_piper(spoken_text)
+    if piper_result:
+        return piper_result
     try:
         import pyttsx3
     except Exception as exc:
-        return _speak_with_os_adapter(text, exc)
+        return _speak_with_os_adapter(spoken_text, exc)
     try:
         engine = pyttsx3.init()
         _apply_kattappa_profile(engine)
-        engine.say(text)
+        engine.say(spoken_text)
         engine.runAndWait()
         return "spoken via pyttsx3 using Kattappa original voice profile"
     except Exception as exc:
-        return _speak_with_os_adapter(text, exc)
+        return _speak_with_os_adapter(spoken_text, exc)
 
 
 def voice_profile() -> dict[str, object]:
     return dict(KATTAPPA_VOICE_PROFILE)
 
 
+def voice_language_contract() -> dict[str, object]:
+    return dict(KATTAPPA_LANGUAGE_CONTRACT)
+
+
+def normalize_spoken_text(text: str, purpose: str = "assistant_response") -> str:
+    cleaned = " ".join(text.strip().split())
+    if not cleaned:
+        return ""
+    if purpose in KATTAPPA_SPOKEN_PROMPTS:
+        return KATTAPPA_SPOKEN_PROMPTS[purpose]
+    if purpose == "assistant_response" and not _contains_telugu(cleaned):
+        return f"సరే. {cleaned}"
+    return cleaned
+
+
 def voice_pipeline_status() -> dict[str, object]:
     wake_installed = _module_available("openwakeword")
     custom_wake_models = _custom_wake_models()
     stt_installed = _module_available("faster_whisper")
-    piper_installed = _module_available("piper") or shutil.which("piper") is not None
+    piper_installed = _piper_installed()
+    piper_command = shutil.which("piper")
+    piper_model = _piper_voice_model()
     pyttsx3_installed = _module_available("pyttsx3")
     native_tts = _native_tts_adapter()
+    openwakeword_ready = wake_installed and bool(custom_wake_models)
+    piper_ready = piper_command is not None and piper_model is not None
     return {
         "mode": "local_backend_voice_pipeline",
-        "primary_path": "desktop_audio_to_backend",
+        "primary_path": "desktop_microphone_to_backend_openwakeword_stt_tts",
         "browser_speech_primary": False,
         "wake_names": list(WAKE_NAMES),
         "wake": {
@@ -64,14 +109,16 @@ def voice_pipeline_status() -> dict[str, object]:
             "installed": wake_installed,
             "custom_models": [str(path) for path in custom_wake_models],
             "custom_models_configured": bool(custom_wake_models),
+            "threshold": WAKE_THRESHOLD,
+            "fallback_engine": "local_stt_wake_name_parser",
             "primary_decision": (
                 "openwakeword_custom_models"
-                if wake_installed and custom_wake_models
+                if openwakeword_ready
                 else "local_stt_wake_name_parser"
             ),
             "status": (
                 "ready_with_custom_models"
-                if wake_installed and custom_wake_models
+                if openwakeword_ready
                 else "fallback_to_transcribed_wake_names"
             ),
         },
@@ -79,14 +126,20 @@ def voice_pipeline_status() -> dict[str, object]:
             "engine": "faster-whisper",
             "installed": stt_installed,
             "status": "installed" if stt_installed else "missing",
+            "fallback": "typed_chat",
         },
         "tts": {
             "preferred_engine": "piper",
             "piper_installed": piper_installed,
+            "piper_command": piper_command or "",
+            "piper_model": str(piper_model) if piper_model else "",
+            "piper_model_configured": piper_model is not None,
+            "primary_decision": "piper_local_model" if piper_ready else "pyttsx3_or_native_os",
             "active_fallback": "pyttsx3" if pyttsx3_installed else native_tts,
-            "available": piper_installed or pyttsx3_installed or native_tts != "",
+            "available": piper_ready or pyttsx3_installed or native_tts != "",
         },
         "profile": voice_profile(),
+        "language_contract": voice_language_contract(),
         "safe_fallback": (
             "Typed chat remains available. Speech output falls back to pyttsx3 or native OS speech. "
             "Wake detection falls back to local STT wake-name parsing when openWakeWord is unavailable."
@@ -134,17 +187,76 @@ def process_voice_audio(audio_base64: str, mime_type: str = "audio/webm", model_
         handle.write(audio_bytes)
         audio_path = handle.name
     try:
+        wake_result = detect_wake_word(audio_path, mime_type=mime_type)
         transcript = transcribe_file(audio_path, model_size=model_size)
     finally:
         Path(audio_path).unlink(missing_ok=True)
-    parsed = parse_wake_command(transcript)
+    stt_unavailable = transcript.startswith("Speech-to-text is unavailable")
+    parsed = parse_wake_command(transcript) if not stt_unavailable else _empty_wake_parse()
+    if wake_result["detected"] and not parsed["wake_detected"]:
+        parsed = {
+            "wake_detected": True,
+            "wake_name": wake_result["wake_name"],
+            "command": _command_from_openwakeword_transcript(transcript),
+        }
+    wake_engine = (
+        "openwakeword"
+        if wake_result["detected"]
+        else "local_stt_wake_name_parser"
+        if parsed["wake_detected"]
+        else ""
+    )
     return {
-        "ok": not transcript.startswith("Speech-to-text is unavailable"),
-        "reason": "" if parsed["wake_detected"] else "wake_name_not_detected",
+        "ok": not stt_unavailable,
+        "reason": "stt_unavailable" if stt_unavailable else "" if parsed["wake_detected"] else "wake_name_not_detected",
         "pipeline": status,
         "transcript": transcript,
+        "wake_engine": wake_engine,
+        "wake_result": wake_result,
         **parsed,
     }
+
+
+def detect_wake_word(path: str, mime_type: str = "audio/webm") -> dict[str, object]:
+    result = _empty_wake_result()
+    custom_wake_models = _custom_wake_models()
+    if not _module_available("openwakeword"):
+        result["reason"] = "openwakeword_not_installed"
+        return result
+    if not custom_wake_models:
+        result["reason"] = "custom_wake_models_not_configured"
+        return result
+    audio, audio_reason = _load_openwakeword_audio(path, mime_type=mime_type)
+    if audio is None:
+        result["reason"] = audio_reason
+        return result
+    try:
+        from openwakeword.model import Model
+    except Exception as exc:
+        result["reason"] = f"openwakeword_unavailable: {exc}"
+        return result
+    try:
+        model = Model(wakeword_models=[str(model_path) for model_path in custom_wake_models])
+        scores = _score_openwakeword_audio(model, audio)
+    except Exception as exc:
+        result["reason"] = f"openwakeword_detection_failed: {exc}"
+        return result
+    if not scores:
+        result["used"] = True
+        result["reason"] = "openwakeword_returned_no_scores"
+        return result
+    model_name, score = max(scores.items(), key=lambda item: item[1])
+    result.update(
+        {
+            "used": True,
+            "detected": score >= WAKE_THRESHOLD,
+            "wake_name": _wake_name_from_model_name(model_name) if score >= WAKE_THRESHOLD else "",
+            "score": score,
+            "scores": scores,
+            "reason": "" if score >= WAKE_THRESHOLD else "wake_threshold_not_met",
+        }
+    )
+    return result
 
 
 def parse_wake_command(transcript: str) -> dict[str, object]:
@@ -165,6 +277,34 @@ def parse_wake_command(transcript: str) -> dict[str, object]:
         "wake_name": "",
         "command": "",
     }
+
+
+def _empty_wake_parse() -> dict[str, object]:
+    return {
+        "wake_detected": False,
+        "wake_name": "",
+        "command": "",
+    }
+
+
+def _empty_wake_result() -> dict[str, object]:
+    return {
+        "engine": "openwakeword",
+        "used": False,
+        "detected": False,
+        "wake_name": "",
+        "score": 0.0,
+        "scores": {},
+        "threshold": WAKE_THRESHOLD,
+        "reason": "",
+    }
+
+
+def _command_from_openwakeword_transcript(transcript: str) -> str:
+    normalized = " ".join(transcript.strip().split())
+    if normalized.lower() in WAKE_NAMES:
+        return ""
+    return normalized
 
 
 def _speak_with_os_adapter(text: str, cause: Exception) -> str:
@@ -205,8 +345,108 @@ def _speak_with_os_adapter(text: str, cause: Exception) -> str:
     return f"Speech output is unavailable on this OS/session: {cause}"
 
 
+def _speak_with_piper(text: str) -> str | None:
+    piper_command = shutil.which("piper")
+    piper_model = _piper_voice_model()
+    if not piper_command or not piper_model:
+        return None
+    output_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as handle:
+            output_path = handle.name
+        process = subprocess.run(
+            [piper_command, "--model", str(piper_model), "--output_file", output_path],
+            env=_piper_process_env(),
+            input=text,
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=60,
+            check=False,
+        )
+        if process.returncode != 0:
+            return None
+        if not _play_wav(output_path):
+            return None
+        return "spoken via Piper local TTS using Kattappa original voice profile"
+    except Exception:
+        return None
+    finally:
+        if output_path:
+            Path(output_path).unlink(missing_ok=True)
+
+
+def _piper_process_env() -> dict[str, str]:
+    env = os.environ.copy()
+    if env.get("ESPEAK_DATA_PATH"):
+        return env
+    for candidate in (
+        Path("/opt/homebrew/share/espeak-ng-data"),
+        Path("/opt/homebrew/opt/espeak-ng/share/espeak-ng-data"),
+        Path("/usr/local/share/espeak-ng-data"),
+        Path("/usr/local/opt/espeak-ng/share/espeak-ng-data"),
+        Path("/usr/share/espeak-ng-data"),
+    ):
+        if (candidate / "phontab").exists():
+            env["ESPEAK_DATA_PATH"] = str(candidate)
+            break
+    return env
+
+
+def _play_wav(path: str) -> bool:
+    system = platform.system().lower()
+    if system == "darwin" and shutil.which("afplay"):
+        subprocess.run(["afplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        return True
+    if system == "linux":
+        if shutil.which("aplay"):
+            subprocess.run(["aplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            return True
+        if shutil.which("paplay"):
+            subprocess.run(["paplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            return True
+    if system == "windows" and shutil.which("powershell"):
+        command = (
+            "Add-Type -AssemblyName System.Media; "
+            "$player = New-Object System.Media.SoundPlayer($args[0]); "
+            "$player.PlaySync()"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", command, path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return True
+    return False
+
+
 def _module_available(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
+
+
+def _piper_installed() -> bool:
+    return _module_available("piper") or shutil.which("piper") is not None
+
+
+def _piper_voice_model() -> Path | None:
+    root = Path(__file__).resolve().parents[2]
+    search_roots = [
+        root / "voice" / "tts",
+        root / "models" / "voice",
+        root / "models" / "piper",
+    ]
+    for search_root in search_roots:
+        if not search_root.exists():
+            continue
+        models = sorted(path for path in search_root.glob("*.onnx") if path.is_file())
+        if models:
+            return models[0]
+    return None
+
+
+def _contains_telugu(text: str) -> bool:
+    return any("\u0c00" <= char <= "\u0c7f" for char in text)
 
 
 def _native_tts_adapter() -> str:
@@ -229,6 +469,111 @@ def _custom_wake_models() -> list[Path]:
     if not model_dir.exists():
         return []
     return sorted(model_dir.glob("*.tflite")) + sorted(model_dir.glob("*.onnx"))
+
+
+def _load_openwakeword_audio(path: str, mime_type: str = "audio/webm") -> tuple[Any | None, str]:
+    audio, reason = _read_wav_for_openwakeword(path)
+    if audio is not None:
+        return audio, ""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return None, f"{reason}; ffmpeg_missing_for_audio_decode"
+    output_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as handle:
+            output_path = handle.name
+        process = subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                path,
+                "-ar",
+                str(WAKE_SAMPLE_RATE),
+                "-ac",
+                "1",
+                "-f",
+                "wav",
+                output_path,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+        )
+        if process.returncode != 0:
+            return None, f"ffmpeg_audio_decode_failed: {process.stderr.decode(errors='ignore')[:160]}"
+        return _read_wav_for_openwakeword(output_path)
+    except Exception as exc:
+        return None, f"audio_decode_failed: {exc}"
+    finally:
+        if output_path:
+            Path(output_path).unlink(missing_ok=True)
+
+
+def _read_wav_for_openwakeword(path: str) -> tuple[Any | None, str]:
+    try:
+        import numpy as np
+    except Exception as exc:
+        return None, f"numpy_unavailable_for_openwakeword: {exc}"
+    try:
+        with wave.open(path, "rb") as handle:
+            channels = handle.getnchannels()
+            sample_width = handle.getsampwidth()
+            frame_rate = handle.getframerate()
+            frames = handle.readframes(handle.getnframes())
+    except Exception as exc:
+        return None, f"wav_read_failed: {exc}"
+    if sample_width != 2:
+        return None, f"unsupported_wav_sample_width: {sample_width}"
+    if frame_rate != WAKE_SAMPLE_RATE:
+        return None, f"unsupported_wav_sample_rate: {frame_rate}"
+    audio = np.frombuffer(frames, dtype=np.int16)
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1).astype(np.int16)
+    return audio, ""
+
+
+def _score_openwakeword_audio(model: object, audio: Any) -> dict[str, float]:
+    try:
+        import numpy as np
+    except Exception:
+        return {}
+    scores: dict[str, float] = {}
+    if len(audio) == 0:
+        return scores
+    for start in range(0, len(audio), WAKE_CHUNK_SAMPLES):
+        chunk = audio[start : start + WAKE_CHUNK_SAMPLES]
+        if len(chunk) < WAKE_CHUNK_SAMPLES:
+            chunk = np.pad(chunk, (0, WAKE_CHUNK_SAMPLES - len(chunk))).astype(np.int16)
+        prediction = model.predict(chunk)
+        for name, score in _flatten_openwakeword_prediction(prediction).items():
+            scores[name] = max(scores.get(name, 0.0), score)
+    return scores
+
+
+def _flatten_openwakeword_prediction(prediction: object) -> dict[str, float]:
+    if not isinstance(prediction, dict):
+        return {}
+    scores: dict[str, float] = {}
+    for name, value in prediction.items():
+        if isinstance(value, dict):
+            for child_name, child_score in _flatten_openwakeword_prediction(value).items():
+                scores[f"{name}:{child_name}"] = child_score
+            continue
+        try:
+            scores[str(name)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return scores
+
+
+def _wake_name_from_model_name(model_name: str) -> str:
+    normalized = Path(model_name.split(":")[-1]).stem.lower().replace("_", " ").replace("-", " ")
+    for wake_name in WAKE_NAMES:
+        if wake_name in normalized:
+            return wake_name
+    return normalized.strip() or "custom_wake_word"
 
 
 def _audio_suffix(mime_type: str) -> str:

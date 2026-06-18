@@ -1,5 +1,6 @@
 import type {
   Approval,
+  ApprovalContinuationResult,
   ChatSession,
   DashboardData,
   FinanceComparisonResult,
@@ -56,6 +57,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     skills,
     reflections,
     builderProfile,
+    codexParity,
     projectEcosystem,
     sourcePolicy,
     projectIndex,
@@ -69,6 +71,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     requestJson<{ items: DashboardData["skills"] }>("/skills").then((data) => data.items),
     requestJson<{ items: DashboardData["reflections"] }>("/reflections").then((data) => data.items),
     requestJson<DashboardData["builderProfile"]>("/builder/profile"),
+    requestJson<DashboardData["codexParity"]>("/builder/codex-parity"),
     requestJson<DashboardData["projectEcosystem"]>("/projects/ecosystem"),
     requestJson<DashboardData["sourcePolicy"]>("/source-policy"),
     requestJson<DashboardData["projectIndex"]>("/project-index"),
@@ -84,6 +87,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     skills,
     reflections,
     builderProfile,
+    codexParity,
     projectEcosystem,
     sourcePolicy,
     projectIndex,
@@ -92,8 +96,12 @@ export async function fetchDashboardData(): Promise<DashboardData> {
   };
 }
 
+export function fetchHealth() {
+  return requestJson<DashboardData["health"]>("/health");
+}
+
 export function sendChatMessage(message: string, sessionId?: string) {
-  return postJson<{ response?: string; state?: Record<string, unknown> }>("/chat", {
+  return postJson<{ response?: string; state?: Record<string, unknown>; session?: ChatSession }>("/chat", {
     message,
     session_id: sessionId,
   });
@@ -104,7 +112,13 @@ export function fetchVoiceStatus() {
 }
 
 export function speakWithLocalVoice(text: string, purpose = "assistant_response") {
-  return postJson<{ ok: boolean; result: string; pipeline: VoicePipelineStatus }>(
+  return postJson<{
+    ok: boolean;
+    purpose: string;
+    spoken_text?: string;
+    result: string;
+    pipeline: VoicePipelineStatus;
+  }>(
     "/voice/speak",
     { text, purpose },
     30000,
@@ -153,7 +167,11 @@ export function fetchApprovals() {
 }
 
 export function decideApproval(approvalId: string, status: "approved" | "rejected") {
-  return postJson<{ item: Approval }>(`/approvals/${approvalId}`, { status }).then((data) => data.item);
+  return postJson<{ item: Approval; continuation?: ApprovalContinuationResult }>(`/approvals/${approvalId}`, { status });
+}
+
+export function continueApprovedWork(approvalId: string) {
+  return postJson<ApprovalContinuationResult>(`/approvals/${approvalId}/continue`, {}, 120000);
 }
 
 export function createLongTask(task: { title: string; goal: string; priority: string; source_session_id: string }) {
