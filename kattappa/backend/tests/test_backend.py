@@ -1153,6 +1153,22 @@ def test_cluster_runtime_registers_worker_and_keeps_token_private(monkeypatch, t
     )
     assert unauthorized.status_code == 403
 
+    unauthorized_bid = client.post(
+        "/cluster/worker/bid",
+        json={"bid_id": "bid-test", "task_kind": "basic_chat", "message": "status"},
+    )
+    assert unauthorized_bid.status_code == 403
+
+    bid_response = client.post(
+        "/cluster/worker/bid",
+        headers={"X-Kattappa-Cluster-Token": token},
+        json={"bid_id": "bid-test", "task_kind": "basic_chat", "message": "status"},
+    )
+    assert bid_response.status_code == 200
+    bid = bid_response.json()
+    assert bid["can_run"] is True
+    assert bid["cleanup_policy"]["worker_bid_contains_no_private_result"] is True
+
     worker_response = client.post(
         "/cluster/worker/tasks",
         headers={"X-Kattappa-Cluster-Token": token},
@@ -1181,6 +1197,25 @@ def test_cluster_manager_delegates_when_local_node_is_too_small(monkeypatch, tmp
             "cpu_count_logical": 2,
             "ram_total_gb": 4.0,
             "capability_tier": "controller_only",
+        },
+    )
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "_post_worker_bid",
+        lambda node, payload: {
+            "bid_id": payload["bid_id"],
+            "can_run": True,
+            "reason": "capable",
+            "task_kind": payload["task_kind"],
+            "score": 95,
+            "worker_profile": {
+                "hostname": "capable-worker",
+                "platform": "test",
+                "cpu_count_logical": 16,
+                "ram_total_gb": 64.0,
+                "capability_tier": "heavy_worker",
+            },
+            "cleanup_policy": cluster_runtime_module.privacy_contract(),
         },
     )
     monkeypatch.setattr(
@@ -1219,6 +1254,8 @@ def test_cluster_manager_delegates_when_local_node_is_too_small(monkeypatch, tmp
     assert routed["status"] == "delegated"
     assert routed["worker_result"]["result"] == "worker completed the delegated task"
     assert routed["worker_result"]["cleanup_receipt"]["task_context_deleted"] is True
+    assert routed["selected_bid"]["score"] == 95
+    assert routed["bid_round"]["broadcast_scope"] == "paired_and_unpaired_open_kattappa_nodes"
 
     sensitive_response = client.post(
         "/cluster/tasks/route",
@@ -1229,6 +1266,316 @@ def test_cluster_manager_delegates_when_local_node_is_too_small(monkeypatch, tmp
 
     delete_response = client.delete(f"/cluster/nodes/{node['id']}")
     assert delete_response.status_code == 200
+
+
+def test_cluster_manager_selects_highest_capability_bid(monkeypatch, tmp_path) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(cluster_runtime_module, "_nodes_path", lambda: tmp_path / "cluster_nodes.json")
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "local_node_profile",
+        lambda: {
+            "hostname": "tiny-manager",
+            "platform": "test",
+            "cpu_count_logical": 2,
+            "ram_total_gb": 4.0,
+            "capability_tier": "controller_only",
+        },
+    )
+
+    for name, url in (("Low worker", "http://127.0.0.1:8011"), ("High worker", "http://127.0.0.1:8012")):
+        response = client.post(
+            "/cluster/nodes",
+            json={
+                "name": name,
+                "base_url": url,
+                "token": f"{name.lower().replace(' ', '-')}-token-123",
+                "capabilities": {"cpu_count_logical": 16, "ram_total_gb": 64.0},
+            },
+        )
+        assert response.status_code == 200
+
+    def fake_bid(node, payload):
+        score = 98 if node["name"] == "High worker" else 60
+        return {
+            "bid_id": payload["bid_id"],
+            "can_run": True,
+            "reason": "capable",
+            "task_kind": payload["task_kind"],
+            "score": score,
+            "worker_profile": {"hostname": node["name"], "cpu_count_logical": 16, "ram_total_gb": 64.0},
+            "cleanup_policy": cluster_runtime_module.privacy_contract(),
+        }
+
+    monkeypatch.setattr(cluster_runtime_module, "_post_worker_bid", fake_bid)
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "_post_worker_task",
+        lambda node, payload: {
+            "status": "completed",
+            "task_id": payload["task_id"],
+            "result": f"handled by {node['name']}",
+            "cleanup_receipt": {
+                "task_id": payload["task_id"],
+                "task_context_deleted": True,
+                "worker_private_memory_written": False,
+                "worker_chat_history_written": False,
+            },
+        },
+    )
+
+    route_response = client.post(
+        "/cluster/tasks/route",
+        json={"message": "use a large model for this", "task_kind": "large_local_model"},
+    )
+
+    assert route_response.status_code == 200
+    routed = route_response.json()
+    assert routed["status"] == "delegated"
+    assert routed["worker"]["name"] == "High worker"
+    assert routed["selected_bid"]["score"] == 98
+    assert routed["worker_result"]["result"] == "handled by High worker"
+
+
+def test_cluster_pairing_allows_https_public_nodes_but_rejects_public_http(monkeypatch, tmp_path) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(cluster_runtime_module, "_nodes_path", lambda: tmp_path / "cluster_nodes.json")
+
+    https_response = client.post(
+        "/cluster/nodes",
+        json={
+            "name": "Remote HTTPS worker",
+            "base_url": "https://worker.example.com",
+            "token": "remote-https-token-123",
+            "capabilities": {"basic_chat": True},
+        },
+    )
+    assert https_response.status_code == 200
+
+    http_response = client.post(
+        "/cluster/nodes",
+        json={
+            "name": "Unsafe public worker",
+            "base_url": "http://worker.example.com",
+            "token": "remote-http-token-123",
+            "capabilities": {"basic_chat": True},
+        },
+    )
+    assert http_response.status_code == 400
+    assert "HTTPS" in http_response.json()["detail"]
+
+
+def test_unpaired_public_worker_uses_one_time_token_and_cleanup(monkeypatch, tmp_path) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(cluster_runtime_module, "_public_task_tokens_path", lambda: tmp_path / "public_tokens.json")
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "local_node_profile",
+        lambda: {
+            "hostname": "public-worker",
+            "platform": "test",
+            "cpu_count_logical": 16,
+            "ram_total_gb": 64.0,
+            "capability_tier": "heavy_worker",
+        },
+    )
+
+    status_response = client.get("/cluster/public/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["accepts_task_content_in_bid"] is False
+
+    bid_response = client.post(
+        "/cluster/public/bid",
+        json={
+            "bid_id": "public-bid-1",
+            "task_kind": "large_local_model",
+            "capability_hint": {"message_included": False},
+        },
+    )
+    assert bid_response.status_code == 200
+    bid = bid_response.json()
+    assert bid["can_run"] is True
+    assert bid["assignment_token"]
+
+    rejected = client.post(
+        "/cluster/public/tasks",
+        json={"task_id": "public-task-1", "task_kind": "large_local_model", "message": "status"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected_invalid_public_task_token"
+
+    accepted = client.post(
+        "/cluster/public/tasks",
+        headers={"X-Kattappa-Public-Task-Token": bid["assignment_token"]},
+        json={"task_id": "public-task-1", "task_kind": "large_local_model", "message": "status"},
+    )
+    assert accepted.status_code == 200
+    result = accepted.json()
+    assert result["status"] == "completed"
+    assert result["cleanup_receipt"]["task_context_deleted"] is True
+    assert result["cleanup_receipt"]["worker_private_memory_written"] is False
+
+    reused = client.post(
+        "/cluster/public/tasks",
+        headers={"X-Kattappa-Public-Task-Token": bid["assignment_token"]},
+        json={"task_id": "public-task-2", "task_kind": "large_local_model", "message": "status"},
+    )
+    assert reused.status_code == 200
+    assert reused.json()["status"] == "rejected_invalid_public_task_token"
+
+
+def test_cluster_manager_can_delegate_to_unpaired_discovery_worker_without_broadcasting_message(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(cluster_runtime_module, "_nodes_path", lambda: tmp_path / "cluster_nodes.json")
+    monkeypatch.setattr(cluster_runtime_module, "_discovery_targets_path", lambda: tmp_path / "discovery_targets.json")
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "local_node_profile",
+        lambda: {
+            "hostname": "tiny-manager",
+            "platform": "test",
+            "cpu_count_logical": 2,
+            "ram_total_gb": 4.0,
+            "capability_tier": "controller_only",
+        },
+    )
+
+    target_response = client.post(
+        "/cluster/discovery-targets",
+        json={"name": "Unpaired worker", "base_url": "http://127.0.0.1:8031"},
+    )
+    assert target_response.status_code == 200
+    target = target_response.json()["item"]
+    assert target["token_required"] is False
+
+    def fake_public_bid(target_node, payload):
+        assert "message" not in payload
+        assert payload["capability_hint"]["message_included"] is False
+        return {
+            "bid_id": payload["bid_id"],
+            "can_run": True,
+            "reason": "capable_without_pairing",
+            "task_kind": payload["task_kind"],
+            "score": 97,
+            "selected_agent": "worker_after_assignment",
+            "worker_profile": {"hostname": "unpaired-heavy", "cpu_count_logical": 16, "ram_total_gb": 64.0},
+            "assignment_url": "http://127.0.0.1:8031/cluster/public/tasks",
+            "assignment_token": "one-time-public-token",
+            "cleanup_policy": cluster_runtime_module.privacy_contract(),
+        }
+
+    monkeypatch.setattr(cluster_runtime_module, "_post_public_worker_bid", fake_public_bid)
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "_post_public_worker_task",
+        lambda selected_bid, payload: {
+            "status": "completed",
+            "task_id": payload["task_id"],
+            "result": "unpaired worker completed the delegated task",
+            "cleanup_receipt": {
+                "task_id": payload["task_id"],
+                "task_context_deleted": True,
+                "worker_private_memory_written": False,
+                "worker_chat_history_written": False,
+            },
+        },
+    )
+
+    bids_response = client.post(
+        "/cluster/tasks/bids",
+        json={"message": "private task text", "task_kind": "large_local_model"},
+    )
+    assert bids_response.status_code == 200
+    visible_bid = bids_response.json()["bids"][0]
+    assert visible_bid["worker_kind"] == "unpaired_public_worker"
+    assert "assignment_token" not in visible_bid
+
+    route_response = client.post(
+        "/cluster/tasks/route",
+        json={"message": "use a large model for this", "task_kind": "large_local_model"},
+    )
+    assert route_response.status_code == 200
+    routed = route_response.json()
+    assert routed["status"] == "delegated"
+    assert routed["run_location"] == "unpaired_public_worker"
+    assert routed["worker_result"]["result"] == "unpaired worker completed the delegated task"
+    assert routed["worker_result"]["cleanup_receipt"]["task_context_deleted"] is True
+    assert "assignment_token" not in routed["selected_bid"]
+    assert "assignment_token" not in routed["bid_round"]["bids"][0]
+
+    delete_response = client.delete(f"/cluster/discovery-targets/{target['id']}")
+    assert delete_response.status_code == 200
+
+
+def test_chat_auto_delegates_heavy_work_when_local_system_cannot_run_it(monkeypatch, tmp_path) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(cluster_runtime_module, "_nodes_path", lambda: tmp_path / "cluster_nodes.json")
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "local_node_profile",
+        lambda: {
+            "hostname": "tiny-manager",
+            "platform": "test",
+            "cpu_count_logical": 2,
+            "ram_total_gb": 4.0,
+            "capability_tier": "controller_only",
+        },
+    )
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "_post_worker_bid",
+        lambda node, payload: {
+            "bid_id": payload["bid_id"],
+            "can_run": True,
+            "reason": "capable",
+            "task_kind": payload["task_kind"],
+            "score": 99,
+            "worker_profile": {"hostname": "remote-heavy", "cpu_count_logical": 16, "ram_total_gb": 64.0},
+            "cleanup_policy": cluster_runtime_module.privacy_contract(),
+        },
+    )
+    monkeypatch.setattr(
+        cluster_runtime_module,
+        "_post_worker_task",
+        lambda node, payload: {
+            "status": "completed",
+            "task_id": payload["task_id"],
+            "result": "remote heavy worker answer",
+            "state_summary": {"selected_agent": "evaluator", "risk_level": "low", "logs": []},
+            "cleanup_receipt": {
+                "task_id": payload["task_id"],
+                "task_context_deleted": True,
+                "worker_private_memory_written": False,
+                "worker_chat_history_written": False,
+            },
+        },
+    )
+    register_response = client.post(
+        "/cluster/nodes",
+        json={
+            "name": "Heavy opened worker",
+            "base_url": "http://127.0.0.1:8021",
+            "token": "heavy-worker-token-123",
+            "capabilities": {"cpu_count_logical": 16, "ram_total_gb": 64.0},
+        },
+    )
+    assert register_response.status_code == 200
+
+    chat_response = client.post(
+        "/chat",
+        json={"message": "use a large model to summarize this project"},
+    )
+
+    assert chat_response.status_code == 200
+    data = chat_response.json()
+    assert data["response"] == "remote heavy worker answer"
+    assert data["state"]["selected_agent"] == "cluster_worker"
+    route = data["state"]["tool_request"]["cluster_route"]
+    assert route["status"] == "delegated"
+    assert route["worker_result"]["cleanup_receipt"]["task_context_deleted"] is True
 
 
 def test_builder_agent_route() -> None:

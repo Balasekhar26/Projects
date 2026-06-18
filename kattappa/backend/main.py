@@ -12,12 +12,21 @@ from backend.core.capability_ladder import build_capability_ladder
 from backend.core.builder_brain import builder_profile, local_builder_analytics, workspace_map
 from backend.core.cluster_plan import cluster_plan
 from backend.core.cluster_runtime import (
+    auto_delegate_if_local_unable,
     cluster_runtime_status,
+    collect_worker_bids,
+    execute_public_worker_task,
     execute_worker_task,
+    list_discovery_targets,
     list_paired_nodes,
+    public_worker_capability_bid,
+    public_worker_status,
+    register_discovery_target,
     register_paired_node,
+    remove_discovery_target,
     remove_paired_node,
     route_cluster_task,
+    worker_capability_bid,
     worker_token_is_valid,
 )
 from backend.core.config import load_config
@@ -213,11 +222,29 @@ class ClusterNodeRequest(BaseModel):
     capabilities: dict[str, object] = {}
 
 
+class ClusterDiscoveryTargetRequest(BaseModel):
+    name: str
+    base_url: str
+
+
 class ClusterTaskRouteRequest(BaseModel):
     message: str
     task_kind: str = "basic_chat"
     sensitivity: str = "normal"
     force_remote: bool = False
+
+
+class ClusterBidRequest(BaseModel):
+    message: str
+    task_kind: str = "basic_chat"
+
+
+class ClusterWorkerBidRequest(BaseModel):
+    bid_id: str
+    task_kind: str
+    message: str
+    origin_node: dict[str, object] = {}
+    privacy: dict[str, object] = {}
 
 
 class ClusterWorkerTaskRequest(BaseModel):
@@ -253,6 +280,13 @@ class HubResultSubmit(BaseModel):
     result: str
     error: str | None = None
 
+
+class ClusterPublicBidRequest(BaseModel):
+    bid_id: str
+    task_kind: str
+    capability_hint: dict[str, object] = {}
+    origin_node: dict[str, object] = {}
+    privacy: dict[str, object] = {}
 
 
 class ToolScoutRequest(BaseModel):
@@ -614,6 +648,29 @@ def kattappa_remove_cluster_node(node_id: str) -> dict[str, object]:
     return {"removed": True, "node_id": node_id}
 
 
+@app.get("/cluster/discovery-targets")
+def kattappa_cluster_discovery_targets() -> dict[str, object]:
+    return {"items": list_discovery_targets()}
+
+
+@app.post("/cluster/discovery-targets")
+def kattappa_register_cluster_discovery_target(
+    request: ClusterDiscoveryTargetRequest,
+) -> dict[str, object]:
+    try:
+        item = register_discovery_target(request.name, request.base_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item}
+
+
+@app.delete("/cluster/discovery-targets/{target_id}")
+def kattappa_remove_cluster_discovery_target(target_id: str) -> dict[str, object]:
+    if not remove_discovery_target(target_id):
+        raise HTTPException(status_code=404, detail="Discovery target not found")
+    return {"removed": True, "target_id": target_id}
+
+
 @app.post("/cluster/tasks/route")
 def kattappa_route_cluster_task(request: ClusterTaskRouteRequest) -> dict[str, object]:
     try:
@@ -627,6 +684,61 @@ def kattappa_route_cluster_task(request: ClusterTaskRouteRequest) -> dict[str, o
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/cluster/tasks/bids")
+def kattappa_cluster_task_bids(request: ClusterBidRequest) -> dict[str, object]:
+    try:
+        return collect_worker_bids(request.message, request.task_kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/cluster/worker/bid")
+def kattappa_worker_bid(
+    request: ClusterWorkerBidRequest,
+    x_kattappa_cluster_token: str | None = Header(default=None),
+) -> dict[str, object]:
+    if not worker_token_is_valid(x_kattappa_cluster_token):
+        raise HTTPException(status_code=403, detail="Invalid Kattappa cluster token")
+    return worker_capability_bid(
+        request.bid_id,
+        request.task_kind,
+        request.message,
+        origin_node=dict(request.origin_node),
+    )
+
+
+@app.get("/cluster/public/status")
+def kattappa_public_worker_status() -> dict[str, object]:
+    return public_worker_status()
+
+
+@app.post("/cluster/public/bid")
+def kattappa_public_worker_bid(request: ClusterPublicBidRequest) -> dict[str, object]:
+    return public_worker_capability_bid(
+        request.bid_id,
+        request.task_kind,
+        capability_hint=dict(request.capability_hint),
+        origin_node=dict(request.origin_node),
+    )
+
+
+@app.post("/cluster/public/tasks")
+def kattappa_public_worker_task(
+    request: ClusterWorkerTaskRequest,
+    x_kattappa_public_task_token: str | None = Header(default=None),
+) -> dict[str, object]:
+    try:
+        return execute_public_worker_task(
+            request.task_id,
+            request.task_kind,
+            request.message,
+            x_kattappa_public_task_token,
+            origin_node=dict(request.origin_node),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/cluster/worker/tasks")
@@ -869,8 +981,57 @@ def check_shared_project_improvements() -> dict[str, object]:
     return check_git_shared_improvements()
 
 
+def _cluster_delegated_chat_payload(message: str) -> dict[str, object] | None:
+    try:
+        delegated = auto_delegate_if_local_unable(message)
+    except httpx.HTTPError:
+        return None
+    if delegated and delegated.get("status") == "delegated":
+        session = memory.get_or_create_primary_chat_session()
+        clean_message = _strip_operator_prefix(message)
+        user_message = memory.add_chat_message(session["id"], "user", clean_message)
+        worker_result = delegated.get("worker_result", {})
+        response = str(
+            worker_result.get("result")
+            or worker_result.get("message")
+            or delegated.get("message")
+            or ""
+        )
+        state = {
+            "user_input": message,
+            "memory_query": clean_message,
+            "chat_session_id": session["id"],
+            "current_chat_message_id": user_message["id"],
+            "selected_agent": "cluster_worker",
+            "risk_level": str(
+                worker_result.get("state_summary", {}).get("risk_level") or "remote"
+            ),
+            "approval_required": False,
+            "approval_id": None,
+            "result": response,
+            "logs": ["cluster: local node unable; delegated by capability bids"],
+            "tool_request": {"cluster_route": delegated},
+            "operator_plan": None,
+            "related_messages": [],
+        }
+        memory.add_chat_message(
+            session["id"],
+            "assistant",
+            response,
+            agent="cluster_worker",
+            risk=str(state["risk_level"]),
+            metadata=_chat_state_metadata(state),
+        )
+        return {"response": response, "state": state, "session": session}
+    return None
+
+
 @app.post("/chat")
 def chat(request: ChatRequest) -> dict[str, object]:
+    delegated_payload = _cluster_delegated_chat_payload(request.message)
+    if delegated_payload:
+        return delegated_payload
+
     session = memory.get_or_create_primary_chat_session()
     clean_message = _strip_operator_prefix(request.message)
     user_message = memory.add_chat_message(session["id"], "user", clean_message)
@@ -897,6 +1058,35 @@ async def chat_socket(websocket: WebSocket) -> None:
     await websocket.send_json({"type": "system", "content": "Kattappa AI OS connected."})
     while True:
         user_message = await websocket.receive_text()
+        await websocket.send_json(
+            {"type": "progress", "content": "Checking local capacity..."}
+        )
+        delegated_payload = _cluster_delegated_chat_payload(user_message)
+        if delegated_payload:
+            state = delegated_payload["state"]
+            session = delegated_payload["session"]
+            for line in state.get("logs", []):
+                await websocket.send_json({"type": "progress", "content": line})
+            await websocket.send_json(
+                {
+                    "type": "assistant",
+                    "content": delegated_payload.get("response") or "",
+                    "approval_required": state.get("approval_required", False),
+                    "approval_id": state.get("approval_id"),
+                    "risk_level": state.get("risk_level", "unknown"),
+                    "selected_agent": state.get("selected_agent"),
+                    "routing": (
+                        state.get("tool_request", {}).get("agent_routing")
+                        if state.get("tool_request")
+                        else None
+                    ),
+                    "operator_plan": state.get("operator_plan"),
+                    "related_messages": state.get("related_messages", []),
+                    "session_id": session.get("id"),
+                }
+            )
+            continue
+
         session = memory.get_or_create_primary_chat_session()
         clean_message = _strip_operator_prefix(user_message)
         stored_user_message = memory.add_chat_message(session["id"], "user", clean_message)

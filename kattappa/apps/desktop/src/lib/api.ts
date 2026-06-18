@@ -2,6 +2,10 @@ import type {
   Approval,
   ApprovalContinuationResult,
   ChatSession,
+  ClusterDiscoveryTarget,
+  ClusterNode,
+  ClusterRouteResult,
+  ClusterStatus,
   DashboardData,
   FinanceComparisonResult,
   FinanceCsvForecastRequest,
@@ -98,6 +102,43 @@ export async function fetchDashboardData(): Promise<DashboardData> {
 
 export function fetchHealth() {
   return requestJson<DashboardData["health"]>("/health");
+}
+
+export function fetchClusterStatus() {
+  return requestJson<ClusterStatus>("/cluster/status");
+}
+
+export function addClusterNode(node: {
+  name: string;
+  base_url: string;
+  token: string;
+  capabilities: Record<string, unknown>;
+}) {
+  return postJson<{ item: ClusterNode }>("/cluster/nodes", node).then((data) => data.item);
+}
+
+export function removeClusterNode(nodeId: string) {
+  return requestJson<{ removed: boolean; node_id: string }>(`/cluster/nodes/${nodeId}`, { method: "DELETE" });
+}
+
+export function addClusterDiscoveryTarget(target: { name: string; base_url: string }) {
+  return postJson<{ item: ClusterDiscoveryTarget }>("/cluster/discovery-targets", target).then((data) => data.item);
+}
+
+export function removeClusterDiscoveryTarget(targetId: string) {
+  return requestJson<{ removed: boolean; target_id: string }>(
+    `/cluster/discovery-targets/${targetId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function routeClusterTask(body: {
+  message: string;
+  task_kind: string;
+  sensitivity: string;
+  force_remote: boolean;
+}) {
+  return postJson<ClusterRouteResult>("/cluster/tasks/route", body, 180000);
 }
 
 export function sendChatMessage(message: string, sessionId?: string) {

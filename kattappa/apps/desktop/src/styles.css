@@ -699,6 +699,16 @@ button.active {
   height: 16px;
 }
 
+.formError {
+  max-width: 820px;
+  margin: 0;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  background: #261313;
+  padding: 10px 12px;
+  color: #fecaca;
+}
+
 .segmentedControl {
   display: inline-grid;
   grid-template-columns: repeat(2, minmax(112px, 1fr));

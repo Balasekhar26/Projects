@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import secrets
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -17,6 +18,31 @@ from backend.core.safety import classify_risk
 
 
 ALLOWED_WORKER_AGENTS = {"evaluator", "coder", "builder", "finance"}
+PUBLIC_WORKER_TASKS = {
+    "basic_chat",
+    "repo_indexing",
+    "voice_transcription",
+    "small_local_model",
+    "large_local_model",
+    "simulation",
+}
+DELEGABLE_AGENT_TASKS = {
+    "coder": "repo_indexing",
+    "builder": "repo_indexing",
+    "researcher": "basic_chat",
+    "finance": "simulation",
+    "voice": "voice_transcription",
+    "evaluator": "basic_chat",
+    "memory": "project_memory",
+    "self_improver": "project_memory",
+}
+NON_DELEGABLE_AGENT_TASKS = {
+    "desktop": "screen_ocr",
+    "vision": "screen_ocr",
+    "browser": "desktop_ui",
+    "terminal": "desktop_ui",
+    "file": "desktop_ui",
+}
 
 
 def cluster_runtime_status() -> dict[str, Any]:
@@ -27,6 +53,14 @@ def cluster_runtime_status() -> dict[str, Any]:
         "local_node": profile,
         "local_runnable_tasks": runnable_task_kinds(profile),
         "paired_nodes": safe_paired_nodes(),
+        "discovery_targets": list_discovery_targets(),
+        "public_worker": public_worker_status(),
+        "broker": {
+            "mode": "capability_bid_then_best_worker",
+            "broadcast_scope": "paired_and_unpaired_open_kattappa_nodes",
+            "transport": "trusted_http_or_https_nodes_with_one_time_public_task_tokens",
+            "internet_ready": True,
+        },
         "privacy_contract": privacy_contract(),
     }
 
@@ -79,11 +113,46 @@ def remove_paired_node(node_id: str) -> bool:
     return True
 
 
+def register_discovery_target(name: str, base_url: str) -> dict[str, Any]:
+    if not name.strip():
+        raise ValueError("name is required")
+    clean_url = _validate_discovery_url(base_url)
+    now = _now()
+    target = {
+        "id": str(uuid4()),
+        "name": name.strip()[:80],
+        "base_url": clean_url,
+        "trusted": False,
+        "token_required": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    targets = _load_discovery_targets()
+    targets = [item for item in targets if item.get("base_url") != clean_url]
+    targets.append(target)
+    _save_discovery_targets(targets)
+    return _safe_discovery_target(target)
+
+
+def list_discovery_targets() -> list[dict[str, Any]]:
+    return [_safe_discovery_target(target) for target in _load_discovery_targets()]
+
+
+def remove_discovery_target(target_id: str) -> bool:
+    targets = _load_discovery_targets()
+    kept = [target for target in targets if target.get("id") != target_id]
+    if len(kept) == len(targets):
+        return False
+    _save_discovery_targets(kept)
+    return True
+
+
 def route_cluster_task(
     message: str,
     task_kind: str = "basic_chat",
     sensitivity: str = "normal",
     force_remote: bool = False,
+    record_result: bool = True,
 ) -> dict[str, Any]:
     if task_kind not in TASK_REQUIREMENTS:
         raise ValueError(f"Unknown cluster task kind: {task_kind}")
@@ -94,6 +163,14 @@ def route_cluster_task(
             "status": "not_delegated_sensitive",
             "run_location": "local_only",
             "message": "Sensitive tasks stay on the origin system.",
+            "privacy_contract": privacy_contract(),
+        }
+    if not TASK_REQUIREMENTS[task_kind].get("delegable", False):
+        return {
+            "status": "not_delegated_non_delegable",
+            "run_location": "local_only",
+            "task_kind": task_kind,
+            "message": "This task requires the origin system, screen, files, terminal, browser, or desktop context.",
             "privacy_contract": privacy_contract(),
         }
 
@@ -107,8 +184,9 @@ def route_cluster_task(
             "message": "Local system can run this task; no worker handoff needed.",
         }
 
-    node = _select_worker(task_kind)
-    if node is None:
+    bid_round = collect_worker_bids(message, task_kind, include_assignment_secrets=True)
+    selected_bid = select_best_bid(bid_round["bids"])
+    if selected_bid is None:
         hub_url = os.getenv("KATTAPPA_INTERNET_HUB_URL") or "http://127.0.0.1:8000"
         if hub_url:
             return route_internet_hub_task(message, task_kind, hub_url)
@@ -118,9 +196,10 @@ def route_cluster_task(
             "task_kind": task_kind,
             "local_node": local_profile,
             "paired_nodes": safe_paired_nodes(),
-            "message": "No trusted paired node is registered with enough capability for this task.",
+            "discovery_targets": list_discovery_targets(),
+            "bid_round": _safe_bid_round(bid_round),
+            "message": "No opened Kattappa worker replied with enough capability for this task.",
         }
-
     task_id = str(uuid4())
     payload = {
         "task_id": task_id,
@@ -132,15 +211,279 @@ def route_cluster_task(
         },
         "privacy": privacy_contract(),
     }
-    worker_result = _post_worker_task(node, payload)
-    _record_manager_result(message, worker_result)
+    worker_kind = str(selected_bid.get("worker_kind") or "paired_worker")
+    if worker_kind == "unpaired_public_worker":
+        worker_result = _post_public_worker_task(selected_bid, payload)
+        worker = _safe_public_worker_from_bid(selected_bid)
+        run_location = "unpaired_public_worker"
+    else:
+        node = _node_by_id(str(selected_bid["node_id"]))
+        if node is None:
+            return {
+                "status": "selected_node_missing",
+                "run_location": "not_started",
+                "task_kind": task_kind,
+                "bid_round": _safe_bid_round(bid_round),
+                "message": "The selected worker disappeared before assignment.",
+            }
+        worker_result = _post_worker_task(node, payload)
+        worker = _safe_node(node)
+        run_location = "paired_worker"
+    if record_result:
+        _record_manager_result(message, worker_result)
     return {
         "status": "delegated",
-        "run_location": "paired_worker",
+        "run_location": run_location,
         "task_id": task_id,
-        "worker": _safe_node(node),
+        "worker": worker,
+        "selected_bid": _safe_bid(selected_bid),
+        "bid_round": _safe_bid_round(bid_round),
         "worker_result": worker_result,
         "privacy_contract": privacy_contract(),
+    }
+
+
+def auto_delegate_if_local_unable(message: str) -> dict[str, Any] | None:
+    task_kind = infer_cluster_task_kind(message)
+    if task_kind is None:
+        return None
+    if not TASK_REQUIREMENTS[task_kind].get("delegable", False):
+        return None
+    if can_run_task(task_kind, local_node_profile()):
+        return None
+    return route_cluster_task(
+        message,
+        task_kind=task_kind,
+        sensitivity="normal",
+        record_result=False,
+    )
+
+
+def infer_cluster_task_kind(message: str) -> str | None:
+    lower = message.lower()
+    if any(term in lower for term in ("large model", "70b", "30b", "heavy model", "high spec model")):
+        return "large_local_model"
+    if any(term in lower for term in ("transcribe", "voice", "audio", "microphone", "speech to text")):
+        return "voice_transcription"
+    if any(term in lower for term in ("simulation", "simulate", "forecast", "kronos")):
+        return "simulation"
+    routing = route_task(message)
+    agent = str(routing.get("agent") or "evaluator")
+    if agent in NON_DELEGABLE_AGENT_TASKS:
+        return None
+    return DELEGABLE_AGENT_TASKS.get(agent, "basic_chat")
+
+
+def collect_worker_bids(
+    message: str,
+    task_kind: str,
+    include_assignment_secrets: bool = False,
+) -> dict[str, Any]:
+    if task_kind not in TASK_REQUIREMENTS:
+        raise ValueError(f"Unknown cluster task kind: {task_kind}")
+    bid_id = str(uuid4())
+    bids: list[dict[str, Any]] = []
+    unavailable: list[dict[str, Any]] = []
+    for node in _load_nodes():
+        if not node.get("trusted", False):
+            continue
+        try:
+            bid = _post_worker_bid(
+                node,
+                {
+                    "bid_id": bid_id,
+                    "task_kind": task_kind,
+                    "message": message,
+                    "origin_node": {
+                        "hostname": socket.gethostname(),
+                        "role": "manager",
+                    },
+                    "privacy": privacy_contract(),
+                },
+            )
+            bid["node_id"] = node["id"]
+            bid["node_name"] = node["name"]
+            bid["node_url"] = node["base_url"]
+            bid["worker_kind"] = "paired_worker"
+            if bid.get("can_run"):
+                bids.append(bid)
+            else:
+                unavailable.append(_safe_bid_failure(node, bid.get("reason", "worker_declined")))
+        except Exception as exc:
+            unavailable.append(_safe_bid_failure(node, str(exc)))
+    for target in _load_discovery_targets():
+        try:
+            bid = _post_public_worker_bid(
+                target,
+                {
+                    "bid_id": bid_id,
+                    "task_kind": task_kind,
+                    "capability_hint": _task_capability_hint(task_kind),
+                    "origin_node": {
+                        "hostname": socket.gethostname(),
+                        "role": "manager",
+                    },
+                    "privacy": privacy_contract(),
+                },
+            )
+            bid["node_id"] = f"public:{target['id']}"
+            bid["node_name"] = target["name"]
+            bid["node_url"] = target["base_url"]
+            bid["worker_kind"] = "unpaired_public_worker"
+            if bid.get("can_run"):
+                bids.append(bid)
+            else:
+                unavailable.append(_safe_discovery_failure(target, bid.get("reason", "worker_declined")))
+        except Exception as exc:
+            unavailable.append(_safe_discovery_failure(target, str(exc)))
+    bids.sort(key=lambda item: int(item.get("score") or 0), reverse=True)
+    result = {
+        "bid_id": bid_id,
+        "task_kind": task_kind,
+        "broadcast_scope": "paired_and_unpaired_open_kattappa_nodes",
+        "bids": bids,
+        "unavailable": unavailable,
+        "privacy_contract": privacy_contract(),
+    }
+    return result if include_assignment_secrets else _safe_bid_round(result)
+
+
+def select_best_bid(bids: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return bids[0] if bids else None
+
+
+def worker_capability_bid(
+    bid_id: str,
+    task_kind: str,
+    message: str,
+    origin_node: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if task_kind not in TASK_REQUIREMENTS:
+        return {
+            "bid_id": bid_id,
+            "can_run": False,
+            "reason": f"unknown_task_kind:{task_kind}",
+            "score": 0,
+            "worker_profile": local_node_profile(),
+            "cleanup_policy": privacy_contract(),
+        }
+    profile = local_node_profile()
+    if not can_run_task(task_kind, profile):
+        return {
+            "bid_id": bid_id,
+            "can_run": False,
+            "reason": "worker_over_limit",
+            "score": 0,
+            "worker_profile": profile,
+            "cleanup_policy": privacy_contract(),
+        }
+    risk = classify_risk(message)
+    if risk.blocked or risk.approval_required:
+        return {
+            "bid_id": bid_id,
+            "can_run": False,
+            "reason": "worker_requires_origin_approval",
+            "risk": risk.level,
+            "score": 0,
+            "worker_profile": profile,
+            "cleanup_policy": privacy_contract(),
+        }
+    selected_agent = str(route_task(message).get("agent") or "evaluator")
+    if selected_agent not in ALLOWED_WORKER_AGENTS:
+        return {
+            "bid_id": bid_id,
+            "can_run": False,
+            "reason": "agent_not_worker_safe",
+            "selected_agent": selected_agent,
+            "score": 0,
+            "worker_profile": profile,
+            "cleanup_policy": privacy_contract(),
+        }
+    return {
+        "bid_id": bid_id,
+        "can_run": True,
+        "reason": "capable",
+        "selected_agent": selected_agent,
+        "task_kind": task_kind,
+        "score": _capability_score(task_kind, profile),
+        "worker_profile": profile,
+        "origin_node_seen": origin_node or {},
+        "cleanup_policy": privacy_contract(),
+    }
+
+
+def public_worker_status() -> dict[str, Any]:
+    profile = local_node_profile()
+    return {
+        "enabled": True,
+        "mode": "unpaired_public_bid_with_one_time_task_token",
+        "accepts_task_content_in_bid": False,
+        "runnable_public_tasks": [
+            task for task in PUBLIC_WORKER_TASKS if can_run_task(task, profile)
+        ],
+        "profile": profile,
+        "cleanup_policy": privacy_contract(),
+    }
+
+
+def public_worker_capability_bid(
+    bid_id: str,
+    task_kind: str,
+    capability_hint: dict[str, Any] | None = None,
+    origin_node: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    profile = local_node_profile()
+    if task_kind not in TASK_REQUIREMENTS:
+        return {
+            "bid_id": bid_id,
+            "can_run": False,
+            "reason": f"unknown_task_kind:{task_kind}",
+            "score": 0,
+            "worker_profile": profile,
+            "cleanup_policy": privacy_contract(),
+        }
+    if task_kind not in PUBLIC_WORKER_TASKS:
+        return {
+            "bid_id": bid_id,
+            "can_run": False,
+            "reason": "task_kind_not_allowed_for_unpaired_worker",
+            "score": 0,
+            "worker_profile": profile,
+            "cleanup_policy": privacy_contract(),
+        }
+    if not TASK_REQUIREMENTS[task_kind].get("delegable", False):
+        return {
+            "bid_id": bid_id,
+            "can_run": False,
+            "reason": "task_kind_requires_origin_system",
+            "score": 0,
+            "worker_profile": profile,
+            "cleanup_policy": privacy_contract(),
+        }
+    if not can_run_task(task_kind, profile):
+        return {
+            "bid_id": bid_id,
+            "can_run": False,
+            "reason": "worker_over_limit",
+            "score": 0,
+            "worker_profile": profile,
+            "cleanup_policy": privacy_contract(),
+        }
+    assignment_token = _mint_public_task_token(bid_id, task_kind)
+    return {
+        "bid_id": bid_id,
+        "can_run": True,
+        "reason": "capable_without_pairing",
+        "selected_agent": "worker_after_assignment",
+        "task_kind": task_kind,
+        "score": _capability_score(task_kind, profile),
+        "worker_kind": "unpaired_public_worker",
+        "worker_profile": profile,
+        "capability_hint_seen": capability_hint or {},
+        "origin_node_seen": origin_node or {},
+        "assignment_url": "/cluster/public/tasks",
+        "assignment_token": assignment_token,
+        "cleanup_policy": privacy_contract(),
     }
 
 
@@ -203,6 +546,28 @@ def execute_worker_task(
         origin_node = {}
 
 
+def execute_public_worker_task(
+    task_id: str,
+    task_kind: str,
+    message: str,
+    assignment_token: str | None,
+    origin_node: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not _consume_public_task_token(assignment_token, task_kind):
+        return {
+            "status": "rejected_invalid_public_task_token",
+            "task_id": task_id,
+            "task_kind": task_kind,
+            "cleanup_receipt": _cleanup_receipt(task_id, deleted=True),
+        }
+    return execute_worker_task(
+        task_id,
+        task_kind,
+        message,
+        origin_node=origin_node,
+    )
+
+
 def worker_token_is_valid(token: str | None) -> bool:
     if not token:
         return False
@@ -232,6 +597,10 @@ def privacy_contract() -> dict[str, Any]:
         "worker_deletes_task_context_after_completion": True,
         "worker_deletes_task_context_on_failure_or_cancel": True,
         "worker_cleanup_receipt_required": True,
+        "worker_bid_contains_no_private_result": True,
+        "unpaired_worker_bid_receives_task_message": False,
+        "unpaired_worker_task_requires_one_time_token": True,
+        "worker_task_payload_is_memory_only": True,
     }
 
 
@@ -241,6 +610,13 @@ def _select_worker(task_kind: str) -> dict[str, Any] | None:
             continue
         runnable = set(node.get("runnable_tasks") or _runnable_tasks_from_capabilities(node.get("capabilities") or {}))
         if task_kind in runnable:
+            return node
+    return None
+
+
+def _node_by_id(node_id: str) -> dict[str, Any] | None:
+    for node in _load_nodes():
+        if str(node.get("id")) == node_id:
             return node
     return None
 
@@ -273,6 +649,51 @@ def _post_worker_task(node: dict[str, Any], payload: dict[str, Any]) -> dict[str
     return result
 
 
+def _post_worker_bid(node: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    response = httpx.post(
+        f"{str(node['base_url']).rstrip('/')}/cluster/worker/bid",
+        json=payload,
+        headers={"X-Kattappa-Cluster-Token": str(node["token"])},
+        timeout=12,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _post_public_worker_bid(target: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(payload)
+    payload.pop("message", None)
+    response = httpx.post(
+        f"{str(target['base_url']).rstrip('/')}/cluster/public/bid",
+        json=payload,
+        timeout=12,
+    )
+    response.raise_for_status()
+    result = response.json()
+    assignment_url = str(result.get("assignment_url") or "/cluster/public/tasks")
+    if assignment_url.startswith("/"):
+        result["assignment_url"] = f"{str(target['base_url']).rstrip()}{assignment_url}"
+    return result
+
+
+def _post_public_worker_task(selected_bid: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    assignment_url = str(selected_bid.get("assignment_url") or "")
+    assignment_token = str(selected_bid.get("assignment_token") or "")
+    if not assignment_url or not assignment_token:
+        raise ValueError("Selected unpaired worker did not return an assignment token")
+    response = httpx.post(
+        assignment_url,
+        json=payload,
+        headers={"X-Kattappa-Public-Task-Token": assignment_token},
+        timeout=180,
+    )
+    response.raise_for_status()
+    result = response.json()
+    if not result.get("cleanup_receipt", {}).get("task_context_deleted"):
+        result["privacy_warning"] = "Worker did not return a positive cleanup receipt."
+    return result
+
+
 def _record_manager_result(message: str, worker_result: dict[str, Any]) -> None:
     session = memory.get_or_create_primary_chat_session()
     memory.add_chat_message(session["id"], "user", message)
@@ -293,6 +714,7 @@ def _cleanup_receipt(task_id: str, deleted: bool) -> dict[str, Any]:
         "worker_chat_history_written": False,
         "deleted_at": _now(),
         "method": "ephemeral_in_memory_payload_cleared",
+        "deleted_payload_fields": ["message", "origin_node", "memory_context", "related_messages"],
     }
 
 
@@ -310,9 +732,78 @@ def _validate_local_url(base_url: str) -> str:
             is_172_local = False
     is_localhost = host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".local")
     is_private_lan = host.startswith("10.") or host.startswith("192.168.") or host.startswith("127.") or is_172_local
-    if not (is_localhost or is_private_lan):
-        raise ValueError("Only trusted local-network node URLs are allowed")
+    if not (is_localhost or is_private_lan or parsed.scheme == "https"):
+        raise ValueError("Public internet nodes must use HTTPS and an explicit pairing token")
     return base_url.strip().rstrip("/")
+
+
+def _validate_discovery_url(base_url: str) -> str:
+    parsed = urlparse(base_url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("base_url must be an http(s) URL")
+    host = parsed.hostname or ""
+    parts = host.split(".")
+    is_172_local = False
+    if len(parts) >= 2 and parts[0] == "172":
+        try:
+            is_172_local = 16 <= int(parts[1]) <= 31
+        except ValueError:
+            is_172_local = False
+    is_localhost = host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".local")
+    is_private_lan = host.startswith("10.") or host.startswith("192.168.") or host.startswith("127.") or is_172_local
+    if not (is_localhost or is_private_lan or parsed.scheme == "https"):
+        raise ValueError("Public unpaired discovery targets must use HTTPS")
+    return base_url.strip().rstrip("/")
+
+
+def _capability_score(task_kind: str, profile: dict[str, Any]) -> int:
+    requirement = TASK_REQUIREMENTS[task_kind]
+    cpu = int(profile.get("cpu_count_logical") or 0)
+    ram = float(profile.get("ram_total_gb") or 0)
+    cpu_score = min(45, round((cpu / max(int(requirement["min_cpu_logical"]), 1)) * 20))
+    ram_score = min(45, round((ram / max(float(requirement["min_ram_gb"]), 1.0)) * 20))
+    tier_bonus = 10 if str(profile.get("capability_tier", "")).lower() not in {"controller_only", "minimum"} else 0
+    return min(100, cpu_score + ram_score + tier_bonus)
+
+
+def _safe_bid_failure(node: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        "node": _safe_node(node),
+        "can_run": False,
+        "reason": reason,
+    }
+
+
+def _safe_discovery_failure(target: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        "node": _safe_discovery_target(target),
+        "can_run": False,
+        "reason": reason,
+    }
+
+
+def _safe_bid(bid: dict[str, Any]) -> dict[str, Any]:
+    safe = dict(bid)
+    safe.pop("assignment_token", None)
+    return safe
+
+
+def _safe_bid_round(bid_round: dict[str, Any]) -> dict[str, Any]:
+    safe = dict(bid_round)
+    safe["bids"] = [_safe_bid(bid) for bid in bid_round.get("bids", [])]
+    return safe
+
+
+def _safe_public_worker_from_bid(bid: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(bid.get("node_id") or ""),
+        "name": str(bid.get("node_name") or "Unpaired Kattappa worker"),
+        "base_url": str(bid.get("node_url") or ""),
+        "trusted": False,
+        "paired": False,
+        "worker_kind": "unpaired_public_worker",
+        "token_configured": False,
+    }
 
 
 def _safe_node(node: dict[str, Any]) -> dict[str, Any]:
@@ -322,8 +813,90 @@ def _safe_node(node: dict[str, Any]) -> dict[str, Any]:
     return safe
 
 
+def _safe_discovery_target(target: dict[str, Any]) -> dict[str, Any]:
+    safe = dict(target)
+    safe["token_required"] = False
+    safe["trusted"] = False
+    return safe
+
+
+def _task_capability_hint(task_kind: str) -> dict[str, Any]:
+    requirement = TASK_REQUIREMENTS.get(task_kind, {})
+    return {
+        "task_kind": task_kind,
+        "min_cpu_logical": requirement.get("min_cpu_logical"),
+        "min_ram_gb": requirement.get("min_ram_gb"),
+        "delegable": requirement.get("delegable", False),
+        "message_included": False,
+    }
+
+
+def _mint_public_task_token(bid_id: str, task_kind: str) -> str:
+    token = secrets.token_urlsafe(32)
+    tokens = _load_public_task_tokens()
+    now = datetime.now()
+    tokens = [
+        item
+        for item in tokens
+        if not item.get("used")
+        and _parse_time(str(item.get("expires_at") or "")) > now
+    ]
+    tokens.append(
+        {
+            "token": token,
+            "bid_id": bid_id,
+            "task_kind": task_kind,
+            "created_at": _now(),
+            "expires_at": (now + timedelta(minutes=5)).isoformat(timespec="seconds"),
+            "used": False,
+        }
+    )
+    _save_public_task_tokens(tokens)
+    return token
+
+
+def _consume_public_task_token(token: str | None, task_kind: str) -> bool:
+    if not token:
+        return False
+    tokens = _load_public_task_tokens()
+    now = datetime.now()
+    matched = False
+    for item in tokens:
+        if item.get("token") != token:
+            continue
+        if item.get("used") or item.get("task_kind") != task_kind:
+            continue
+        if _parse_time(str(item.get("expires_at") or "")) <= now:
+            continue
+        item["used"] = True
+        item["used_at"] = _now()
+        matched = True
+        break
+    _save_public_task_tokens(tokens)
+    return matched
+
+
+def _parse_time(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return datetime.min
+
+
 def _nodes_path():
     path = load_config().backend_root / "data" / "cluster" / "paired_nodes.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _discovery_targets_path():
+    path = load_config().backend_root / "data" / "cluster" / "discovery_targets.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _public_task_tokens_path():
+    path = load_config().backend_root / "data" / "cluster" / "public_task_tokens.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -339,8 +912,38 @@ def _load_nodes() -> list[dict[str, Any]]:
     return loaded if isinstance(loaded, list) else []
 
 
+def _load_discovery_targets() -> list[dict[str, Any]]:
+    path = _discovery_targets_path()
+    if not path.exists():
+        return []
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    return loaded if isinstance(loaded, list) else []
+
+
+def _load_public_task_tokens() -> list[dict[str, Any]]:
+    path = _public_task_tokens_path()
+    if not path.exists():
+        return []
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    return loaded if isinstance(loaded, list) else []
+
+
 def _save_nodes(nodes: list[dict[str, Any]]) -> None:
     _nodes_path().write_text(json.dumps(nodes, indent=2), encoding="utf-8")
+
+
+def _save_discovery_targets(targets: list[dict[str, Any]]) -> None:
+    _discovery_targets_path().write_text(json.dumps(targets, indent=2), encoding="utf-8")
+
+
+def _save_public_task_tokens(tokens: list[dict[str, Any]]) -> None:
+    _public_task_tokens_path().write_text(json.dumps(tokens, indent=2), encoding="utf-8")
 
 
 def _now() -> str:
