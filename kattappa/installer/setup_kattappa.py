@@ -452,10 +452,21 @@ def create_desktop_shortcut() -> None:
         return
     if system != "windows":
         return
-    launcher = ROOT / "run.exe"
-    if not launcher.exists():
-        print("Skipping shortcut: run.exe is missing.")
+
+    # Prefer the Tauri native desktop app — it starts the backend itself
+    # and shows a proper loading screen instead of an ERR_CONNECTION_REFUSED page.
+    tauri_exe = (
+        DESKTOP_DIR / "src-tauri" / "target" / "release" / "kattappa-ai-os-desktop.exe"
+    )
+    run_exe = ROOT / "run.exe"
+    if tauri_exe.exists():
+        launcher = tauri_exe
+    elif run_exe.exists():
+        launcher = run_exe
+    else:
+        print("Skipping shortcut: neither kattappa-ai-os-desktop.exe nor run.exe found.")
         return
+
     try:
         desktop_candidates: set[Path] = set()
         # Standard user desktop
