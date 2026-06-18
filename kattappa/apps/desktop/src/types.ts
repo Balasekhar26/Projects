@@ -126,6 +126,72 @@ export type Health = {
   workspace: string;
 };
 
+export type ClusterNode = {
+  id: string;
+  name: string;
+  base_url: string;
+  capabilities: Record<string, unknown>;
+  runnable_tasks: string[];
+  trusted: boolean;
+  token_configured: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ClusterDiscoveryTarget = {
+  id: string;
+  name: string;
+  base_url: string;
+  trusted: boolean;
+  token_required: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ClusterStatus = {
+  mode: string;
+  enabled: boolean;
+  local_node: Record<string, unknown>;
+  local_runnable_tasks: string[];
+  paired_nodes: ClusterNode[];
+  discovery_targets: ClusterDiscoveryTarget[];
+  public_worker: {
+    enabled: boolean;
+    mode: string;
+    accepts_task_content_in_bid: boolean;
+    runnable_public_tasks: string[];
+    profile: Record<string, unknown>;
+    cleanup_policy: Record<string, boolean>;
+  };
+  broker: {
+    mode: string;
+    broadcast_scope: string;
+    transport: string;
+    internet_ready: boolean;
+  };
+  privacy_contract: Record<string, boolean>;
+};
+
+export type ClusterRouteResult = {
+  status: string;
+  run_location: string;
+  task_kind?: string;
+  message?: string;
+  local_node?: Record<string, unknown>;
+  paired_nodes?: ClusterNode[];
+  worker?: Record<string, unknown>;
+  selected_bid?: Record<string, unknown>;
+  bid_round?: {
+    bid_id?: string;
+    task_kind?: string;
+    broadcast_scope?: string;
+    bids?: Record<string, unknown>[];
+    unavailable?: Record<string, unknown>[];
+  };
+  worker_result?: Record<string, unknown>;
+  privacy_contract?: Record<string, unknown>;
+};
+
 export type VoicePipelineStatus = {
   mode: string;
   primary_path: string;

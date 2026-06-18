@@ -9,6 +9,7 @@ export const PANELS = [
   "Research",
   "Simulation",
   "Tools",
+  "Cluster",
   "Diagnostics",
   "Agents",
   "Settings",

@@ -48,15 +48,25 @@ def test_cluster_plan_is_consent_based_and_capability_aware() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["mode"] == "consent_based_local_cluster"
-    assert data["can_run_as_one_system"] == "enabled_for_explicit_paired_nodes"
+    assert data["can_run_as_one_system"] == "enabled_for_paired_nodes_and_unpaired_discovery_workers"
     assert data["runtime_status"] == "local_http_worker_handoff_enabled"
+    assert data["broker_status"] == "paired_and_unpaired_capability_bid_broadcast_enabled"
     assert data["pairing_policy"]["installation_agreement_disclosure_required"] is True
+    assert data["pairing_policy"]["unpaired_discovery_supported"] is True
+    assert data["pairing_policy"]["unpaired_bid_contains_task_content"] is False
+    assert data["pairing_policy"]["unpaired_assignment_requires_one_time_task_token"] is True
     assert data["pairing_policy"]["explicit_user_consent_required"] is True
     assert data["pairing_policy"]["no_hidden_install_or_silent_join"] is True
     assert data["pairing_policy"]["remote_actions_need_approval"] is True
+    assert data["pairing_policy"]["public_internet_nodes_require_https_and_pairing_token"] is True
+    assert data["pairing_policy"]["public_unpaired_discovery_targets_require_https"] is True
     assert data["auto_connect_policy"]["enabled_after_explicit_pairing"] is True
+    assert data["auto_connect_policy"]["enabled_for_unpaired_discovery_targets"] is True
     assert data["auto_connect_policy"]["multiple_active_paired_nodes"] is True
-    assert "paired_high_spec_node_is_online" in data["auto_connect_policy"]["connect_when"]
+    assert data["auto_connect_policy"]["capability_bid_broadcast"] is True
+    assert data["auto_connect_policy"]["worker_selection"] == "highest_capability_bid_with_cleanup_receipt_required"
+    assert "paired_opened_internet_connected_node_replies_to_bid" in data["auto_connect_policy"]["connect_when"]
+    assert "unpaired_opened_internet_connected_kattappa_worker_replies_to_safe_bid" in data["auto_connect_policy"]["connect_when"]
     assert "model_inference" in data["auto_connect_policy"]["run_without_extra_prompt"]
     assert "assigned_work_is_complete" in data["auto_connect_policy"]["disconnect_when"]
     assert data["improvement_sync_policy"]["auto_share_with_paired_nodes"] is False

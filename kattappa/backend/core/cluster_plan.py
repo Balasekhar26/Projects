@@ -25,14 +25,16 @@ def cluster_plan() -> dict[str, Any]:
     delegated = _delegation_plan(profile, runnable)
     return {
         "mode": "consent_based_local_cluster",
-        "can_run_as_one_system": "enabled_for_explicit_paired_nodes",
+        "can_run_as_one_system": "enabled_for_paired_nodes_and_unpaired_discovery_workers",
         "runtime_status": "local_http_worker_handoff_enabled",
+        "broker_status": "paired_and_unpaired_capability_bid_broadcast_enabled",
         "node": profile,
         "local_tasks": runnable,
         "delegate_when_needed": delegated,
         "routing_rule": (
             "Run work on the local machine only when it fits local CPU/RAM/capability limits. "
-            "For heavier work, delegate only to explicitly paired trusted Kattappa AI OS nodes. "
+            "For heavier work, ask paired workers and unpaired discovery workers for a capability bid, "
+            "then delegate only to the strongest safe reply. "
             "Even strong nodes have hard limits and must run only tasks inside their measured capability profile."
         ),
         "capability_policy": {
@@ -46,18 +48,27 @@ def cluster_plan() -> dict[str, Any]:
         "pairing_policy": {
             "installation_agreement_disclosure_required": True,
             "automatic_after_pairing": True,
+            "unpaired_discovery_supported": True,
+            "unpaired_bid_contains_task_content": False,
+            "unpaired_assignment_requires_one_time_task_token": True,
             "explicit_user_consent_required": True,
             "no_hidden_install_or_silent_join": True,
             "trusted_network_only": True,
+            "public_internet_nodes_require_https_and_pairing_token": True,
+            "public_unpaired_discovery_targets_require_https": True,
             "remote_actions_need_approval": True,
         },
         "auto_connect_policy": {
             "enabled_after_explicit_pairing": True,
+            "enabled_for_unpaired_discovery_targets": True,
             "multiple_active_paired_nodes": True,
+            "capability_bid_broadcast": True,
+            "worker_selection": "highest_capability_bid_with_cleanup_receipt_required",
             "max_active_nodes": "bounded_by_manager_capacity_and_network_health",
             "connect_when": [
                 "manager_has_task_that_exceeds_local_capability",
-                "paired_high_spec_node_is_online",
+                "paired_opened_internet_connected_node_replies_to_bid",
+                "unpaired_opened_internet_connected_kattappa_worker_replies_to_safe_bid",
                 "task_fits_remote_node_capability_policy",
             ],
             "run_without_extra_prompt": [
@@ -75,9 +86,9 @@ def cluster_plan() -> dict[str, Any]:
                 "network_is_untrusted_or_unhealthy",
             ],
             "worker_process_lifecycle": (
-                "Start or wake the approved worker service on the paired node, run only the assigned "
-                "capability-checked job, stream progress/results to the manager, then stop, idle, or "
-                "disconnect according to policy."
+                "Receive a bid request, reply with capability only, accept the assigned job only if selected, "
+                "run the capability-checked job, return progress/results to the manager, delete task payload "
+                "context, then stop, idle, or disconnect according to policy."
             ),
         },
         "improvement_sync_policy": {

@@ -6,6 +6,8 @@ import { RightPanel } from "./components/RightPanel";
 import { Sidebar } from "./components/Sidebar";
 import {
   API_BASE_URL as API,
+  addClusterDiscoveryTarget,
+  addClusterNode,
   checkWriting,
   continueApprovedWork,
   createChatSession,
@@ -15,11 +17,15 @@ import {
   fetchApprovals,
   fetchChatSessionMessages,
   fetchChatSessions,
+  fetchClusterStatus,
   fetchDashboardData,
   fetchHealth,
   fetchLongTasks,
+  removeClusterDiscoveryTarget,
+  removeClusterNode,
   requestMissingInstalls as requestMissingInstallsRequest,
   resumeLongTask,
+  routeClusterTask,
   rewriteWriting,
   runSelfEvolution,
   runSimulation,
@@ -37,6 +43,8 @@ import type {
   BuilderProfile,
   CapabilityLadder,
   ChatSession,
+  ClusterRouteResult,
+  ClusterStatus,
   CodexParityReport,
   EvolutionCycle,
   FreeStack,
@@ -128,6 +136,25 @@ function App() {
   const [sourcePolicy, setSourcePolicy] = useState<SourcePolicy | null>(null);
   const [toolScout, setToolScout] = useState<ToolScoutStatus | null>(null);
   const [toolAdoptions, setToolAdoptions] = useState<ToolAdoptionJob[]>([]);
+  const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null);
+  const [clusterDraft, setClusterDraft] = useState({
+    name: "",
+    base_url: "",
+    token: "",
+    capabilities: "{\"cpu_count_logical\": 16, \"ram_total_gb\": 64}",
+  });
+  const [clusterDiscoveryDraft, setClusterDiscoveryDraft] = useState({
+    name: "",
+    base_url: "",
+  });
+  const [clusterRouteDraft, setClusterRouteDraft] = useState({
+    message: "use a large model to summarize this project",
+    task_kind: "large_local_model",
+    sensitivity: "normal",
+    force_remote: false,
+  });
+  const [clusterRouteResult, setClusterRouteResult] = useState<ClusterRouteResult | null>(null);
+  const [clusterError, setClusterError] = useState("");
   const [capabilityLadder, setCapabilityLadder] = useState<CapabilityLadder | null>(null);
   const [improvements, setImprovements] = useState<Improvement[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -246,6 +273,80 @@ function App() {
       setLongTasks(await fetchLongTasks());
     } catch {
       setLongTasks([]);
+    }
+  };
+
+  const refreshCluster = async () => {
+    try {
+      setClusterStatus(await fetchClusterStatus());
+      setClusterError("");
+    } catch (error) {
+      setClusterStatus(null);
+      setClusterError(error instanceof Error ? error.message : "Cluster status unavailable.");
+    }
+  };
+
+  const registerClusterWorker = async () => {
+    setClusterError("");
+    try {
+      const capabilities = clusterDraft.capabilities.trim()
+        ? JSON.parse(clusterDraft.capabilities)
+        : {};
+      await addClusterNode({
+        name: clusterDraft.name.trim(),
+        base_url: clusterDraft.base_url.trim(),
+        token: clusterDraft.token.trim(),
+        capabilities,
+      });
+      setClusterDraft((current) => ({ ...current, name: "", base_url: "", token: "" }));
+      await refreshCluster();
+    } catch (error) {
+      setClusterError(error instanceof Error ? error.message : "Could not add worker.");
+    }
+  };
+
+  const deleteClusterWorker = async (nodeId: string) => {
+    setClusterError("");
+    try {
+      await removeClusterNode(nodeId);
+      await refreshCluster();
+    } catch (error) {
+      setClusterError(error instanceof Error ? error.message : "Could not remove worker.");
+    }
+  };
+
+  const registerClusterDiscoveryTarget = async () => {
+    setClusterError("");
+    try {
+      await addClusterDiscoveryTarget({
+        name: clusterDiscoveryDraft.name.trim(),
+        base_url: clusterDiscoveryDraft.base_url.trim(),
+      });
+      setClusterDiscoveryDraft({ name: "", base_url: "" });
+      await refreshCluster();
+    } catch (error) {
+      setClusterError(error instanceof Error ? error.message : "Could not add discovery target.");
+    }
+  };
+
+  const deleteClusterDiscoveryTarget = async (targetId: string) => {
+    setClusterError("");
+    try {
+      await removeClusterDiscoveryTarget(targetId);
+      await refreshCluster();
+    } catch (error) {
+      setClusterError(error instanceof Error ? error.message : "Could not remove discovery target.");
+    }
+  };
+
+  const runClusterRoute = async () => {
+    setClusterError("");
+    setClusterRouteResult(null);
+    try {
+      setClusterRouteResult(await routeClusterTask(clusterRouteDraft));
+      await refreshCluster();
+    } catch (error) {
+      setClusterError(error instanceof Error ? error.message : "Cluster route failed.");
     }
   };
 
@@ -537,6 +638,10 @@ function App() {
   }, [activePanel]);
 
   useEffect(() => {
+    if (activePanel === "Cluster") refreshCluster();
+  }, [activePanel]);
+
+  useEffect(() => {
     if (activePanel === "Chat") {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
@@ -818,6 +923,12 @@ function App() {
             sourcePolicy={sourcePolicy}
             toolScout={toolScout}
             toolAdoptions={toolAdoptions}
+            clusterStatus={clusterStatus}
+            clusterDraft={clusterDraft}
+            clusterDiscoveryDraft={clusterDiscoveryDraft}
+            clusterRouteDraft={clusterRouteDraft}
+            clusterRouteResult={clusterRouteResult}
+            clusterError={clusterError}
             capabilityLadder={capabilityLadder}
             improvements={improvements}
             skills={skills}
@@ -856,6 +967,15 @@ function App() {
             onRequestMissingInstalls={requestMissingInstalls}
             onRunManualToolScout={runManualToolScout}
             onStartToolAdoption={startToolAdoption}
+            onClusterDraftChange={setClusterDraft}
+            onClusterDiscoveryDraftChange={setClusterDiscoveryDraft}
+            onClusterRouteDraftChange={setClusterRouteDraft}
+            onRefreshCluster={refreshCluster}
+            onRegisterClusterWorker={registerClusterWorker}
+            onDeleteClusterWorker={deleteClusterWorker}
+            onRegisterClusterDiscoveryTarget={registerClusterDiscoveryTarget}
+            onDeleteClusterDiscoveryTarget={deleteClusterDiscoveryTarget}
+            onRunClusterRoute={runClusterRoute}
             onRunSelfEvolution={runSelfEvolutionCycle}
             onSetSkillTrust={setSkillTrust}
           />
