@@ -1072,11 +1072,21 @@ def test_project_ecosystem_endpoint() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["build_first"].startswith("Kattappa AI OS")
-    assert len(data["projects"]) == 7
+    assert len(data["projects"]) == 12
     assert data["projects"][0]["id"] == "kattappa"
-    assert data["projects"][-1]["id"] == "neuroseed"
-    assert "No destructive emitters" in data["projects"][-2]["safety_boundary"]
-    assert "No memory upload claims" in data["projects"][-1]["safety_boundary"]
+    
+    project_ids = {p["id"] for p in data["projects"]}
+    assert "neuroseed" in project_ids
+    assert "kairo" in project_ids
+    assert "prism" in project_ids
+    assert "tempo" in project_ids
+    assert "portal" in project_ids
+    assert "mira" in project_ids
+
+    dews = next(p for p in data["projects"] if p["id"] == "dews")
+    neuroseed = next(p for p in data["projects"] if p["id"] == "neuroseed")
+    assert "No destructive emitters" in dews["safety_boundary"]
+    assert "No memory upload claims" in neuroseed["safety_boundary"]
     assert "free_tool_rule" in data
     assert "must be fully free" in data["free_tool_rule"]
     assert "search for a similar fully free replacement" in data["free_tool_rule"]
@@ -1094,10 +1104,8 @@ def test_project_ecosystem_endpoint() -> None:
     assert "local_friday_voice_assistant_patterns" in kattappa["free_tools"]
     assert "local_blackbox_coding_assistant" in kattappa["free_tools"]
     assert "local_personal_assistant_patterns" in kattappa["free_tools"]
-    cyber_shield = data["projects"][2]
-    assert cyber_shield["id"] == "ai-cyber-shield"
+    cyber_shield = next(p for p in data["projects"] if p["id"] == "ai-cyber-shield")
     assert "local_network_scanner" in cyber_shield["free_tools"]
-    neuroseed = data["projects"][-1]
     assert "openbci_mne_research_adapter" in neuroseed["free_tools"]
     assert "local_document_markdown" in neuroseed["free_tools"]
     assert "local_marketing_kit" in neuroseed["free_tools"]
@@ -1357,3 +1365,77 @@ def test_skill_reflection_and_evolution_lifecycle() -> None:
     assert cycle["cluster_sync"]["git_repo_distribution"]["paired_check_policy"]["default_interval_hours"] == 24
     assert cycle["cluster_sync"]["git_repo_distribution"]["paired_check_policy"]["if_new_data_found"] == "ask_local_approval"
     assert "draft_skills_created" in cycle
+
+
+def test_internet_hub_task_delegation() -> None:
+    client = TestClient(app)
+    task_id = "test-task-hub-1"
+    
+    # 1. Post task
+    post_res = client.post(
+        "/cluster/hub/post-task",
+        json={"task_id": task_id, "task_kind": "large_local_model", "min_cpu": 4, "min_ram": 16.0}
+    )
+    assert post_res.status_code == 200
+    task = post_res.json()
+    assert task["task_id"] == task_id
+    assert task["status"] == "pending"
+
+    # 2. Get pending tasks
+    pending_res = client.get("/cluster/hub/pending-tasks")
+    assert pending_res.status_code == 200
+    pending = pending_res.json()["tasks"]
+    assert any(t["task_id"] == task_id for t in pending)
+
+    # 3. Submit bid
+    bid_res = client.post(
+        "/cluster/hub/bid-task",
+        json={
+            "task_id": task_id,
+            "worker_id": "worker-abc",
+            "hostname": "test-node-1",
+            "cpu_count": 8,
+            "ram_total_gb": 32.0
+        }
+    )
+    assert bid_res.status_code == 200
+    assert bid_res.json()["success"] is True
+
+    # 4. Get bids
+    bids_res = client.get(f"/cluster/hub/tasks/{task_id}/bids")
+    assert bids_res.status_code == 200
+    bids = bids_res.json()["bids"]
+    assert len(bids) == 1
+    assert bids[0]["worker_id"] == "worker-abc"
+
+    # 5. Delegate task payload
+    delegate_res = client.post(
+        f"/cluster/hub/tasks/{task_id}/delegate",
+        json={"worker_id": "worker-abc", "message": "perform sorting task"}
+    )
+    assert delegate_res.status_code == 200
+    assert delegate_res.json()["success"] is True
+
+    # 6. Fetch payload
+    payload_res = client.get(f"/cluster/hub/tasks/{task_id}/payload", params={"worker_id": "worker-abc"})
+    assert payload_res.status_code == 200
+    payload = payload_res.json()
+    assert payload["task_id"] == task_id
+    assert payload["message"] == "perform sorting task"
+
+    # 7. Submit result
+    submit_res = client.post(
+        f"/cluster/hub/tasks/{task_id}/submit-result",
+        json={"worker_id": "worker-abc", "result": "sorting result output data", "error": None}
+    )
+    assert submit_res.status_code == 200
+    assert submit_res.json()["success"] is True
+
+    # 8. Fetch execution result
+    result_res = client.get(f"/cluster/hub/tasks/{task_id}/result")
+    assert result_res.status_code == 200
+    result_data = result_res.json()
+    assert result_data["status"] == "completed"
+    assert result_data["result"] == "sorting result output data"
+    assert result_data["error"] is None
+

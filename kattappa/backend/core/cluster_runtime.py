@@ -109,6 +109,9 @@ def route_cluster_task(
 
     node = _select_worker(task_kind)
     if node is None:
+        hub_url = os.getenv("KATTAPPA_INTERNET_HUB_URL") or "http://127.0.0.1:8000"
+        if hub_url:
+            return route_internet_hub_task(message, task_kind, hub_url)
         return {
             "status": "no_capable_paired_node",
             "run_location": "not_started",
@@ -342,3 +345,286 @@ def _save_nodes(nodes: list[dict[str, Any]]) -> None:
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+# --- Internet Hub Task Handoff Protocol ---
+import os
+import time
+
+_local_worker_id = str(uuid4())
+_hub_tasks: dict[str, dict[str, Any]] = {}
+
+
+def hub_post_task(task_id: str, task_kind: str, min_cpu: int, min_ram: float) -> dict[str, Any]:
+    _hub_tasks[task_id] = {
+        "task_id": task_id,
+        "task_kind": task_kind,
+        "min_cpu": min_cpu,
+        "min_ram": min_ram,
+        "status": "pending",
+        "bids": {},
+        "selected_worker_id": None,
+        "payload": None,
+        "result": None,
+        "error": None,
+        "created_at": datetime.now().isoformat()
+    }
+    return _hub_tasks[task_id]
+
+
+def hub_get_pending_tasks() -> list[dict[str, Any]]:
+    return [
+        {
+            "task_id": t["task_id"],
+            "task_kind": t["task_kind"],
+            "min_cpu": t["min_cpu"],
+            "min_ram": t["min_ram"]
+        }
+        for t in _hub_tasks.values()
+        if t["status"] == "pending"
+    ]
+
+
+def hub_bid_task(task_id: str, worker_id: str, hostname: str, cpu: int, ram: float) -> bool:
+    if task_id not in _hub_tasks:
+        return False
+    t = _hub_tasks[task_id]
+    if t["status"] != "pending":
+        return False
+    t["bids"][worker_id] = {
+        "worker_id": worker_id,
+        "hostname": hostname,
+        "cpu_count": cpu,
+        "ram_total_gb": ram,
+        "timestamp": datetime.now().isoformat()
+    }
+    return True
+
+
+def hub_get_bids(task_id: str) -> list[dict[str, Any]]:
+    if task_id not in _hub_tasks:
+        return []
+    return list(_hub_tasks[task_id]["bids"].values())
+
+
+def hub_delegate_task(task_id: str, worker_id: str, message: str) -> bool:
+    if task_id not in _hub_tasks:
+        return False
+    t = _hub_tasks[task_id]
+    if t["status"] != "pending":
+        return False
+    t["selected_worker_id"] = worker_id
+    t["payload"] = message
+    t["status"] = "delegated"
+    return True
+
+
+def hub_get_payload(task_id: str, worker_id: str) -> dict[str, Any] | None:
+    if task_id not in _hub_tasks:
+        return None
+    t = _hub_tasks[task_id]
+    if t["status"] != "delegated" or t["selected_worker_id"] != worker_id:
+        return None
+    return {
+        "task_id": task_id,
+        "message": t["payload"]
+    }
+
+
+def hub_submit_result(task_id: str, worker_id: str, result: str, error: str | None = None) -> bool:
+    if task_id not in _hub_tasks:
+        return False
+    t = _hub_tasks[task_id]
+    if t["status"] != "delegated" or t["selected_worker_id"] != worker_id:
+        return False
+    t["result"] = result
+    t["error"] = error
+    t["status"] = "completed"
+    return True
+
+
+def hub_get_result(task_id: str) -> dict[str, Any] | None:
+    if task_id not in _hub_tasks:
+        return None
+    t = _hub_tasks[task_id]
+    return {
+        "status": t["status"],
+        "result": t["result"],
+        "error": t["error"]
+    }
+
+
+def route_internet_hub_task(message: str, task_kind: str, hub_url: str) -> dict[str, Any]:
+    task_id = str(uuid4())
+    req = TASK_REQUIREMENTS.get(task_kind, {"min_cpu_logical": 2, "min_ram_gb": 4.0})
+    min_cpu = int(req.get("min_cpu_logical", 2))
+    min_ram = float(req.get("min_ram_gb", 4.0))
+
+    try:
+        # 1. Post task to Coordinator Hub
+        with httpx.Client() as client:
+            res = client.post(
+                f"{hub_url.rstrip('/')}/cluster/hub/post-task",
+                json={
+                    "task_id": task_id,
+                    "task_kind": task_kind,
+                    "min_cpu": min_cpu,
+                    "min_ram": min_ram
+                },
+                timeout=10
+            )
+            res.raise_for_status()
+
+            # 2. Poll for bids
+            bids = []
+            for _ in range(30):
+                time.sleep(0.5)
+                bids_res = client.get(f"{hub_url.rstrip('/')}/cluster/hub/tasks/{task_id}/bids", timeout=5)
+                bids_res.raise_for_status()
+                bids = bids_res.json().get("bids", [])
+                if bids:
+                    break
+
+            if not bids:
+                return {
+                    "status": "no_internet_bidders",
+                    "task_id": task_id,
+                    "message": "No internet worker bid for the task within the timeout.",
+                }
+
+            # 3. Select most capable bidder
+            bids.sort(key=lambda b: (b.get("ram_total_gb", 0), b.get("cpu_count", 0)), reverse=True)
+            selected_bidder = bids[0]
+            worker_id = selected_bidder["worker_id"]
+
+            # 4. Delegate payload to chosen bidder
+            del_res = client.post(
+                f"{hub_url.rstrip('/')}/cluster/hub/tasks/{task_id}/delegate",
+                json={
+                    "worker_id": worker_id,
+                    "message": message
+                },
+                timeout=10
+            )
+            del_res.raise_for_status()
+
+            # 5. Poll for completion output
+            for _ in range(240):
+                time.sleep(0.5)
+                res_check = client.get(f"{hub_url.rstrip('/')}/cluster/hub/tasks/{task_id}/result", timeout=5)
+                res_check.raise_for_status()
+                result_data = res_check.json()
+                if result_data.get("status") == "completed":
+                    _record_manager_result(message, {
+                        "result": result_data.get("result"),
+                        "state_summary": {"risk_level": "low"},
+                    })
+                    return {
+                        "status": "delegated_internet",
+                        "run_location": "internet_hub_worker",
+                        "task_id": task_id,
+                        "worker": selected_bidder,
+                        "result": result_data.get("result"),
+                    }
+                elif result_data.get("status") == "failed":
+                    return {
+                        "status": "internet_execution_failed",
+                        "task_id": task_id,
+                        "error": result_data.get("error"),
+                    }
+
+            return {
+                "status": "internet_timeout",
+                "task_id": task_id,
+                "message": "Internet execution timed out.",
+            }
+
+    except Exception as exc:
+        return {
+            "status": "internet_hub_error",
+            "task_id": task_id,
+            "error": str(exc),
+        }
+
+
+def internet_hub_worker_poll_loop() -> None:
+    hub_url = os.getenv("KATTAPPA_INTERNET_HUB_URL") or "http://127.0.0.1:8000"
+    if not hub_url:
+        return
+
+    profile = local_node_profile()
+    cpu = int(profile.get("cpu_count_logical") or 0)
+    ram = float(profile.get("ram_total_gb") or 0)
+    hostname = socket.gethostname()
+    bid_tasks = set()
+
+    while True:
+        try:
+            with httpx.Client() as client:
+                # 1. Fetch pending tasks
+                res = client.get(f"{hub_url.rstrip('/')}/cluster/hub/pending-tasks", timeout=10)
+                if res.status_code == 200:
+                    tasks = res.json().get("tasks", [])
+                    for t in tasks:
+                        task_id = t["task_id"]
+                        if task_id in bid_tasks:
+                            continue
+
+                        req_cpu = int(t.get("min_cpu", 2))
+                        req_ram = float(t.get("min_ram", 4.0))
+                        if cpu >= req_cpu and ram >= req_ram:
+                            bid_res = client.post(
+                                f"{hub_url.rstrip('/')}/cluster/hub/bid-task",
+                                json={
+                                    "task_id": task_id,
+                                    "worker_id": _local_worker_id,
+                                    "hostname": hostname,
+                                    "cpu_count": cpu,
+                                    "ram_total_gb": ram
+                                },
+                                timeout=10
+                            )
+                            if bid_res.status_code == 200:
+                                bid_tasks.add(task_id)
+
+                # 2. Check if we won delegation
+                for task_id in list(bid_tasks):
+                    pay_res = client.get(
+                        f"{hub_url.rstrip('/')}/cluster/hub/tasks/{task_id}/payload",
+                        params={"worker_id": _local_worker_id},
+                        timeout=10
+                    )
+                    if pay_res.status_code == 200:
+                        payload = pay_res.json()
+                        if payload and "message" in payload:
+                            message = payload["message"]
+                            from backend.core.graph import run_graph
+                            result_str = ""
+                            err_str = None
+                            try:
+                                state = run_graph(message, memory_query="", ephemeral_worker=True)
+                                result_str = str(state.get("result") or "")
+                            except Exception as e:
+                                err_str = str(e)
+                                result_str = f"Error: {err_str}"
+
+                            client.post(
+                                f"{hub_url.rstrip('/')}/cluster/hub/tasks/{task_id}/submit-result",
+                                json={
+                                    "worker_id": _local_worker_id,
+                                    "result": result_str,
+                                    "error": err_str
+                                },
+                                timeout=10
+                            )
+
+                            # PRIVACY CLEANUP: delete task related context variables
+                            message = None
+                            result_str = None
+                            state = None
+                            bid_tasks.discard(task_id)
+
+        except Exception:
+            pass
+        time.sleep(1.0)
+

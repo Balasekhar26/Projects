@@ -228,6 +228,33 @@ class ClusterWorkerTaskRequest(BaseModel):
     privacy: dict[str, object] = {}
 
 
+class HubTaskRequest(BaseModel):
+    task_id: str
+    task_kind: str
+    min_cpu: int = 2
+    min_ram: float = 4.0
+
+
+class HubBidRequest(BaseModel):
+    task_id: str
+    worker_id: str
+    hostname: str
+    cpu_count: int
+    ram_total_gb: float
+
+
+class HubDelegateRequest(BaseModel):
+    worker_id: str
+    message: str
+
+
+class HubResultSubmit(BaseModel):
+    worker_id: str
+    result: str
+    error: str | None = None
+
+
+
 class ToolScoutRequest(BaseModel):
     task: str
     outcome: str = ""
@@ -354,6 +381,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+import threading
+
+@app.on_event("startup")
+def start_internet_hub_loop():
+    from backend.core.cluster_runtime import internet_hub_worker_poll_loop
+    thread = threading.Thread(target=internet_hub_worker_poll_loop, daemon=True)
+    thread.start()
+
 
 
 @app.get("/health")
@@ -608,6 +645,83 @@ def kattappa_worker_task(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# Coordinator Hub Endpoints
+
+@app.post("/cluster/hub/post-task")
+def hub_post_task_endpoint(request: HubTaskRequest) -> dict[str, object]:
+    from backend.core.cluster_runtime import hub_post_task
+    return hub_post_task(
+        request.task_id,
+        request.task_kind,
+        request.min_cpu,
+        request.min_ram,
+    )
+
+
+@app.get("/cluster/hub/pending-tasks")
+def hub_pending_tasks_endpoint() -> dict[str, object]:
+    from backend.core.cluster_runtime import hub_get_pending_tasks
+    return {"tasks": hub_get_pending_tasks()}
+
+
+@app.post("/cluster/hub/bid-task")
+def hub_bid_task_endpoint(request: HubBidRequest) -> dict[str, object]:
+    from backend.core.cluster_runtime import hub_bid_task
+    success = hub_bid_task(
+        request.task_id,
+        request.worker_id,
+        request.hostname,
+        request.cpu_count,
+        request.ram_total_gb,
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail="Task not found or not pending")
+    return {"success": True}
+
+
+@app.get("/cluster/hub/tasks/{task_id}/bids")
+def hub_get_bids_endpoint(task_id: str) -> dict[str, object]:
+    from backend.core.cluster_runtime import hub_get_bids
+    return {"bids": hub_get_bids(task_id)}
+
+
+@app.post("/cluster/hub/tasks/{task_id}/delegate")
+def hub_delegate_task_endpoint(task_id: str, request: HubDelegateRequest) -> dict[str, object]:
+    from backend.core.cluster_runtime import hub_delegate_task
+    success = hub_delegate_task(task_id, request.worker_id, request.message)
+    if not success:
+        raise HTTPException(status_code=400, detail="Task not found or not pending")
+    return {"success": True}
+
+
+@app.get("/cluster/hub/tasks/{task_id}/payload")
+def hub_get_payload_endpoint(task_id: str, worker_id: str) -> dict[str, object]:
+    from backend.core.cluster_runtime import hub_get_payload
+    payload = hub_get_payload(task_id, worker_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="No delegated task found for this worker")
+    return payload
+
+
+@app.post("/cluster/hub/tasks/{task_id}/submit-result")
+def hub_submit_result_endpoint(task_id: str, request: HubResultSubmit) -> dict[str, object]:
+    from backend.core.cluster_runtime import hub_submit_result
+    success = hub_submit_result(task_id, request.worker_id, request.result, request.error)
+    if not success:
+        raise HTTPException(status_code=400, detail="Task not delegated to this worker")
+    return {"success": True}
+
+
+@app.get("/cluster/hub/tasks/{task_id}/result")
+def hub_get_result_endpoint(task_id: str) -> dict[str, object]:
+    from backend.core.cluster_runtime import hub_get_result
+    res = hub_get_result(task_id)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return res
+
 
 
 @app.get("/finance/kronos/status")

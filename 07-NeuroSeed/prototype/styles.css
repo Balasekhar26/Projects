@@ -696,3 +696,41 @@ canvas {
     width: 100%;
   }
 }
+
+/* Project Template Selector Styles */
+.template-selector-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.template-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.template-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.template-btn:hover {
+  background: var(--mint-2);
+  color: var(--mint);
+  border-color: var(--mint);
+}
+
+.template-btn.active {
+  background: var(--mint);
+  color: var(--panel);
+  border-color: var(--mint);
+}
+

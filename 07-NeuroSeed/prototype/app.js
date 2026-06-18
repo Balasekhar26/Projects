@@ -45,6 +45,47 @@ Targeted memory reactivation links learned content with a sound or odor cue, the
 NeuroSeed must require awake consent before sleep cueing because memory affects autonomy and identity.
 Sleep reinforcement can strengthen selected memories, but it cannot upload brand-new knowledge into an unconscious brain.`;
 
+const projectTemplates = {
+  kairo: `KAIRO - Telekinesis / Remote Matter Movement
+Description: A system capable of moving objects without touching them through hand gestures, anywhere and anytime, by influencing objects remotely using combined technologies and invisible force interactions.
+Building Procedures:
+1. Gesture Intelligence: Leap Motion infrared array, gesture neural net, trajectory filters.
+2. Remote Interaction: Electromagnetic coil field gradients, parametric acoustic transducer levitation, and integrated tracking drone arrays.
+3. Smart Environment: Spatial LiDAR/Stereo-depth cameras, mass tracking database.
+4. Universal Object Control: AI coordinator mapping gesture intent to optimal physical movement channels.`,
+
+  prism: `PRISM - Adaptive Invisible Shield
+Description: An invisible protective dome surrounding a person or object that can stop threats, selectively manage gases (such as retaining oxygen while filtering others), and protect against extreme environmental dangers.
+Building Procedures:
+1. Active Threat Detection: Multi-spectral computer vision, millimeter-wave radar, and gas chromatography.
+2. Air Intelligence: HEPA filters, carbon molecular sieves, catalytic scrubbers, and adaptive gas-venting regulators.
+3. Tactical Physical Protection: Reactive compressed-air pulse deflection grids, aerogel thermal curtains, and localized force boundaries.
+4. Autonomous Survival Cocoon: Instant environment adaptation, auto-venting safety bubble.`,
+
+  tempo: `TEMPO - Temporal Dilation / Time Manipulation
+Description: A controlled localized environment where time flows differently from the outside world, enabling accelerated future travel through engineered temporal conditions.
+Building Procedures:
+1. Relativistic & Gravitational Theory: Mathematical modeling of gravitational well dilation and velocity frames.
+2. Computational Spacetime Simulation: Quantum-accelerated Einstein field equation solvers and energy density maps.
+3. Experimental Micro-Gravity: Centrifuged optical lattice atomic clocks, electromagnetic plasma compression fields, and spatial bending research.`,
+
+  portal: `PORTAL - Spacetime Shortcuts & Teleportation
+Description: A system for instant relocation across distance through spacetime shortcuts, ideally using stable wormhole-like mechanisms to move the original matter itself.
+Building Procedures:
+1. Spacetime Geometry: Einstein-Rosen bridge math modeling and negative energy exotic matter stabilizers.
+2. Entangled Spacetime: Macro-scale ER=EPR quantum entanglement channels and quantum state transfer.
+3. Target Navigation: Precise spatial coordinate targeting, earth rotation drift corrections, and tidal force biological buffers.`,
+
+  mira: `MIRA - Matter Mapping & Atomic Reconstruction
+Description: A system capable of copying the exact atomic structure of an object and recreate it elsewhere using available surrounding materials or supplied feedstock.
+Building Procedures:
+1. Sub-Nanometer Scanning: Scanning tunneling microscopes, atomic force microscopes, and crystal structural maps.
+2. Feedstock Library: Cataloging chemical properties of metal, polymer, semiconductor, and biological elements.
+3. Multi-Material Fabrication: Laser sintering, high-resolution micro-assemblers, and multi-component printers.
+4. Atom-by-Atom Self-Assembly: Nanoscale programmatic builders reconstruct structures directly from mapped blueprints.`
+};
+
+
 const els = {};
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -111,7 +152,23 @@ function bindEvents() {
   });
 
   els.sampleBtn.addEventListener("click", () => {
+    document.querySelectorAll(".template-btn").forEach((b) => b.classList.remove("active"));
     els.sourceText.value = sampleText;
+  });
+
+  els.sourceText.addEventListener("input", () => {
+    document.querySelectorAll(".template-btn").forEach((b) => b.classList.remove("active"));
+  });
+
+  document.querySelectorAll(".template-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".template-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const templateKey = btn.dataset.template;
+      if (projectTemplates[templateKey]) {
+        els.sourceText.value = projectTemplates[templateKey];
+      }
+    });
   });
 
   els.generateBtn.addEventListener("click", generateSeeds);
