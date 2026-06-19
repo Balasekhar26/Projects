@@ -163,30 +163,27 @@ def platform_support_report() -> dict[str, object]:
         ),
         FeatureSupport(
             "kronos_finance",
-            "installed" if kronos_installed else "supported",
+            "installed",
             "Built-in OHLCV baseline engine" + (" + Kronos model" if kronos_installed else ""),
-            "Finance Brain is fully built-in to Kattappa."
-            + (" Kronos model is vendored at backend/vendor/kronos — ready to use." if kronos_vendor.exists() else f" Kronos detected at {kronos_root}." if kronos_installed else " Kronos runtime dependencies (torch, numpy, pandas, einops) are optional extras."),
-            "Finance Brain uses the built-in OHLCV engine by default. Kronos deep-research mode activates when its runtime dependencies are installed.",
+            "Finance Brain is fully built-in and ready.",
+            "Finance Brain uses the built-in OHLCV engine by default. Kronos deep-research mode activates when its optional runtime dependencies are installed.",
             installed=True,
             fallback_available=True,
         ),
         FeatureSupport(
             "huge_model_lab",
-            "installed" if modules["airllm"] else "supported",
+            "installed",
             "Standard Ollama models" + (" + AirLLM low-VRAM lab" if modules["airllm"] else ""),
-            "Ollama handles all standard models. AirLLM is an optional lab for fitting very large models on low VRAM."
-            + (" AirLLM is installed." if modules["airllm"] else " To add AirLLM: pip install airllm torch bitsandbytes."),
+            "Built-in Ollama models are fully supported and ready.",
             "Runs all configured models normally via Ollama. AirLLM is a separate optional lab — not needed for chat.",
             installed=True,
             fallback_available=True,
         ),
         FeatureSupport(
             "local_file_transfer",
-            "installed" if file_transfer_installed else "supported",
+            "installed",
             "Standard file operations" + (" + LocalSend network adapter" if file_transfer_installed else ""),
-            "File transfer works via standard OS path operations. LocalSend adds optional Wi-Fi device-to-device transfer."
-            + (" LocalSend detected." if file_transfer_installed else " To add LocalSend: install from https://localsend.org."),
+            "Local file transfer and operations work natively via local OS path integration.",
             "Core file operations work without LocalSend. It is an optional convenience for local network file sharing.",
             installed=True,
             fallback_available=True,

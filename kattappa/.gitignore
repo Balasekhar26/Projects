@@ -51,3 +51,12 @@ coverage/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# System AppData and Local Chat Databases
+AppData/
+**/AppData/
+Kattappa AI OS/
+**/Kattappa AI OS/
+*.db
+*.sqlite
+*.sqlite3

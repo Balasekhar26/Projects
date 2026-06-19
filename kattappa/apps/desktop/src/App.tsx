@@ -263,8 +263,10 @@ function App() {
         setCurrentSessionId(primarySession.id);
         currentSessionRef.current = primarySession.id;
         const stored = await fetchChatSessionMessages(primarySession.id);
-        setMessages(storedMessagesToChat(stored));
-        messagesLoadedRef.current = true;
+        if (stored.length > 0 || launchComplete) {
+          setMessages(storedMessagesToChat(stored));
+          messagesLoadedRef.current = true;
+        }
       }
     } catch {
       setChatSessions([]);
