@@ -100,12 +100,22 @@ def continue_approved_chat(approval_id: str) -> dict[str, Any]:
         memory_query=memory_query,
     )
     response = str(state.get("result") or "")
-    memory.add_chat_message(
+    assistant_message = memory.add_chat_message(
         chat_session["id"],
         "assistant",
         response,
         agent=str(state.get("selected_agent") or ""),
         risk=str(state.get("risk_level") or ""),
+        metadata=json.dumps(
+            {
+                "approval_id": approval_id,
+                "related_message_ids": [
+                    item.get("id")
+                    for item in state.get("related_messages", [])
+                    if isinstance(item, dict)
+                ],
+            }
+        ),
     )
     updated_approval = memory.record_approval_continuation(approval_id, response) or approval
     return {
@@ -114,6 +124,8 @@ def continue_approved_chat(approval_id: str) -> dict[str, Any]:
         "approval": updated_approval,
         "response": response,
         "state": state,
+        "assistant_message": assistant_message,
+        "assistant_message_id": assistant_message["id"],
     }
 
 

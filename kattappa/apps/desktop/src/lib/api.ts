@@ -142,7 +142,14 @@ export function routeClusterTask(body: {
 }
 
 export function sendChatMessage(message: string, sessionId?: string) {
-  return postJson<{ response?: string; state?: Record<string, unknown>; session?: ChatSession }>("/chat", {
+  return postJson<{
+    response?: string;
+    state?: Record<string, unknown>;
+    session?: ChatSession;
+    user_message?: StoredMessage;
+    assistant_message?: StoredMessage;
+    assistant_message_id?: string;
+  }>("/chat", {
     message,
     session_id: sessionId,
   });
@@ -201,6 +208,10 @@ export function saveChatSessionMessage(sessionId: string, message: {
     risk: message.risk ?? "",
     metadata: "{}",
   }).then((data) => data.item);
+}
+
+export function rateChatMessage(messageId: string, rating: 1 | -1) {
+  return postJson<{ item: StoredMessage }>(`/chat-messages/${messageId}/rating`, { rating }).then((data) => data.item);
 }
 
 export function fetchApprovals() {
@@ -382,5 +393,4 @@ export function fetchSageStatus(): Promise<SageStatus> {
 export function submitSageFeedback(userInput: string, source: string, rating: number): Promise<{ success: boolean; new_weights: Record<string, number> }> {
   return postJson("/sage/feedback", { user_input: userInput, source, rating });
 }
-
 

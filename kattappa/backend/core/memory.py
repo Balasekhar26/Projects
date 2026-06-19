@@ -484,6 +484,49 @@ class MemorySystem:
             "created_at": now,
         }
 
+    def rate_chat_message(self, message_id: str, rating: int) -> dict[str, str] | None:
+        if rating not in {-1, 1}:
+            raise ValueError("rating must be 1 or -1")
+        now = datetime.now().isoformat(timespec="seconds")
+        with sqlite3.connect(self.config.sqlite_path) as conn:
+            row = conn.execute(
+                """
+                SELECT id, session_id, role, content, agent, risk, metadata, created_at
+                FROM chat_messages
+                WHERE id = ?
+                """,
+                (message_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row[2] != "assistant":
+                raise ValueError("only assistant messages can be rated")
+            try:
+                metadata = json.loads(row[6] or "{}")
+            except json.JSONDecodeError:
+                metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata["sage_feedback_rating"] = rating
+            metadata["response_rating"] = rating
+            metadata["rated_at"] = now
+            stored_metadata = json.dumps(metadata)
+            conn.execute(
+                "UPDATE chat_messages SET metadata = ? WHERE id = ?",
+                (stored_metadata, message_id),
+            )
+            conn.execute("UPDATE chat_sessions SET updated_at = ? WHERE id = ?", (now, row[1]))
+        return {
+            "id": row[0],
+            "session_id": row[1],
+            "role": row[2],
+            "content": row[3],
+            "agent": row[4],
+            "risk": row[5],
+            "metadata": stored_metadata,
+            "created_at": row[7],
+        }
+
     def get_chat_session(self, session_id: str) -> dict[str, str] | None:
         with sqlite3.connect(self.config.sqlite_path) as conn:
             row = conn.execute(
