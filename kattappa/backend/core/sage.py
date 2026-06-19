@@ -202,7 +202,7 @@ class SageUserModel:
             "technical_preference": 0.5,
             "user_goals": "Develop high-quality code and explore general knowledge.",
             "knowledge_level": "Intermediate",
-            "learning_speed": "Normal",
+            "learning_speed": "Fast",
             "interests": "AI, Software Engineering, Science"
         }
         with sqlite3.connect(memory.config.sqlite_path) as conn:
@@ -266,7 +266,7 @@ class SageUserModel:
         elif new_concise > 0.8:
             cls.update_preference("learning_speed", "Fast")
         else:
-            cls.update_preference("learning_speed", "Normal")
+            cls.update_preference("learning_speed", "Fast")
 
         # Dynamically append text keywords to interests
         interest_words = ["ai", "biology", "physics", "chemistry", "poetry", "finance", "robotics", "math", "hardware", "quantum"]

@@ -9,7 +9,7 @@ from backend.core.logger import log_event
 def available_models() -> list[str]:
     config = load_config()
     try:
-        response = httpx.get(f"{config.ollama_host}/api/tags", timeout=0.5)
+        response = httpx.get(f"{config.ollama_host}/api/tags", timeout=10.0)
         response.raise_for_status()
         models = response.json().get("models", [])
         return sorted(
@@ -24,7 +24,7 @@ def available_models() -> list[str]:
 def health() -> tuple[bool, str]:
     config = load_config()
     try:
-        response = httpx.get(f"{config.ollama_host}/api/tags", timeout=0.5)
+        response = httpx.get(f"{config.ollama_host}/api/tags", timeout=10.0)
         response.raise_for_status()
         return True, "Ollama reachable"
     except Exception as exc:
