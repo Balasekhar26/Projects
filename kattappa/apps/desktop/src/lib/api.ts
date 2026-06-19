@@ -343,9 +343,36 @@ export function fetchJarvisDiagnostics(): Promise<JarvisDiagnostics> {
 }
 
 export interface SageStatus {
-  concepts: Array<{ id: string; concept: string; confidence: number; connections: string[] }>;
-  profile: { concise_preference: number; technical_preference: number; user_goals: string };
+  concepts: Array<{ id: string; concept: string; confidence: number; connections: any }>;
+  profile: {
+    concise_preference: number;
+    technical_preference: number;
+    user_goals: string;
+    knowledge_level?: string;
+    learning_speed?: string;
+    interests?: string;
+  };
   weights: Record<string, number>;
+  aether_metrics?: {
+    memory_layers: Record<string, string>;
+    self_questioning_results: {
+      know: string;
+      assume: string;
+      evidence: string;
+      wrong: string;
+    };
+    ethical_scores: {
+      truthfulness: number;
+      safety: number;
+      fairness: number;
+      user_benefit: number;
+      long_term_impact: number;
+    };
+    meta_learning: {
+      strategy_success_rates: Record<string, number>;
+    };
+    confidence_tracking: string;
+  };
 }
 
 export function fetchSageStatus(): Promise<SageStatus> {

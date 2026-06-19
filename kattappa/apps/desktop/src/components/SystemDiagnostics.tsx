@@ -134,18 +134,35 @@ export function SystemDiagnostics({
               <span>logical CPUs</span>
             </article>
           </div>
-          {sage && (
+                 {sage && (
             <div className="sageDashboard" style={{ marginBottom: "2rem", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "1.5rem" }}>
-              <h3>SAGE Cognitive Brain</h3>
-              <p style={{ fontSize: "0.9rem", opacity: 0.8, marginBottom: "1.2rem" }}>
-                Self-Adaptive General Evolutionary Intelligence — profiling user habits, tracking knowledge confidence, and balancing archetype values.
-              </p>
-              
-              <div className="sageGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.2rem", marginBottom: "1.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.2rem" }}>
+                <div>
+                  <h3 style={{ margin: 0, background: "linear-gradient(90deg, #a855f7, #6366f1, #06b6d4)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>AETHER Cognitive Brain</h3>
+                  <p style={{ fontSize: "0.85rem", opacity: 0.7, margin: "0.2rem 0 0 0" }}>
+                    Adaptive Ethical Hierarchical Evolutionary Reasoning — advanced multi-layered neural engine.
+                  </p>
+                </div>
+                {sage.aether_metrics && (
+                  <span style={{
+                    background: "rgba(99, 102, 241, 0.15)",
+                    border: "1px solid rgba(99, 102, 241, 0.3)",
+                    color: "#a5b4fc",
+                    fontSize: "0.75rem",
+                    padding: "0.2rem 0.6rem",
+                    borderRadius: "20px",
+                    fontWeight: 600
+                  }}>
+                    Confidence: {sage.aether_metrics.confidence_tracking}
+                  </span>
+                )}
+              </div>
+
+              <div className="sageGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.2rem", marginBottom: "1.5rem" }}>
                 
-                {/* Archetype Personality Kernel */}
-                <div className="sageCard" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "1.2rem" }}>
-                  <h4 style={{ margin: "0 0 1rem 0", color: "var(--accent-primary, #6366f1)" }}>Value Archetypes</h4>
+                {/* Value Archetypes */}
+                <div className="sageCard" style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "1.2rem" }}>
+                  <h4 style={{ margin: "0 0 1rem 0", color: "#6366f1", fontSize: "0.95rem" }}>Value Archetypes</h4>
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
                     {Object.entries(sage.weights).map(([name, weight]) => {
                       const pct = Math.round((weight as number) * 100);
@@ -169,50 +186,163 @@ export function SystemDiagnostics({
                   </div>
                 </div>
 
-                {/* User Habits Profile */}
-                <div className="sageCard" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "1.2rem" }}>
-                  <h4 style={{ margin: "0 0 1rem 0", color: "var(--accent-primary, #6366f1)" }}>User Preferences Profile</h4>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                {/* Memory Layers */}
+                {sage.aether_metrics && (
+                  <div className="sageCard" style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "1.2rem" }}>
+                    <h4 style={{ margin: "0 0 1rem 0", color: "#6366f1", fontSize: "0.95rem" }}>Hierarchical Memory Stack</h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", fontSize: "0.8rem" }}>
+                      {Object.entries(sage.aether_metrics.memory_layers).map(([layer, status]) => (
+                        <div key={layer} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.03)", paddingBottom: "0.4rem" }}>
+                          <span style={{ textTransform: "capitalize", fontWeight: 600, opacity: 0.8 }}>{layer}</span>
+                          <span style={{ color: "#38bdf8", fontSize: "0.75rem" }}>{status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Ethical Audit Matrix */}
+                {sage.aether_metrics && (
+                  <div className="sageCard" style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "1.2rem" }}>
+                    <h4 style={{ margin: "0 0 1rem 0", color: "#a855f7", fontSize: "0.95rem" }}>Ethical Evaluation Layer</h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+                      {Object.entries(sage.aether_metrics.ethical_scores).map(([metric, score]) => {
+                        const pct = Math.round(score * 100);
+                        let barColor = "#38bdf8";
+                        if (metric === "safety") barColor = "#4ade80";
+                        if (metric === "fairness") barColor = "#fb7185";
+                        if (metric === "user_benefit") barColor = "#fcd34d";
+                        if (metric === "long_term_impact") barColor = "#c084fc";
+                        return (
+                          <div key={metric}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "0.2rem" }}>
+                              <span style={{ textTransform: "capitalize", fontWeight: 500, opacity: 0.8 }}>{metric.replace("_", " ")}</span>
+                              <span>{pct}%</span>
+                            </div>
+                            <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.04)", borderRadius: "3px", overflow: "hidden" }}>
+                              <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: "3px" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* User Cognitive Profile */}
+                <div className="sageCard" style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "1.2rem" }}>
+                  <h4 style={{ margin: "0 0 1rem 0", color: "#06b6d4", fontSize: "0.95rem" }}>User Cognitive Profile</h4>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", fontSize: "0.8rem" }}>
                     <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "0.2rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "0.2rem" }}>
                         <span>Conciseness Bias</span>
                         <span>{Math.round(sage.profile.concise_preference * 100)}%</span>
                       </div>
-                      <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden" }}>
-                        <div style={{ width: `${sage.profile.concise_preference * 100}%`, height: "100%", background: "var(--accent-cyan, #06b6d4)", borderRadius: "4px" }} />
+                      <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.04)", borderRadius: "3px", overflow: "hidden" }}>
+                        <div style={{ width: `${sage.profile.concise_preference * 100}%`, height: "100%", background: "#06b6d4", borderRadius: "3px" }} />
                       </div>
                     </div>
                     <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "0.2rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "0.2rem" }}>
                         <span>Technical Depth Bias</span>
                         <span>{Math.round(sage.profile.technical_preference * 100)}%</span>
                       </div>
-                      <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden" }}>
-                        <div style={{ width: `${sage.profile.technical_preference * 100}%`, height: "100%", background: "var(--accent-emerald, #10b981)", borderRadius: "4px" }} />
+                      <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.04)", borderRadius: "3px", overflow: "hidden" }}>
+                        <div style={{ width: `${sage.profile.technical_preference * 100}%`, height: "100%", background: "#10b981", borderRadius: "3px" }} />
                       </div>
                     </div>
-                    <div style={{ fontSize: "0.8rem", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.8rem" }}>
-                      <span style={{ opacity: 0.6 }}>Active User Goal:</span>
-                      <p style={{ margin: "0.2rem 0 0 0", fontStyle: "italic", opacity: 0.9 }}>{sage.profile.user_goals}</p>
-                    </div>
+                    {sage.profile.knowledge_level && (
+                      <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "0.6rem", marginTop: "0.4rem" }}>
+                        <span style={{ opacity: 0.7 }}>Knowledge Level:</span>
+                        <strong style={{ color: "#fb7185" }}>{sage.profile.knowledge_level}</strong>
+                      </div>
+                    )}
+                    {sage.profile.learning_speed && (
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ opacity: 0.7 }}>Learning Speed:</span>
+                        <strong style={{ color: "#fcd34d" }}>{sage.profile.learning_speed}</strong>
+                      </div>
+                    )}
+                    {sage.profile.interests && (
+                      <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "0.6rem" }}>
+                        <span style={{ opacity: 0.7, display: "block", marginBottom: "0.3rem" }}>Key Topic Interests:</span>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                          {sage.profile.interests.split(",").map((int: string) => (
+                            <span key={int} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", padding: "0.1rem 0.4rem", borderRadius: "4px", fontSize: "0.7rem", color: "#cbd5e1" }}>
+                              {int.trim()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Knowledge Graph Concepts */}
-                <div className="sageCard" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "1.2rem" }}>
-                  <h4 style={{ margin: "0 0 1rem 0", color: "var(--accent-primary, #6366f1)" }}>Semantic Knowledge Graph</h4>
+                {/* Self-Questioning Engine */}
+                {sage.aether_metrics && (
+                  <div className="sageCard" style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "1.2rem" }}>
+                    <h4 style={{ margin: "0 0 1rem 0", color: "#fb7185", fontSize: "0.95rem" }}>Self-Questioning Reflection</h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", fontSize: "0.75rem", maxHeight: "190px", overflowY: "auto" }}>
+                      <div>
+                        <strong style={{ color: "#4ade80" }}>KNOW: </strong>
+                        <span style={{ opacity: 0.85 }}>{sage.aether_metrics.self_questioning_results.know}</span>
+                      </div>
+                      <div>
+                        <strong style={{ color: "#fb7185" }}>ASSUME: </strong>
+                        <span style={{ opacity: 0.85 }}>{sage.aether_metrics.self_questioning_results.assume}</span>
+                      </div>
+                      <div>
+                        <strong style={{ color: "#38bdf8" }}>EVIDENCE: </strong>
+                        <span style={{ opacity: 0.85 }}>{sage.aether_metrics.self_questioning_results.evidence}</span>
+                      </div>
+                      <div>
+                        <strong style={{ color: "#fcd34d" }}>WRONG: </strong>
+                        <span style={{ opacity: 0.85 }}>{sage.aether_metrics.self_questioning_results.wrong}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Meta-Learning Strategy Rates */}
+                {sage.aether_metrics && (
+                  <div className="sageCard" style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "1.2rem" }}>
+                    <h4 style={{ margin: "0 0 1rem 0", color: "#34d399", fontSize: "0.95rem" }}>Meta-Learning Strategy Success Rates</h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                      {Object.entries(sage.aether_metrics.meta_learning.strategy_success_rates).map(([strat, rate]) => {
+                        const pct = Math.round(rate * 100);
+                        return (
+                          <div key={strat}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "0.2rem" }}>
+                              <span style={{ textTransform: "capitalize", fontWeight: 500, opacity: 0.8 }}>{strat} strategy</span>
+                              <span>{pct}%</span>
+                            </div>
+                            <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.04)", borderRadius: "3px", overflow: "hidden" }}>
+                              <div style={{ width: `${pct}%`, height: "100%", background: "#34d399", borderRadius: "3px" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Dynamic Concept Graph */}
+                <div className="sageCard" style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "8px", padding: "1.2rem" }}>
+                  <h4 style={{ margin: "0 0 1rem 0", color: "#eab308", fontSize: "0.95rem" }}>Dynamic Concept Graph</h4>
                   {sage.concepts.length === 0 ? (
-                    <p style={{ fontSize: "0.85rem", opacity: 0.6, margin: 0 }}>No concepts learned yet. Start chatting to build the knowledge graph.</p>
+                    <p style={{ fontSize: "0.85rem", opacity: 0.6, margin: 0 }}>No concepts learned yet. Start chatting to build the concept graph.</p>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: "150px", overflowY: "auto" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: "190px", overflowY: "auto" }}>
                       {sage.concepts.slice(0, 8).map((concept: any) => {
                         const pct = Math.round(concept.confidence * 100);
                         return (
-                          <div key={concept.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.8rem" }}>
-                            <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{concept.concept}</span>
+                          <div key={concept.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                            <span style={{ textTransform: "capitalize", fontWeight: 500, opacity: 0.95 }} title={concept.connections && concept.connections.definition ? `${concept.concept}: ${concept.connections.definition}` : concept.concept}>
+                              {concept.concept}
+                            </span>
                             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", width: "120px" }}>
-                              <div style={{ flex: 1, height: "6px", background: "rgba(255,255,255,0.06)", borderRadius: "3px", overflow: "hidden" }}>
-                                <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent-primary, #6366f1)", borderRadius: "3px" }} />
+                              <div style={{ flex: 1, height: "6px", background: "rgba(255,255,255,0.04)", borderRadius: "3px", overflow: "hidden" }}>
+                                <div style={{ width: `${pct}%`, height: "100%", background: "#eab308", borderRadius: "3px" }} />
                               </div>
                               <span style={{ width: "30px", textAlign: "right", opacity: 0.7 }}>{pct}%</span>
                             </div>
