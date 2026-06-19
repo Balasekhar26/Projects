@@ -136,15 +136,6 @@ class MemoryRequest(BaseModel):
     category: str = "general"
 
 
-class NeuroSeedStateRequest(BaseModel):
-    dataModel: dict[str, Any] = Field(default_factory=dict)
-    seeds: list[dict[str, Any]] = Field(default_factory=list)
-    logs: list[dict[str, Any]] = Field(default_factory=list)
-    sessions: list[dict[str, Any]] = Field(default_factory=list)
-    cuedIds: list[str] = Field(default_factory=list)
-    activeSessionId: str | None = None
-    recallResults: list[dict[str, Any]] = Field(default_factory=list)
-
 
 class LongTaskRequest(BaseModel):
     title: str
@@ -1251,19 +1242,6 @@ def search_memory(q: str, limit: int = 5) -> dict[str, object]:
 @app.get("/memory/context")
 def memory_context(q: str) -> dict[str, object]:
     return {"context": build_memory_context(q)}
-
-
-@app.get("/neuroseed/state")
-def neuroseed_state() -> dict[str, object]:
-    return memory.get_neuroseed_state()
-
-
-@app.put("/neuroseed/state")
-def save_neuroseed_state(request: NeuroSeedStateRequest) -> dict[str, object]:
-    try:
-        return memory.save_neuroseed_state(request.model_dump())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/long-tasks")
