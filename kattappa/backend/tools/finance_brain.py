@@ -11,7 +11,7 @@ from typing import Any
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 KRONOS_VENDOR = BACKEND_ROOT / "vendor" / "kronos"
-PROJECTS_ROOT = Path(__file__).resolve().parents[3]
+PROJECTS_ROOT = Path(__file__).resolve().parents[2]
 EXTERNAL_PROJECTS_ROOT = (
     PROJECTS_ROOT / "external-projects"
     if (PROJECTS_ROOT / "external-projects").exists()

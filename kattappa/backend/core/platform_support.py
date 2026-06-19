@@ -230,7 +230,7 @@ def _command_map() -> dict[str, bool]:
 
 
 def _external_projects_root(root: Path) -> Path:
-    projects_root = root.parent
+    projects_root = root
     external_root = projects_root / "external-projects"
     if external_root.exists():
         return external_root

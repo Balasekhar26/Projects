@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECTS_ROOT = Path(__file__).resolve().parents[4]
+PROJECTS_ROOT = Path(__file__).resolve().parents[3]
 EXTERNAL_PROJECTS_ROOT = (
     PROJECTS_ROOT / "external-projects"
     if (PROJECTS_ROOT / "external-projects").exists()

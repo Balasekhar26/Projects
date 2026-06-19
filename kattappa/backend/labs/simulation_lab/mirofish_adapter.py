@@ -47,5 +47,5 @@ def run_simulation(seed: str, horizon: str = "short") -> dict[str, Any]:
 
 
 def _mirofish_root() -> Path:
-    projects_root = load_config().root.parent
+    projects_root = load_config().root
     return projects_root / "external-projects" / "MiroFish"

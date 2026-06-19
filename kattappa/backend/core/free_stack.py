@@ -43,7 +43,7 @@ class FreeCapability:
 
 def free_stack_report() -> dict[str, Any]:
     config = load_config()
-    projects_root = config.root.parent
+    projects_root = config.root
     external_projects_root = (
         projects_root / "external-projects"
         if (projects_root / "external-projects").exists()
