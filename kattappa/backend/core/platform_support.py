@@ -218,7 +218,11 @@ def _command_map() -> dict[str, bool]:
         "localsend",
         "localsend_app",
     ]
-    return {name: shutil.which(name) is not None for name in names}
+    res = {name: shutil.which(name) is not None for name in names}
+    localsend_path = Path.home() / "AppData" / "Local" / "Programs" / "LocalSend" / "localsend_app.exe"
+    if localsend_path.exists():
+        res["localsend_app"] = True
+    return res
 
 
 def _external_projects_root(root: Path) -> Path:

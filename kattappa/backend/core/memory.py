@@ -486,14 +486,14 @@ class MemorySystem:
             return None
         return {"id": row[0], "title": row[1], "created_at": row[2], "updated_at": row[3]}
 
-    def list_chat_messages(self, session_id: str, limit: int = 500) -> list[dict[str, str]]:
+    def list_chat_messages(self, session_id: str, limit: int = 2000) -> list[dict[str, str]]:
         with sqlite3.connect(self.config.sqlite_path) as conn:
             rows = conn.execute(
                 """
                 SELECT id, session_id, role, content, agent, risk, metadata, created_at
                 FROM chat_messages
                 WHERE session_id = ?
-                ORDER BY created_at ASC
+                ORDER BY rowid DESC
                 LIMIT ?
                 """,
                 (session_id, limit),
@@ -509,7 +509,7 @@ class MemorySystem:
                 "metadata": row[6],
                 "created_at": row[7],
             }
-            for row in rows
+            for row in reversed(rows)
         ]
 
     def search_chat_messages(
