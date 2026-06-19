@@ -4,6 +4,7 @@ import re
 from backend.core.local_answers import built_in_answer, is_model_timeout
 from backend.core.memory import remember
 from backend.core.model_router import ask_model
+from backend.core.response_quality import response_looks_related, topic_phrase
 from backend.core.tool_scout import scout_for_task_background
 
 
@@ -92,6 +93,11 @@ def evaluator_node(state):
         final = guarded
         state["logs"].append("evaluator: interaction guard repaired response tone")
 
+    relevant = guard_relevance_reply(state["user_input"], final)
+    if relevant != final:
+        final = relevant
+        state["logs"].append("evaluator: relevance guard repaired response focus")
+
     state["result"] = final
     return _finalize_evaluator(state, final)
 
@@ -156,5 +162,54 @@ def _repair_interaction_reply(user_input: str, draft: str) -> str:
         role="fast",
         system=(
             "You are a safety-and-tone repair layer for Kattappa AI OS. Return only the corrected English reply."
+        ),
+    )
+
+
+def guard_relevance_reply(user_input: str, draft: str) -> str:
+    if response_looks_related(user_input, draft):
+        return draft
+    complaint_reply = _relevance_complaint_reply(user_input)
+    if complaint_reply:
+        return complaint_reply
+    repaired = _repair_relevance_reply(user_input, draft)
+    if repaired and response_looks_related(user_input, repaired) and not is_model_timeout(repaired):
+        return repaired
+    built_in = built_in_answer(user_input)
+    if built_in:
+        return built_in
+    return (
+        f"I may have drifted from your latest message: \"{topic_phrase(user_input)}\". "
+        "Please resend the exact task or question, and I will answer that message directly without using unrelated older context."
+    )
+
+
+def _relevance_complaint_reply(user_input: str) -> str:
+    lower = user_input.lower()
+    reply_words = ("reply", "replies", "respond", "response", "answer")
+    relation_words = ("related", "relevant", "relate", "message", "question", "latest")
+    if any(word in lower for word in reply_words) and any(word in lower for word in relation_words):
+        return (
+            "You are right. Kattappa should answer your latest message directly, not drift into older chat or unrelated memory. "
+            "I added a relevance guard so each draft reply is checked against your current message before it is shown, stored, or spoken."
+        )
+    return ""
+
+
+def _repair_relevance_reply(user_input: str, draft: str) -> str:
+    prompt = (
+        "Rewrite this assistant reply so it directly answers the latest user message. "
+        "Ignore unrelated older memory unless it clearly supports the latest message. "
+        "Keep the reply in English, practical, concise, and focused. "
+        "The first sentence must clearly address the user's exact request.\n\n"
+        f"Latest user message:\n{user_input}\n\n"
+        f"Unrelated or drifting draft:\n{draft}\n\n"
+        "Focused reply:"
+    )
+    return ask_model(
+        prompt,
+        role="fast",
+        system=(
+            "You are Kattappa AI OS response-focus repair. Return only the corrected English reply."
         ),
     )

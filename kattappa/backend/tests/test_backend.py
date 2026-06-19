@@ -3,7 +3,7 @@ import json
 from fastapi.testclient import TestClient
 
 from backend.agents import desktop as desktop_module
-from backend.agents.evaluator import guard_interaction_reply
+from backend.agents.evaluator import guard_interaction_reply, guard_relevance_reply
 from backend.agents.planner import route_task
 from backend import main as backend_main
 from backend.core import cluster_runtime as cluster_runtime_module
@@ -76,6 +76,27 @@ def test_interaction_guard_repairs_bad_persona_reply(monkeypatch) -> None:
         "I am JARVIS, a sarcastic British AI with complete diagnostic control.",
     )
     assert reply == "I can help with that safely and clearly."
+
+
+def test_relevance_guard_repairs_unrelated_reply(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.agents.evaluator.ask_model",
+        lambda *args, **kwargs: "Your message says Kattappa is not replying relatedly, so I will answer the latest message directly.",
+    )
+    reply = guard_relevance_reply(
+        "it is not reply relatedly to my message",
+        "Embedded systems are small computers built inside devices.",
+    )
+    assert "latest message directly" in reply
+    assert "unrelated memory" in reply
+
+
+def test_relevance_guard_keeps_related_reply() -> None:
+    reply = "Kattappa voice now speaks Telugu while the text reply stays English."
+    assert guard_relevance_reply(
+        "improve kattappa speaking voice telugu text reply english",
+        reply,
+    ) == reply
 
 
 def test_builder_analytics_is_local_and_free() -> None:

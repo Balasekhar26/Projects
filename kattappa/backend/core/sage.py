@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Tuple
 
 from backend.core.memory import memory
 from backend.core.model_router import ask_model
+from backend.core.response_quality import content_terms, response_relevance_score
 
 
 class AetherMemoryLayer:
@@ -537,6 +538,8 @@ class SAGE:
         prompt = (
             f"User request: '{user_input}'\n"
             f"Context details:\n{context}\n\n"
+            f"Priority rule: answer the current user request directly. Older memory/context is supporting evidence only; "
+            f"do not answer an older topic unless the user explicitly asks for older chat.\n"
             f"Tone directives: {archetype_hints}\n"
             f"Global response contract: answer in English text only. Be respectful, useful, calm, and direct. "
             f"Do not use sarcasm, insults, flirting, movie-character roleplay, or false claims of system control. "
@@ -572,6 +575,9 @@ class SAGE:
                 
             ethical_audit = AetherEthicalLayer.audit_response(user_input, response)
             avg_ethical_score = sum(ethical_audit.values()) / len(ethical_audit)
+            relevance_score = response_relevance_score(user_input, response)
+            if content_terms(user_input) and relevance_score <= 0:
+                continue
             
             # Archetype alignment scores
             if source == "scientist":
@@ -599,17 +605,19 @@ class SAGE:
             meta_strategy_weight = success_rates.get(source, 0.8)
 
             composite_score = (
-                0.2 * avg_confidence +
-                0.2 * arch_score +
-                0.2 * style_score +
-                0.2 * avg_ethical_score +
-                0.2 * meta_strategy_weight
+                0.16 * avg_confidence +
+                0.16 * arch_score +
+                0.16 * style_score +
+                0.16 * avg_ethical_score +
+                0.16 * meta_strategy_weight +
+                0.2 * relevance_score
             )
             
             scored_candidates.append({
                 "source": source,
                 "response": response,
                 "score": round(composite_score, 3),
+                "relevance_score": round(relevance_score, 3),
                 "ethical_scores": ethical_audit
             })
 
