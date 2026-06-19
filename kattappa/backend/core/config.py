@@ -47,15 +47,18 @@ def _bool_env(name: str, default: bool) -> bool:
 
 
 def _uses_app_data_root() -> bool:
-    return bool(os.getenv("KATTAPPA_DATA_DIR")) or platform.system().lower() == "darwin"
+    return bool(os.getenv("KATTAPPA_DATA_DIR")) or platform.system().lower() in {"darwin", "windows"}
 
 
 def runtime_data_root() -> Path:
     raw = os.getenv("KATTAPPA_DATA_DIR")
     if raw:
         return Path(raw).expanduser().resolve()
-    if platform.system().lower() == "darwin":
+    system = platform.system().lower()
+    if system == "darwin":
         return (Path.home() / "Library" / "Application Support" / "Kattappa AI OS").resolve()
+    if system == "windows":
+        return (Path.home() / "AppData" / "Local" / "Kattappa AI OS").resolve()
     return ROOT
 
 

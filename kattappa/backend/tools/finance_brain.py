@@ -9,13 +9,16 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+KRONOS_VENDOR = BACKEND_ROOT / "vendor" / "kronos"
 PROJECTS_ROOT = Path(__file__).resolve().parents[3]
 EXTERNAL_PROJECTS_ROOT = (
     PROJECTS_ROOT / "external-projects"
     if (PROJECTS_ROOT / "external-projects").exists()
     else PROJECTS_ROOT / "bin" / "external-projects"
 )
-KRONOS_ROOT = EXTERNAL_PROJECTS_ROOT / "Kronos"
+# Use vendored Kronos (built-in to Kattappa) first; fall back to external clone
+KRONOS_ROOT = KRONOS_VENDOR if KRONOS_VENDOR.exists() else EXTERNAL_PROJECTS_ROOT / "Kronos"
 DEFAULT_KRONOS_TOKENIZER = "NeoQuasar/Kronos-Tokenizer-base"
 DEFAULT_KRONOS_MODEL = "NeoQuasar/Kronos-small"
 REQUIRED_OHLC_COLUMNS = ("open", "high", "low", "close")

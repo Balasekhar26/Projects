@@ -287,6 +287,8 @@ def default_data_dir() -> Path:
     system = platform.system().lower()
     if system == "darwin":
         return Path.home() / "Library" / "Application Support" / "Kattappa AI OS"
+    if system == "windows":
+        return Path.home() / "AppData" / "Local" / "Kattappa AI OS"
     return ROOT
 
 

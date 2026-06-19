@@ -186,9 +186,19 @@ def test_platform_support_reports_installed_vs_fallback_states(monkeypatch) -> N
     report = platform_support.platform_support_report()
     features = {item["feature"]: item for item in report["features"]}
 
-    for feature in ["browser_automation", "ocr", "speech_to_text", "wake_word", "kronos_finance"]:
+    # Adapters that truly degrade when their package is missing
+    for feature in ["browser_automation", "ocr", "speech_to_text", "wake_word"]:
         assert features[feature]["status"] == "fallback"
         assert features[feature]["installed"] is False
+        assert features[feature]["usable"] is True
+
+    # Optional add-ons with full built-in alternatives — always "supported", never "fallback"
+    # kronos_finance -> built-in OHLCV engine is always ready
+    # huge_model_lab -> standard Ollama models always work
+    # local_file_transfer -> standard OS file operations always work
+    for feature in ["kronos_finance", "huge_model_lab", "local_file_transfer"]:
+        assert features[feature]["status"] in {"supported", "installed"}
+        assert features[feature]["installed"] is True
         assert features[feature]["usable"] is True
 
 

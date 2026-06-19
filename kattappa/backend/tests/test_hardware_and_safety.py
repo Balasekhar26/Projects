@@ -38,7 +38,7 @@ def test_platform_support_endpoint() -> None:
     assert "desktop_control" in features
     assert "speech_output" in features
     assert "local_file_transfer" in features
-    assert features["local_file_transfer"]["adapter"] == "LocalSend optional adapter"
+    assert features["local_file_transfer"]["adapter"].startswith("Standard file operations")
     assert "Windows, macOS, and Linux" in data["promise"]
 
 

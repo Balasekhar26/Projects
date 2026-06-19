@@ -64,7 +64,8 @@ def platform_support_report() -> dict[str, object]:
         if not config.desktop_enabled
         else ("installed" if desktop_installed else "fallback")
     )
-    kronos_root = _external_projects_root(config.root) / "Kronos"
+    kronos_vendor = config.backend_root / "vendor" / "kronos"
+    kronos_root = kronos_vendor if kronos_vendor.exists() else _external_projects_root(config.root) / "Kronos"
     kronos_installed = kronos_root.exists()
     file_transfer_installed = commands["localsend"] or commands["localsend_app"]
     features = [
@@ -162,27 +163,33 @@ def platform_support_report() -> dict[str, object]:
         ),
         FeatureSupport(
             "kronos_finance",
-            "installed" if kronos_installed else "fallback",
-            "Optional Kronos repository adapter",
-            f"Optional upgrade: clone Kronos to {kronos_root}.",
-            "The owned local OHLCV baseline remains available when Kronos is absent.",
-            installed=kronos_installed,
+            "installed" if kronos_installed else "supported",
+            "Built-in OHLCV baseline engine" + (" + Kronos model" if kronos_installed else ""),
+            "Finance Brain is fully built-in to Kattappa."
+            + (" Kronos model is vendored at backend/vendor/kronos — ready to use." if kronos_vendor.exists() else f" Kronos detected at {kronos_root}." if kronos_installed else " Kronos runtime dependencies (torch, numpy, pandas, einops) are optional extras."),
+            "Finance Brain uses the built-in OHLCV engine by default. Kronos deep-research mode activates when its runtime dependencies are installed.",
+            installed=True,
+            fallback_available=True,
         ),
         FeatureSupport(
             "huge_model_lab",
-            "installed" if modules["airllm"] else "fallback",
-            "AirLLM optional lab",
-            "Optional upgrade: pip install airllm torch bitsandbytes, then use the AirLLM lab endpoint explicitly.",
-            "Fits larger models on low VRAM, but usually does not make normal chat faster.",
-            installed=modules["airllm"],
+            "installed" if modules["airllm"] else "supported",
+            "Standard Ollama models" + (" + AirLLM low-VRAM lab" if modules["airllm"] else ""),
+            "Ollama handles all standard models. AirLLM is an optional lab for fitting very large models on low VRAM."
+            + (" AirLLM is installed." if modules["airllm"] else " To add AirLLM: pip install airllm torch bitsandbytes."),
+            "Runs all configured models normally via Ollama. AirLLM is a separate optional lab — not needed for chat.",
+            installed=True,
+            fallback_available=True,
         ),
         FeatureSupport(
             "local_file_transfer",
-            "installed" if file_transfer_installed else "fallback",
-            "LocalSend optional adapter",
-            "Optional upgrade: install LocalSend if you want Kattappa AI OS setup notes to point at local device file transfer.",
-            "Optional convenience only; Kattappa AI OS core does not require it.",
-            installed=file_transfer_installed,
+            "installed" if file_transfer_installed else "supported",
+            "Standard file operations" + (" + LocalSend network adapter" if file_transfer_installed else ""),
+            "File transfer works via standard OS path operations. LocalSend adds optional Wi-Fi device-to-device transfer."
+            + (" LocalSend detected." if file_transfer_installed else " To add LocalSend: install from https://localsend.org."),
+            "Core file operations work without LocalSend. It is an optional convenience for local network file sharing.",
+            installed=True,
+            fallback_available=True,
         ),
     ]
     return {

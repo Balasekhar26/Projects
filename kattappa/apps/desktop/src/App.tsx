@@ -199,6 +199,7 @@ function App() {
   const assistantWorkingRef = useRef(false);
   const messageQueueRef = useRef<QueuedTurn[]>([]);
   const turnTimeoutRef = useRef<number | null>(null);
+  const messagesLoadedRef = useRef(false);
 
   useEffect(() => {
     currentSessionRef.current = currentSessionId;
@@ -257,11 +258,13 @@ function App() {
     try {
       const sessions = await fetchChatSessions();
       setChatSessions(sessions);
-      if (!currentSessionRef.current && sessions[0]) {
-        setCurrentSessionId(sessions[0].id);
-        currentSessionRef.current = sessions[0].id;
-        const stored = await fetchChatSessionMessages(sessions[0].id);
+      const primarySession = sessions[0];
+      if (primarySession && (!currentSessionRef.current || !messagesLoadedRef.current)) {
+        setCurrentSessionId(primarySession.id);
+        currentSessionRef.current = primarySession.id;
+        const stored = await fetchChatSessionMessages(primarySession.id);
         setMessages(storedMessagesToChat(stored));
+        messagesLoadedRef.current = true;
       }
     } catch {
       setChatSessions([]);
