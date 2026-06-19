@@ -4,6 +4,7 @@ import base64
 import importlib.util
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -22,7 +23,10 @@ KATTAPPA_LANGUAGE_CONTRACT = {
     "secondary_spoken_language": "English",
     "text_output_language": "English",
     "voice_prompt_policy": "Spoken voice prompts are Telugu-first with English support.",
-    "assistant_response_policy": "Typed assistant responses stay English-only; speech may add Telugu-first cues.",
+    "assistant_response_policy": (
+        "Typed assistant responses stay English-only; assistant response speech is rendered in Telugu "
+        "through a local-model translator when available, with a Telugu fallback summary when not available."
+    ),
 }
 
 KATTAPPA_VOICE_PROFILE = {
@@ -46,6 +50,23 @@ KATTAPPA_SPOKEN_PROMPTS = {
     "wake_prompt": "వింటున్నాను. Say Kattappa, Mama, or Kittu, then your command.",
     "wake_ack": "చెప్పండి. I am listening.",
     "command_ack": "సరే. Okay.",
+}
+
+TELUGU_SPEECH_PHRASES = {
+    "hi": "హాయ్.",
+    "hello": "హలో.",
+    "hey": "హే.",
+    "okay": "సరే.",
+    "i am ready.": "నేను సిద్ధంగా ఉన్నాను.",
+    "ready": "సిద్ధంగా ఉన్నాను.",
+    "i can help.": "నేను సహాయం చేయగలను.",
+    "no response returned.": "సమాధానం రాలేదు.",
+    "the approved task completed.": "ఆమోదించిన పని పూర్తయింది.",
+    "approval needed. approve to continue.": "అనుమతి అవసరం. మీరు ఆమోదించిన తర్వాత పని కొనసాగుతుంది.",
+    "kattappa ai os is running locally.": "కట్టప్ప ఏఐ ఓఎస్ ఈ కంప్యూటర్‌లో నడుస్తోంది.",
+    "hi, kattappa ai os is online and ready.": "హాయ్. కట్టప్ప ఏఐ ఓఎస్ ఆన్‌లైన్‌లో ఉంది, సిద్ధంగా ఉంది.",
+    "hello, kattappa ai os is online and ready.": "హలో. కట్టప్ప ఏఐ ఓఎస్ ఆన్‌లైన్‌లో ఉంది, సిద్ధంగా ఉంది.",
+    "hey, kattappa ai os is online and ready.": "హే. కట్టప్ప ఏఐ ఓఎస్ ఆన్‌లైన్‌లో ఉంది, సిద్ధంగా ఉంది.",
 }
 
 
@@ -84,9 +105,24 @@ def normalize_spoken_text(text: str, purpose: str = "assistant_response") -> str
         return ""
     if purpose in KATTAPPA_SPOKEN_PROMPTS:
         return KATTAPPA_SPOKEN_PROMPTS[purpose]
-    if purpose == "assistant_response" and not _contains_telugu(cleaned):
-        return f"సరే. {cleaned}"
+    if purpose == "assistant_response":
+        return render_assistant_reply_for_telugu_speech(cleaned)
     return cleaned
+
+
+def render_assistant_reply_for_telugu_speech(text: str) -> str:
+    cleaned = _speech_safe_text(text)
+    if not cleaned:
+        return ""
+    if _contains_telugu(cleaned):
+        return cleaned
+    phrase = _telugu_phrase(cleaned)
+    if phrase:
+        return phrase
+    translated = _translate_to_telugu_with_local_model(cleaned)
+    if translated:
+        return translated
+    return _telugu_fallback_summary(cleaned)
 
 
 def voice_pipeline_status() -> dict[str, object]:
@@ -138,6 +174,8 @@ def voice_pipeline_status() -> dict[str, object]:
             "primary_decision": "piper_local_model" if piper_ready else "pyttsx3_or_native_os",
             "active_fallback": "pyttsx3" if pyttsx3_installed else native_tts,
             "available": piper_ready or pyttsx3_installed or native_tts != "",
+            "assistant_response_language": "Telugu",
+            "translation_path": "local_ollama_telugu_renderer_with_phrase_fallback",
         },
         "profile": voice_profile(),
         "language_contract": voice_language_contract(),
@@ -492,6 +530,102 @@ def _piper_voice_model() -> Path | None:
         if models:
             return models[0]
     return None
+
+
+def _speech_safe_text(text: str) -> str:
+    if "```" in text or re.search(r"(?m)^\s{0,4}(def|class|function|const|let|var|import|from)\s+", text):
+        return (
+            "This reply contains code or technical steps. I prepared the full English answer in chat, "
+            "and I can explain any part if you ask."
+        )
+    without_links = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    without_markdown = re.sub(r"[*_`#>]+", "", without_links)
+    compact = " ".join(without_markdown.split())
+    max_chars = 1400
+    if len(compact) > max_chars:
+        compact = f"{compact[:max_chars].rsplit(' ', 1)[0]}. The rest is available in chat."
+    return compact
+
+
+def _telugu_phrase(text: str) -> str:
+    key = text.strip().lower()
+    if key in TELUGU_SPEECH_PHRASES:
+        return TELUGU_SPEECH_PHRASES[key]
+    if "backend is offline" in key:
+        return "బ్యాక్ ఎండ్ ఆఫ్‌లైన్‌లో ఉంది. కట్టప్పను ప్రారంభించి మళ్లీ పంపండి."
+    if "connection dropped" in key:
+        return "కనెక్షన్ ఆగిపోయింది. మీరు మళ్లీ పంపవచ్చు."
+    if "approval needed" in key:
+        return "అనుమతి అవసరం. మీరు ఆమోదించిన తర్వాత పని కొనసాగుతుంది."
+    if key in {"done", "completed", "finished"} or "completed" in key:
+        return "పని పూర్తయింది."
+    if "voice unavailable" in key:
+        return "వాయిస్ ప్రస్తుతం అందుబాటులో లేదు. మీరు సందేశం టైప్ చేయవచ్చు."
+    if "wake name needed" in key:
+        return "ముందుగా కట్టప్ప, మామా, లేదా కిట్టు అని పిలవండి."
+    if "working" in key or "processing" in key:
+        return "పని జరుగుతోంది."
+    return ""
+
+
+def _translate_to_telugu_with_local_model(text: str) -> str:
+    if os.getenv("KATTAPPA_VOICE_TRANSLATE_LOCAL_MODEL", "true").lower() in {"0", "false", "no", "off"}:
+        return ""
+    try:
+        import httpx
+        from backend.core.config import load_config
+    except Exception:
+        return ""
+    config = load_config()
+    model = os.getenv("KATTAPPA_VOICE_TRANSLATE_MODEL", config.model_map.get("fast", config.model_map["general"]))
+    prompt = (
+        "Translate this assistant reply into natural spoken Telugu for text-to-speech. "
+        "Keep product names, file names, commands, and code keywords in English only when needed. "
+        "Return only Telugu script text, no markdown, no explanation, no quotation marks.\n\n"
+        f"English reply:\n{text}"
+    )
+    try:
+        response = httpx.post(
+            f"{config.ollama_host}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You render Kattappa AI OS voice replies in Telugu. "
+                            "The visual chat remains English, but spoken output must be Telugu."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+                "options": {"num_predict": 260, "temperature": 0.1},
+            },
+            timeout=float(os.getenv("KATTAPPA_VOICE_TRANSLATE_TIMEOUT", "18")),
+        )
+        response.raise_for_status()
+        translated = response.json().get("message", {}).get("content", "").strip()
+    except Exception:
+        return ""
+    translated = _clean_translated_telugu(translated)
+    return translated if _contains_telugu(translated) else ""
+
+
+def _clean_translated_telugu(text: str) -> str:
+    cleaned = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"[*_`#>]+", "", cleaned)
+    cleaned = cleaned.strip().strip('"').strip("'")
+    return " ".join(cleaned.split())
+
+
+def _telugu_fallback_summary(text: str) -> str:
+    key = text.lower()
+    if "code" in key or "technical" in key:
+        return "నేను పూర్తి సాంకేతిక సమాధానాన్ని చాట్‌లో సిద్ధం చేశాను. ఏ భాగం కావాలో అడిగితే తెలుగులో వివరించగలను."
+    if "approval" in key:
+        return "ఈ పనికి అనుమతి అవసరం. మీరు ఆమోదించిన తర్వాత నేను కొనసాగుతాను."
+    return "సమాధానం సిద్ధంగా ఉంది. పూర్తి ఇంగ్లీష్ వివరాలు చాట్‌లో ఉన్నాయి. మీరు అడిగితే దానిని తెలుగులో మరింత వివరించగలను."
 
 
 def _contains_telugu(text: str) -> bool:

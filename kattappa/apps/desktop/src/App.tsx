@@ -21,6 +21,7 @@ import {
   fetchDashboardData,
   fetchHealth,
   fetchLongTasks,
+  rateChatMessage,
   removeClusterDiscoveryTarget,
   removeClusterNode,
   requestMissingInstalls as requestMissingInstallsRequest,
@@ -75,14 +76,38 @@ type QueuedTurn = {
 
 const VISUAL_GUIDANCE_AUTO_HIDE_MS = 6500;
 
+function parseMessageMetadata(metadata: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(metadata || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function metadataRating(metadata: Record<string, unknown>): 1 | -1 | undefined {
+  const rating = metadata.sage_feedback_rating ?? metadata.response_rating;
+  return rating === 1 || rating === -1 ? rating : undefined;
+}
+
+function storedMessageToChat(item: StoredMessage): Message {
+  const metadata = parseMessageMetadata(item.metadata);
+  return {
+    id: item.id,
+    role: item.role,
+    content: item.content,
+    agent: item.agent || undefined,
+    risk: item.risk || undefined,
+    rating: metadataRating(metadata),
+    metadata,
+  };
+}
+
 function storedMessagesToChat(stored: StoredMessage[]): Message[] {
   return stored.length
-    ? stored.map((item) => ({
-        role: item.role,
-        content: item.content,
-        agent: item.agent || undefined,
-        risk: item.risk || undefined,
-      }))
+    ? stored.map(storedMessageToChat)
     : initialMessages();
 }
 
@@ -587,6 +612,7 @@ function App() {
           return;
         }
         const message: Message = {
+          id: data.assistant_message_id || data.assistant_message?.id,
           role: data.type === "assistant" ? "assistant" : data.type,
           content: data.content,
           risk: data.risk_level,
@@ -760,6 +786,7 @@ function App() {
     try {
       const data = await sendChatMessage(text, sessionId ?? undefined);
       const assistantMessage: Message = {
+        id: data.assistant_message_id || data.assistant_message?.id,
         role: "assistant",
         content: data.response ?? "No response returned.",
         risk: data.state?.risk_level as string | undefined,
@@ -823,6 +850,7 @@ function App() {
     if (kind === "chat" && data.status === "completed") {
       const state = data.state ?? {};
       const assistantMessage: Message = {
+        id: data.assistant_message_id || data.assistant_message?.id,
         role: "assistant",
         content: data.response || "The approved task completed.",
         risk: state.risk_level as string | undefined,
@@ -847,6 +875,27 @@ function App() {
     refreshChatSessions();
     refreshApprovals();
     return !["approval_missing", "rejected", "waiting_for_approval"].includes(data.status);
+  };
+
+  const rateResponse = async (message: Message, rating: 1 | -1) => {
+    setMessages((prev) =>
+      prev.map((item) =>
+        (message.id ? item.id === message.id : item === message)
+          ? { ...item, rating }
+          : item,
+      ),
+    );
+    if (!message.id) return;
+    try {
+      const stored = await rateChatMessage(message.id, rating);
+      const updated = storedMessageToChat(stored);
+      setMessages((prev) =>
+        prev.map((item) => (item.id === stored.id ? { ...item, ...updated } : item)),
+      );
+      refreshChatSessions();
+    } catch {
+      setLiveStatus("Rating not saved");
+    }
   };
 
   const decideApproval = async (approvalId: string, status: "approved" | "rejected") => {
@@ -911,6 +960,7 @@ function App() {
             messagesEndRef={messagesEndRef}
             onInputChange={setInput}
             onSendMessage={sendMessage}
+            onRateResponse={rateResponse}
             onVoiceCommand={sendMessageText}
             onVoiceWake={acknowledgeVoiceWake}
             onVoiceNotice={showVoiceNotice}

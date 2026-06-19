@@ -10,6 +10,7 @@ type ChatPanelProps = {
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onInputChange: (input: string) => void;
   onSendMessage: () => void;
+  onRateResponse: (message: Message, rating: 1 | -1) => Promise<void> | void;
   onVoiceCommand: (command: string) => void;
   onVoiceWake: () => void;
   onVoiceNotice: (message: string) => void;
@@ -26,6 +27,7 @@ export function ChatPanel({
   messagesEndRef,
   onInputChange,
   onSendMessage,
+  onRateResponse,
   onVoiceCommand,
   onVoiceWake,
   onVoiceNotice,
@@ -43,24 +45,28 @@ export function ChatPanel({
   const lastSpokenIndexRef = useRef(-1);
   const speakNextAssistantRef = useRef(false);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
-  const [ratedMessages, setRatedMessages] = useState<Record<number, number>>({});
 
-  const handleSageFeedback = async (msg: Message, msgIndex: number, rating: number) => {
+  const handleResponseFeedback = async (msg: Message, msgIndex: number, rating: 1 | -1) => {
     const precedingUserMsg = messages
       .slice(0, msgIndex)
       .reverse()
       .find((m) => m.role === "user");
     const promptText = precedingUserMsg ? precedingUserMsg.content : "";
-    try {
-      await submitSageFeedback(promptText, msg.agent || "", rating);
-      setRatedMessages((prev) => ({ ...prev, [msgIndex]: rating }));
-    } catch (err) {
-      console.error("Feedback submission failed", err);
+    if (msg.agent?.startsWith("sage_")) {
+      try {
+        await submitSageFeedback(promptText, msg.agent || "", rating);
+      } catch (err) {
+        console.error("Feedback submission failed", err);
+      }
     }
+    await onRateResponse(msg, rating);
   };
 
-  const visibleMessages = messages.filter(
-    (message, index) => !(index === 0 && message.role === "system" && message.content === "Kattappa AI OS ready."),
+  const visibleMessages = messages
+    .map((message, originalIndex) => ({ message, originalIndex }))
+    .filter(
+      ({ message, originalIndex }) =>
+        !(originalIndex === 0 && message.role === "system" && message.content === "Kattappa AI OS ready."),
   );
   const canSend = input.trim().length > 0;
 
@@ -266,8 +272,8 @@ export function ChatPanel({
               </div>
             </section>
           )}
-          {visibleMessages.map((message, index) => (
-            <article key={index} className={`message ${message.role}`}>
+          {visibleMessages.map(({ message, originalIndex }) => (
+            <article key={message.id ?? originalIndex} className={`message ${message.role}`}>
               <div className="messageAvatar" aria-hidden="true">{getAvatar(message)}</div>
               <div className="messageBody">
                 <header>
@@ -275,28 +281,28 @@ export function ChatPanel({
                   {message.risk && <span>{message.risk}</span>}
                 </header>
                 <MessageContent content={message.content} />
-                {message.role === "assistant" && message.agent?.startsWith("sage_") && (
+                {message.role === "assistant" && message.content.trim() && (
                   <div className="sageFeedbackRow" style={{ display: "flex", gap: "0.8rem", marginTop: "0.5rem", fontSize: "0.8rem", alignItems: "center", opacity: 0.8 }}>
-                    {ratedMessages[index] !== undefined ? (
+                    {message.rating !== undefined ? (
                       <span style={{ color: "var(--accent-green, #4ade80)", display: "flex", alignItems: "center", gap: "0.2rem" }}>
-                        ✓ SAGE adapted ({ratedMessages[index] === 1 ? "Positive" : "Negative"})
+                        Rated ({message.rating === 1 ? "Helpful" : "Not helpful"})
                       </span>
                     ) : (
                       <>
                         <span style={{ opacity: 0.6 }}>Rate response:</span>
-                        <button 
-                          onClick={() => handleSageFeedback(message, index, 1)} 
+                        <button
+                          onClick={() => handleResponseFeedback(message, originalIndex, 1)}
                           style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent-green, #4ade80)", fontWeight: 500, padding: 0 }}
                           title="Rate Positive"
                         >
-                          👍 Helpful
+                          Helpful
                         </button>
-                        <button 
-                          onClick={() => handleSageFeedback(message, index, -1)} 
+                        <button
+                          onClick={() => handleResponseFeedback(message, originalIndex, -1)}
                           style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent-red, #f87171)", fontWeight: 500, padding: 0 }}
                           title="Rate Negative"
                         >
-                          👎 Not helpful
+                          Not helpful
                         </button>
                       </>
                     )}

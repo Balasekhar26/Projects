@@ -3,6 +3,7 @@ import json
 from fastapi.testclient import TestClient
 
 from backend.agents import desktop as desktop_module
+from backend.agents.evaluator import guard_interaction_reply, guard_relevance_reply
 from backend.agents.planner import route_task
 from backend import main as backend_main
 from backend.core import cluster_runtime as cluster_runtime_module
@@ -43,6 +44,7 @@ def test_voice_backend_pipeline_endpoints(monkeypatch) -> None:
     assert status["stt"]["fallback"] == "typed_chat"
     assert status["tts"]["preferred_engine"] == "piper"
     assert status["tts"]["primary_decision"] in {"piper_local_model", "pyttsx3_or_native_os"}
+    assert status["tts"]["assistant_response_language"] == "Telugu"
     assert status["language_contract"]["primary_spoken_language"] == "Telugu"
     assert status["language_contract"]["secondary_spoken_language"] == "English"
     assert status["language_contract"]["text_output_language"] == "English"
@@ -53,8 +55,8 @@ def test_voice_backend_pipeline_endpoints(monkeypatch) -> None:
     )
     assert speak_response.status_code == 200
     spoken = speak_response.json()
-    assert spoken["spoken_text"].startswith("సరే.")
-    assert spoken["result"].startswith("spoken:assistant_response:సరే.")
+    assert spoken["spoken_text"].startswith("నేను సిద్ధంగా")
+    assert spoken["result"].startswith("spoken:assistant_response:నేను సిద్ధంగా")
 
     parse_response = client.post("/voice/parse-wake", json={"transcript": "Mama check status"})
     assert parse_response.status_code == 200
@@ -62,6 +64,39 @@ def test_voice_backend_pipeline_endpoints(monkeypatch) -> None:
     assert parsed["wake_detected"] is True
     assert parsed["wake_name"] == "mama"
     assert parsed["command"] == "check status"
+
+
+def test_interaction_guard_repairs_bad_persona_reply(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.agents.evaluator.ask_model",
+        lambda *args, **kwargs: "I can help with that safely and clearly.",
+    )
+    reply = guard_interaction_reply(
+        "help me",
+        "I am JARVIS, a sarcastic British AI with complete diagnostic control.",
+    )
+    assert reply == "I can help with that safely and clearly."
+
+
+def test_relevance_guard_repairs_unrelated_reply(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.agents.evaluator.ask_model",
+        lambda *args, **kwargs: "Your message says Kattappa is not replying relatedly, so I will answer the latest message directly.",
+    )
+    reply = guard_relevance_reply(
+        "it is not reply relatedly to my message",
+        "Embedded systems are small computers built inside devices.",
+    )
+    assert "latest message directly" in reply
+    assert "unrelated memory" in reply
+
+
+def test_relevance_guard_keeps_related_reply() -> None:
+    reply = "Kattappa voice now speaks Telugu while the text reply stays English."
+    assert guard_relevance_reply(
+        "improve kattappa speaking voice telugu text reply english",
+        reply,
+    ) == reply
 
 
 def test_builder_analytics_is_local_and_free() -> None:
@@ -761,12 +796,45 @@ def test_local_chat_history_lifecycle() -> None:
     assert detail["item"]["title"] == "Kattappa Main Chat"
 
 
+def test_chat_message_rating_persists_in_history() -> None:
+    client = TestClient(app)
+    create_response = client.post("/chat-sessions", json={"title": "New chat"})
+    assert create_response.status_code == 200
+    session = create_response.json()["item"]
+
+    message_response = client.post(
+        f"/chat-sessions/{session['id']}/messages",
+        json={"role": "assistant", "content": "A clear answer.", "agent": "sage_teacher"},
+    )
+    assert message_response.status_code == 200
+    message = message_response.json()["item"]
+
+    rating_response = client.post(
+        f"/chat-messages/{message['id']}/rating",
+        json={"rating": 1},
+    )
+    assert rating_response.status_code == 200
+    updated = rating_response.json()["item"]
+    metadata = json.loads(updated["metadata"])
+    assert metadata["sage_feedback_rating"] == 1
+    assert metadata["response_rating"] == 1
+    assert metadata["rated_at"]
+
+    detail_response = client.get(f"/chat-sessions/{session['id']}")
+    assert detail_response.status_code == 200
+    stored_message = next(item for item in detail_response.json()["messages"] if item["id"] == message["id"])
+    stored_metadata = json.loads(stored_message["metadata"])
+    assert stored_metadata["sage_feedback_rating"] == 1
+
+
 def test_chat_uses_single_history_and_returns_related_messages() -> None:
     client = TestClient(app)
     first_response = client.post("/chat", json={"message": "explain embedded systems"})
     assert first_response.status_code == 200
     first_session = first_response.json()["session"]
     assert first_session["id"] == "kattappa-main-chat"
+    assert first_response.json()["assistant_message_id"]
+    assert first_response.json()["assistant_message"]["id"] == first_response.json()["assistant_message_id"]
 
     second_response = client.post("/chat", json={"message": "tell me more about embedded systems"})
     assert second_response.status_code == 200
@@ -1667,4 +1735,3 @@ def test_internet_hub_task_delegation() -> None:
     assert result_data["status"] == "completed"
     assert result_data["result"] == "sorting result output data"
     assert result_data["error"] is None
-

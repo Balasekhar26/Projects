@@ -69,8 +69,18 @@ def test_kattappa_voice_prompts_are_telugu_first_with_english_text_contract() ->
     assert voice_tools.normalize_spoken_text("Listening", "wake_prompt").startswith("వింటున్నాను.")
     assert voice_tools.normalize_spoken_text("Ready", "wake_ack").startswith("చెప్పండి.")
     assert voice_tools.normalize_spoken_text("Okay", "command_ack").startswith("సరే.")
-    assert voice_tools.normalize_spoken_text("I can help.", "assistant_response").startswith("సరే.")
+    assert voice_tools.normalize_spoken_text("I can help.", "assistant_response").startswith("నేను సహాయం")
     assert voice_tools.normalize_spoken_text("సరే. I can help.", "assistant_response") == "సరే. I can help."
+
+
+def test_kattappa_voice_uses_local_telugu_renderer_for_assistant_reply(monkeypatch) -> None:
+    monkeypatch.setattr(
+        voice_tools,
+        "_translate_to_telugu_with_local_model",
+        lambda text: "చాట్ మెమరీకి కనెక్ట్ అయింది.",
+    )
+    spoken = voice_tools.normalize_spoken_text("The chat memory is connected.", "assistant_response")
+    assert spoken == "చాట్ మెమరీకి కనెక్ట్ అయింది."
 
 
 def test_voice_pipeline_status_is_not_browser_primary() -> None:
@@ -87,6 +97,7 @@ def test_voice_pipeline_status_is_not_browser_primary() -> None:
     assert status["tts"]["preferred_engine"] == "piper"
     assert status["tts"]["primary_decision"] in {"piper_local_model", "pyttsx3_or_native_os"}
     assert status["tts"]["available"] in {True, False}
+    assert status["tts"]["assistant_response_language"] == "Telugu"
     assert status["language_contract"]["primary_spoken_language"] == "Telugu"
     assert status["language_contract"]["secondary_spoken_language"] == "English"
     assert status["language_contract"]["text_output_language"] == "English"

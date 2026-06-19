@@ -131,6 +131,10 @@ class ChatMessageRequest(BaseModel):
     metadata: str = "{}"
 
 
+class ChatMessageRatingRequest(BaseModel):
+    rating: int
+
+
 class MemoryRequest(BaseModel):
     text: str
     category: str = "general"
@@ -1087,7 +1091,7 @@ def _cluster_delegated_chat_payload(message: str) -> dict[str, object] | None:
             "operator_plan": None,
             "related_messages": [],
         }
-        memory.add_chat_message(
+        assistant_message = memory.add_chat_message(
             session["id"],
             "assistant",
             response,
@@ -1095,7 +1099,14 @@ def _cluster_delegated_chat_payload(message: str) -> dict[str, object] | None:
             risk=str(state["risk_level"]),
             metadata=_chat_state_metadata(state),
         )
-        return {"response": response, "state": state, "session": session}
+        return {
+            "response": response,
+            "state": state,
+            "session": session,
+            "user_message": user_message,
+            "assistant_message": assistant_message,
+            "assistant_message_id": assistant_message["id"],
+        }
     return None
 
 
@@ -1134,7 +1145,7 @@ def chat(request: ChatRequest) -> dict[str, object]:
         current_chat_message_id=user_message["id"],
         memory_query=clean_message,
     )
-    memory.add_chat_message(
+    assistant_message = memory.add_chat_message(
         session["id"],
         "assistant",
         str(state.get("result") or ""),
@@ -1143,7 +1154,14 @@ def chat(request: ChatRequest) -> dict[str, object]:
         metadata=_chat_state_metadata(state),
     )
     _trigger_voice_response(state)
-    return {"response": state.get("result"), "state": state, "session": session}
+    return {
+        "response": state.get("result"),
+        "state": state,
+        "session": session,
+        "user_message": user_message,
+        "assistant_message": assistant_message,
+        "assistant_message_id": assistant_message["id"],
+    }
 
 
 @app.websocket("/ws/chat")
@@ -1178,6 +1196,8 @@ async def chat_socket(websocket: WebSocket) -> None:
                     "operator_plan": state.get("operator_plan"),
                     "related_messages": state.get("related_messages", []),
                     "session_id": session.get("id"),
+                    "assistant_message_id": delegated_payload.get("assistant_message_id"),
+                    "assistant_message": delegated_payload.get("assistant_message"),
                 }
             )
             continue
@@ -1194,7 +1214,7 @@ async def chat_socket(websocket: WebSocket) -> None:
             current_chat_message_id=stored_user_message["id"],
             memory_query=clean_message,
         )
-        memory.add_chat_message(
+        assistant_message = memory.add_chat_message(
             session["id"],
             "assistant",
             str(state.get("result") or ""),
@@ -1221,6 +1241,8 @@ async def chat_socket(websocket: WebSocket) -> None:
                 "operator_plan": state.get("operator_plan"),
                 "related_messages": state.get("related_messages", []),
                 "session_id": session["id"],
+                "assistant_message_id": assistant_message["id"],
+                "assistant_message": assistant_message,
             }
         )
 
@@ -1263,6 +1285,19 @@ def add_chat_session_message(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item}
+
+
+@app.post("/chat-messages/{message_id}/rating")
+def rate_chat_message(
+    message_id: str, request: ChatMessageRatingRequest
+) -> dict[str, object]:
+    try:
+        item = memory.rate_chat_message(message_id, request.rating)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="Chat message not found")
     return {"item": item}
 
 

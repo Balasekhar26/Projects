@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from backend.core.memory import get_git_status, build_memory_context
+from backend.core.response_quality import response_looks_related, response_relevance_score
 from backend.agents.planner import parse_reasoning_plan
 from backend.agents.evaluator import detect_placeholders
 
@@ -51,6 +52,21 @@ def test_detect_placeholders():
     # Negative cases
     assert detect_placeholders("def foo():\n    print('Hello World')\n    return 42") is False
     assert detect_placeholders("This is a normal paragraph discussing programming tasks.") is False
+
+
+def test_response_quality_detects_unrelated_drafts():
+    assert response_looks_related(
+        "improve kattappa voice telugu speech",
+        "Kattappa voice now speaks Telugu for assistant replies.",
+    )
+    assert not response_looks_related(
+        "it is not reply relatedly to my message",
+        "Embedded systems are computers inside physical products.",
+    )
+    assert response_relevance_score(
+        "rate response option every message",
+        "Every assistant message now shows the rate response option.",
+    ) > 0.4
 
 
 def test_trigger_voice_response(monkeypatch):

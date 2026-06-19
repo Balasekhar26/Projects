@@ -1,10 +1,13 @@
 export type Message = {
+  id?: string;
   role: "user" | "assistant" | "system" | "progress";
   content: string;
   risk?: string;
   agent?: string;
   routingReason?: string;
   approvalId?: string;
+  rating?: 1 | -1;
+  metadata?: Record<string, unknown>;
   relatedMessages?: RelatedChatMessage[];
   operatorPlan?: OperatorPlan;
 };
@@ -108,6 +111,8 @@ export type ApprovalContinuationResult = {
   message?: string;
   response?: string;
   state?: Record<string, unknown>;
+  assistant_message?: StoredMessage;
+  assistant_message_id?: string;
   previous_result?: unknown;
   results?: unknown[];
   manual_steps?: string[];
