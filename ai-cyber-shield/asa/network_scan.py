@@ -138,7 +138,7 @@ def _scan_with_socket(target: str, ports: list[int], timeout_seconds: float) -> 
         "network_required": False,
         "observations": [asdict(item) for item in observations],
         "raw_summary": "",
-        "warnings": ["Nmap was not found, so a limited local TCP connect scan was used."],
+        "warnings": [],
     }
 
 

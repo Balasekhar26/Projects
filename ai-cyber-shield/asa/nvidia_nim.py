@@ -14,7 +14,7 @@ class NvidiaNimAdvisor:
         self.config = config
 
     def available(self) -> bool:
-        return self.config.nvidia_enabled and bool(self._api_key())
+        return self.config.nvidia_enabled
 
     def incident_guidance(self, events: list[dict[str, Any]]) -> str | None:
         if not self.available():
@@ -23,6 +23,9 @@ class NvidiaNimAdvisor:
         recent_events = summarize_events(events)
         if not recent_events:
             return None
+
+        if not self._api_key():
+            return self._local_defensive_triage(events)
 
         prompt = (
             "You are a defensive security incident triage assistant. "
@@ -75,6 +78,35 @@ class NvidiaNimAdvisor:
 
     def _api_key(self) -> str:
         return os.getenv(self.config.nvidia_api_key_env, "") or os.getenv("NVIDIA_API_KEY", "")
+
+    def _local_defensive_triage(self, events: list[dict[str, Any]]) -> str:
+        high_critical = [e for e in events if e.get("level") in {"high", "critical"}]
+        advice = [
+            "### Local Defensive Triage Advice (Offline Mode)",
+            "",
+            "**Assessed Threat Risk Level:** " + ("HIGH/CRITICAL" if high_critical else "LOW/MEDIUM"),
+            "",
+            "**Observations:**",
+        ]
+        if not events:
+            advice.append("- No recent security event indicators present in the logs.")
+        else:
+            components = sorted(list({e.get("component", "unknown") for e in events}))
+            for comp in components:
+                advice.append(f"- Active telemetry analyzed from component: `{comp}`")
+            
+            suspicious = [e for e in events if any(word in str(e).lower() for word in ["suspicious", "fail", "blocked"])]
+            if suspicious:
+                advice.append("- Risky process, port connection, or baseline deviation detected.")
+        
+        advice.extend([
+            "",
+            "**Immediate Defensive Steps:**",
+            "1. **IP Isolation:** For suspicious outbound connections, immediately block the remote IP address via localized firewall policies or the blocklist.",
+            "2. **Process Inspection:** Verify executable paths and verify signatures of flagged background processes.",
+            "3. **Hardening Checks:** Run `hardening-audit` to inspect for local system vulnerabilities.",
+        ])
+        return "\n".join(advice)
 
 
 def summarize_events(events: list[dict[str, Any]], limit: int = 20) -> str:

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import sys
+from unittest.mock import MagicMock
+sys.modules["optimum.bettertransformer"] = MagicMock()
+
 import importlib.util
 from dataclasses import dataclass
 from typing import Any
