@@ -55,14 +55,17 @@ def evaluator_node(state):
         state["result"] = final
         return _finalize_evaluator(state, final)
     else:
-        final = ask_model(
-            "Answer the user's request directly. Ignore unrelated memory. Do not greet unless the user greeted.\n\n"
-            f"User request:\n{state['user_input']}\n\nPlan:\n{state.get('plan')}\n\n"
-            f"Relevant memory, if any:\n{state.get('memory_context')}\n\nFinal answer:",
-            role="fast",
+        from backend.core.sage import SAGE
+        sage_decision = SAGE.decide(
+            state["user_input"],
+            context=f"Plan:\n{state.get('plan') or ''}\n\nRelevant memory:\n{state.get('memory_context') or ''}"
         )
+        final = sage_decision["result"]
+        state["selected_agent"] = sage_decision["selected_agent"]
+        state["logs"].append(f"sage: selected engine {sage_decision['selected_agent']} with score {sage_decision['score']}")
         if is_model_timeout(final):
             final = built_in_answer(state["user_input"]) or final
+
 
     # Self-Reflection / Code Verification pass
     if detect_placeholders(final):

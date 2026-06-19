@@ -398,6 +398,12 @@ class FinanceCsvForecastRequest(BaseModel):
     use_kronos: bool = False
 
 
+class SageFeedbackRequest(BaseModel):
+    user_input: str
+    source: str
+    rating: int
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -415,6 +421,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/sage/status")
+def get_sage_status() -> dict[str, object]:
+    from backend.core.sage import SageKnowledgeGraph, SageUserModel, SageArchetypeKernel
+    return {
+        "concepts": SageKnowledgeGraph.get_all_concepts(limit=50),
+        "profile": SageUserModel.get_profile(),
+        "weights": SageArchetypeKernel.get_weights()
+    }
+
+
+@app.post("/sage/feedback")
+def post_sage_feedback(request: SageFeedbackRequest) -> dict[str, object]:
+    from backend.core.sage import SAGE
+    return SAGE.learn_from(request.user_input, request.source, request.rating)
 
 
 import threading

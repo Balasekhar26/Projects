@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { fetchVoiceStatus, processVoiceAudio, speakWithLocalVoice } from "../lib/api";
+import { fetchVoiceStatus, processVoiceAudio, speakWithLocalVoice, submitSageFeedback } from "../lib/api";
 import type { Message, OperatorPlan } from "../types";
 
 type VoiceState = "idle" | "listening" | "processing" | "unsupported";
@@ -43,6 +43,22 @@ export function ChatPanel({
   const lastSpokenIndexRef = useRef(-1);
   const speakNextAssistantRef = useRef(false);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [ratedMessages, setRatedMessages] = useState<Record<number, number>>({});
+
+  const handleSageFeedback = async (msg: Message, msgIndex: number, rating: number) => {
+    const precedingUserMsg = messages
+      .slice(0, msgIndex)
+      .reverse()
+      .find((m) => m.role === "user");
+    const promptText = precedingUserMsg ? precedingUserMsg.content : "";
+    try {
+      await submitSageFeedback(promptText, msg.agent || "", rating);
+      setRatedMessages((prev) => ({ ...prev, [msgIndex]: rating }));
+    } catch (err) {
+      console.error("Feedback submission failed", err);
+    }
+  };
+
   const visibleMessages = messages.filter(
     (message, index) => !(index === 0 && message.role === "system" && message.content === "Kattappa AI OS ready."),
   );
@@ -75,7 +91,14 @@ export function ChatPanel({
 
   const getMessageName = (message: Message) => {
     if (message.role === "user") return "You";
-    if (message.role === "assistant") return message.agent || "Kattappa AI";
+    if (message.role === "assistant") {
+      const agent = message.agent || "";
+      if (agent === "sage_scientist") return "Kattappa (Scientist 🔬)";
+      if (agent === "sage_engineer") return "Kattappa (Engineer ⚙️)";
+      if (agent === "sage_teacher") return "Kattappa (Teacher 🎓)";
+      if (agent === "sage_poet") return "Kattappa (Poet 🎨)";
+      return agent || "Kattappa AI";
+    }
     if (message.role === "progress") return "Working";
     return "System";
   };
@@ -252,6 +275,33 @@ export function ChatPanel({
                   {message.risk && <span>{message.risk}</span>}
                 </header>
                 <MessageContent content={message.content} />
+                {message.role === "assistant" && message.agent?.startsWith("sage_") && (
+                  <div className="sageFeedbackRow" style={{ display: "flex", gap: "0.8rem", marginTop: "0.5rem", fontSize: "0.8rem", alignItems: "center", opacity: 0.8 }}>
+                    {ratedMessages[index] !== undefined ? (
+                      <span style={{ color: "var(--accent-green, #4ade80)", display: "flex", alignItems: "center", gap: "0.2rem" }}>
+                        ✓ SAGE adapted ({ratedMessages[index] === 1 ? "Positive" : "Negative"})
+                      </span>
+                    ) : (
+                      <>
+                        <span style={{ opacity: 0.6 }}>Rate response:</span>
+                        <button 
+                          onClick={() => handleSageFeedback(message, index, 1)} 
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent-green, #4ade80)", fontWeight: 500, padding: 0 }}
+                          title="Rate Positive"
+                        >
+                          👍 Helpful
+                        </button>
+                        <button 
+                          onClick={() => handleSageFeedback(message, index, -1)} 
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent-red, #f87171)", fontWeight: 500, padding: 0 }}
+                          title="Rate Negative"
+                        >
+                          👎 Not helpful
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
                 <ActionPlanCard plan={message.operatorPlan} />
               </div>
             </article>

@@ -325,6 +325,52 @@ class MemorySystem:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sage_concepts (
+                    id TEXT PRIMARY KEY,
+                    concept TEXT NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    connections TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sage_user_profile (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sage_archetypes (
+                    name TEXT PRIMARY KEY,
+                    weight REAL NOT NULL DEFAULT 0.2,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            # Seed default archetypes if they don't exist
+            cursor = conn.execute("SELECT COUNT(*) FROM sage_archetypes")
+            if cursor.fetchone()[0] == 0:
+                now = datetime.now().isoformat(timespec="seconds")
+                defaults = [
+                    ("Rama", 0.2, now),
+                    ("Krishna", 0.2, now),
+                    ("Brahma", 0.2, now),
+                    ("Shiva", 0.2, now),
+                    ("Kattappa", 0.2, now),
+                ]
+                conn.executemany(
+                    "INSERT INTO sage_archetypes (name, weight, updated_at) VALUES (?, ?, ?)",
+                    defaults
+                )
+
 
     def _ensure_column(
         self,

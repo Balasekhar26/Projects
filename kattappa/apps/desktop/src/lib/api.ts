@@ -342,3 +342,18 @@ export function fetchJarvisDiagnostics(): Promise<JarvisDiagnostics> {
   return requestJson<JarvisDiagnostics>("/settings/jarvis/diagnostics");
 }
 
+export interface SageStatus {
+  concepts: Array<{ id: string; concept: string; confidence: number; connections: string[] }>;
+  profile: { concise_preference: number; technical_preference: number; user_goals: string };
+  weights: Record<string, number>;
+}
+
+export function fetchSageStatus(): Promise<SageStatus> {
+  return requestJson<SageStatus>("/sage/status");
+}
+
+export function submitSageFeedback(userInput: string, source: string, rating: number): Promise<{ success: boolean; new_weights: Record<string, number> }> {
+  return postJson("/sage/feedback", { user_input: userInput, source, rating });
+}
+
+

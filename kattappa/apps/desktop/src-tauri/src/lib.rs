@@ -1,3 +1,4 @@
+// Force rebuild for latest assets
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     start_backend_if_needed();

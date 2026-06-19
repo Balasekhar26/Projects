@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchDiagnostics } from "../lib/api";
+import { fetchDiagnostics, fetchSageStatus } from "../lib/api";
+import type { SageStatus } from "../lib/api";
 import type {
   CapabilityLadder,
   FreeStack,
@@ -35,6 +36,7 @@ export function SystemDiagnostics({
   sourcePolicy,
 }: Props) {
   const [data, setData] = useState<DiagnosticsData | null>(null);
+  const [sage, setSage] = useState<SageStatus | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -42,9 +44,15 @@ export function SystemDiagnostics({
     setLoading(true);
     setError("");
     try {
-      setData(await fetchDiagnostics());
+      const [diagData, sageData] = await Promise.all([
+        fetchDiagnostics(),
+        fetchSageStatus()
+      ]);
+      setData(diagData);
+      setSage(sageData);
     } catch (exc) {
       setData(null);
+      setSage(null);
       setError(exc instanceof Error ? exc.message : "Diagnostics request failed.");
     } finally {
       setLoading(false);
@@ -54,6 +62,7 @@ export function SystemDiagnostics({
   useEffect(() => {
     refresh();
   }, []);
+
 
   const grouped = useMemo(() => groupFeatures(data?.platformSupport.features ?? []), [data]);
 
@@ -125,8 +134,100 @@ export function SystemDiagnostics({
               <span>logical CPUs</span>
             </article>
           </div>
+          {sage && (
+            <div className="sageDashboard" style={{ marginBottom: "2rem", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "1.5rem" }}>
+              <h3>SAGE Cognitive Brain</h3>
+              <p style={{ fontSize: "0.9rem", opacity: 0.8, marginBottom: "1.2rem" }}>
+                Self-Adaptive General Evolutionary Intelligence — profiling user habits, tracking knowledge confidence, and balancing archetype values.
+              </p>
+              
+              <div className="sageGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.2rem", marginBottom: "1.5rem" }}>
+                
+                {/* Archetype Personality Kernel */}
+                <div className="sageCard" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "1.2rem" }}>
+                  <h4 style={{ margin: "0 0 1rem 0", color: "var(--accent-primary, #6366f1)" }}>Value Archetypes</h4>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+                    {Object.entries(sage.weights).map(([name, weight]) => {
+                      const pct = Math.round((weight as number) * 100);
+                      let color = "#6366f1"; // Rama
+                      if (name === "Krishna") color = "#a855f7";
+                      if (name === "Brahma") color = "#f97316";
+                      if (name === "Shiva") color = "#ef4444";
+                      if (name === "Kattappa") color = "#eab308";
+                      return (
+                        <div key={name}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "0.2rem" }}>
+                            <span><strong>{name}</strong></span>
+                            <span>{pct}%</span>
+                          </div>
+                          <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: "4px", transition: "width 0.5s ease" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
-          <div className="diagnosticSummary">
+                {/* User Habits Profile */}
+                <div className="sageCard" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "1.2rem" }}>
+                  <h4 style={{ margin: "0 0 1rem 0", color: "var(--accent-primary, #6366f1)" }}>User Preferences Profile</h4>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "0.2rem" }}>
+                        <span>Conciseness Bias</span>
+                        <span>{Math.round(sage.profile.concise_preference * 100)}%</span>
+                      </div>
+                      <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden" }}>
+                        <div style={{ width: `${sage.profile.concise_preference * 100}%`, height: "100%", background: "var(--accent-cyan, #06b6d4)", borderRadius: "4px" }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "0.2rem" }}>
+                        <span>Technical Depth Bias</span>
+                        <span>{Math.round(sage.profile.technical_preference * 100)}%</span>
+                      </div>
+                      <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden" }}>
+                        <div style={{ width: `${sage.profile.technical_preference * 100}%`, height: "100%", background: "var(--accent-emerald, #10b981)", borderRadius: "4px" }} />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: "0.8rem", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.8rem" }}>
+                      <span style={{ opacity: 0.6 }}>Active User Goal:</span>
+                      <p style={{ margin: "0.2rem 0 0 0", fontStyle: "italic", opacity: 0.9 }}>{sage.profile.user_goals}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Knowledge Graph Concepts */}
+                <div className="sageCard" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "1.2rem" }}>
+                  <h4 style={{ margin: "0 0 1rem 0", color: "var(--accent-primary, #6366f1)" }}>Semantic Knowledge Graph</h4>
+                  {sage.concepts.length === 0 ? (
+                    <p style={{ fontSize: "0.85rem", opacity: 0.6, margin: 0 }}>No concepts learned yet. Start chatting to build the knowledge graph.</p>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: "150px", overflowY: "auto" }}>
+                      {sage.concepts.slice(0, 8).map((concept: any) => {
+                        const pct = Math.round(concept.confidence * 100);
+                        return (
+                          <div key={concept.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                            <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{concept.concept}</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", width: "120px" }}>
+                              <div style={{ flex: 1, height: "6px", background: "rgba(255,255,255,0.06)", borderRadius: "3px", overflow: "hidden" }}>
+                                <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent-primary, #6366f1)", borderRadius: "3px" }} />
+                              </div>
+                              <span style={{ width: "30px", textAlign: "right", opacity: 0.7 }}>{pct}%</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          <div className="diagnosticSummary" style={{ marginBottom: "1.5rem" }}>
             <StatusCount label="Ready" count={grouped.ready.length} className="ready" />
             {grouped.degraded.length > 0 && <StatusCount label="Fallback" count={grouped.degraded.length} className="degraded" />}
             {grouped.missing.length > 0 && <StatusCount label="Missing" count={grouped.missing.length} className="missing" />}
