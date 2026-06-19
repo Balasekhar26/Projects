@@ -3,6 +3,7 @@ import json
 from fastapi.testclient import TestClient
 
 from backend.agents import desktop as desktop_module
+from backend.agents.evaluator import guard_interaction_reply
 from backend.agents.planner import route_task
 from backend import main as backend_main
 from backend.core import cluster_runtime as cluster_runtime_module
@@ -43,6 +44,7 @@ def test_voice_backend_pipeline_endpoints(monkeypatch) -> None:
     assert status["stt"]["fallback"] == "typed_chat"
     assert status["tts"]["preferred_engine"] == "piper"
     assert status["tts"]["primary_decision"] in {"piper_local_model", "pyttsx3_or_native_os"}
+    assert status["tts"]["assistant_response_language"] == "Telugu"
     assert status["language_contract"]["primary_spoken_language"] == "Telugu"
     assert status["language_contract"]["secondary_spoken_language"] == "English"
     assert status["language_contract"]["text_output_language"] == "English"
@@ -53,8 +55,8 @@ def test_voice_backend_pipeline_endpoints(monkeypatch) -> None:
     )
     assert speak_response.status_code == 200
     spoken = speak_response.json()
-    assert spoken["spoken_text"].startswith("సరే.")
-    assert spoken["result"].startswith("spoken:assistant_response:సరే.")
+    assert spoken["spoken_text"].startswith("నేను సిద్ధంగా")
+    assert spoken["result"].startswith("spoken:assistant_response:నేను సిద్ధంగా")
 
     parse_response = client.post("/voice/parse-wake", json={"transcript": "Mama check status"})
     assert parse_response.status_code == 200
@@ -62,6 +64,18 @@ def test_voice_backend_pipeline_endpoints(monkeypatch) -> None:
     assert parsed["wake_detected"] is True
     assert parsed["wake_name"] == "mama"
     assert parsed["command"] == "check status"
+
+
+def test_interaction_guard_repairs_bad_persona_reply(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.agents.evaluator.ask_model",
+        lambda *args, **kwargs: "I can help with that safely and clearly.",
+    )
+    reply = guard_interaction_reply(
+        "help me",
+        "I am JARVIS, a sarcastic British AI with complete diagnostic control.",
+    )
+    assert reply == "I can help with that safely and clearly."
 
 
 def test_builder_analytics_is_local_and_free() -> None:

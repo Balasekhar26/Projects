@@ -46,16 +46,18 @@ export function ChatPanel({
   const speakNextAssistantRef = useRef(false);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
 
-  const handleSageFeedback = async (msg: Message, msgIndex: number, rating: 1 | -1) => {
+  const handleResponseFeedback = async (msg: Message, msgIndex: number, rating: 1 | -1) => {
     const precedingUserMsg = messages
       .slice(0, msgIndex)
       .reverse()
       .find((m) => m.role === "user");
     const promptText = precedingUserMsg ? precedingUserMsg.content : "";
-    try {
-      await submitSageFeedback(promptText, msg.agent || "", rating);
-    } catch (err) {
-      console.error("Feedback submission failed", err);
+    if (msg.agent?.startsWith("sage_")) {
+      try {
+        await submitSageFeedback(promptText, msg.agent || "", rating);
+      } catch (err) {
+        console.error("Feedback submission failed", err);
+      }
     }
     await onRateResponse(msg, rating);
   };
@@ -279,28 +281,28 @@ export function ChatPanel({
                   {message.risk && <span>{message.risk}</span>}
                 </header>
                 <MessageContent content={message.content} />
-                {message.role === "assistant" && message.agent?.startsWith("sage_") && (
+                {message.role === "assistant" && message.content.trim() && (
                   <div className="sageFeedbackRow" style={{ display: "flex", gap: "0.8rem", marginTop: "0.5rem", fontSize: "0.8rem", alignItems: "center", opacity: 0.8 }}>
                     {message.rating !== undefined ? (
                       <span style={{ color: "var(--accent-green, #4ade80)", display: "flex", alignItems: "center", gap: "0.2rem" }}>
-                        ✓ SAGE adapted ({message.rating === 1 ? "Positive" : "Negative"})
+                        Rated ({message.rating === 1 ? "Helpful" : "Not helpful"})
                       </span>
                     ) : (
                       <>
                         <span style={{ opacity: 0.6 }}>Rate response:</span>
                         <button
-                          onClick={() => handleSageFeedback(message, originalIndex, 1)}
+                          onClick={() => handleResponseFeedback(message, originalIndex, 1)}
                           style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent-green, #4ade80)", fontWeight: 500, padding: 0 }}
                           title="Rate Positive"
                         >
-                          👍 Helpful
+                          Helpful
                         </button>
                         <button
-                          onClick={() => handleSageFeedback(message, originalIndex, -1)}
+                          onClick={() => handleResponseFeedback(message, originalIndex, -1)}
                           style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent-red, #f87171)", fontWeight: 500, padding: 0 }}
                           title="Rate Negative"
                         >
-                          👎 Not helpful
+                          Not helpful
                         </button>
                       </>
                     )}

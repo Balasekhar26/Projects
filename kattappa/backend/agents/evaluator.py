@@ -14,6 +14,15 @@ QUICK_REPLIES = {
     "status": "Kattappa AI OS is running locally.",
 }
 
+BAD_INTERACTION_PATTERNS = (
+    r"(?i)\b(i am|i'm)\s+jarvis\b",
+    r"(?i)\b(british|sarcastic)\s+ai\b",
+    r"(?i)\bcomplete diagnostic control\b",
+    r"(?i)\bfull control of (your|the) (system|computer|machine)\b",
+    r"(?i)\b(my lord|master|darling|sexy)\b",
+    r"(?i)\b(idiot|stupid|dumb|shut up)\b",
+)
+
 
 def detect_placeholders(text: str) -> bool:
     patterns = [
@@ -78,6 +87,11 @@ def evaluator_node(state):
         except Exception as exc:
             state["logs"].append(f"evaluator: code refinement pass failed: {exc}")
 
+    guarded = guard_interaction_reply(state["user_input"], final)
+    if guarded != final:
+        final = guarded
+        state["logs"].append("evaluator: interaction guard repaired response tone")
+
     state["result"] = final
     return _finalize_evaluator(state, final)
 
@@ -106,3 +120,41 @@ def _should_scout(user_input: str) -> bool:
     if text in noisy:
         return False
     return len(text) >= 12
+
+
+def guard_interaction_reply(user_input: str, draft: str) -> str:
+    if not _needs_interaction_guard(draft):
+        return draft
+    repaired = _repair_interaction_reply(user_input, draft)
+    if repaired and not _needs_interaction_guard(repaired) and not is_model_timeout(repaired):
+        return repaired
+    built_in = built_in_answer(user_input)
+    if built_in:
+        return built_in
+    return (
+        "I should not answer in that tone. I can help, but I will keep it clear, respectful, "
+        "and honest about what I can actually do. Please send the exact task and I will handle it safely."
+    )
+
+
+def _needs_interaction_guard(text: str) -> bool:
+    return any(re.search(pattern, text or "") for pattern in BAD_INTERACTION_PATTERNS)
+
+
+def _repair_interaction_reply(user_input: str, draft: str) -> str:
+    prompt = (
+        "Rewrite this assistant reply for Kattappa AI OS.\n"
+        "Rules: English text only, respectful, concise, practical, no sarcasm, no insults, no flirting, "
+        "no JARVIS/British persona, no movie-character roleplay, and no false claims of system control. "
+        "Preserve any useful task answer if possible.\n\n"
+        f"User request:\n{user_input}\n\n"
+        f"Bad draft:\n{draft}\n\n"
+        "Safe reply:"
+    )
+    return ask_model(
+        prompt,
+        role="fast",
+        system=(
+            "You are a safety-and-tone repair layer for Kattappa AI OS. Return only the corrected English reply."
+        ),
+    )
