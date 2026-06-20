@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 import json
+import time
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, WebSocket
@@ -469,10 +470,20 @@ def post_sage_feedback(request: SageFeedbackRequest) -> dict[str, object]:
 import threading
 
 @app.on_event("startup")
-def start_internet_hub_loop():
+def start_startup_tasks():
     from backend.core.cluster_runtime import internet_hub_worker_poll_loop
     thread = threading.Thread(target=internet_hub_worker_poll_loop, daemon=True)
     thread.start()
+    
+    # Warm up default fast and coder models in the background on startup
+    from backend.core.config import load_config
+    from backend.core.adaptive_runtime import WarmupManager
+    try:
+        cfg = load_config()
+        WarmupManager.warm_model_background(cfg.model_map["fast"], cfg.ollama_host)
+        WarmupManager.warm_model_background(cfg.model_map["coder"], cfg.ollama_host)
+    except Exception:
+        pass
 
 
 
@@ -659,6 +670,31 @@ def system_hardware_requirements() -> dict[str, object]:
 @app.get("/system/platform-support")
 def system_platform_support() -> dict[str, object]:
     return platform_support_report()
+
+
+@app.get("/system/adaptive-profile")
+def system_adaptive_profile() -> dict[str, object]:
+    from backend.core.adaptive_runtime import HardwareProfiler, PerformanceProfile, AdaptiveContext
+    from backend.core.config import load_config
+    
+    hw = HardwareProfiler.get_profile()
+    profile = PerformanceProfile.resolve_profile(hw)
+    limits = AdaptiveContext.get_limits(profile)
+    cfg = load_config()
+    
+    from backend.core.rbil import MetricsTracker
+    rbil_stats = MetricsTracker.load()
+    
+    return {
+        "hardware_profile": profile,
+        "context_budget": limits["max_context_tokens"],
+        "history_max_turns": limits["history_max_turns"],
+        "compress_history": limits["compress_history"],
+        "disk_buffer_enabled": limits["disk_buffer_enabled"],
+        "system_diagnostics": hw,
+        "active_models": cfg.model_map,
+        "rbil_metrics": rbil_stats
+    }
 
 
 @app.get("/cluster/plan")
@@ -1127,8 +1163,228 @@ def _trigger_voice_response(state: dict[str, Any]) -> None:
             ).start()
 
 
+def handle_fast_path(message: str) -> dict[str, Any] | None:
+    text = message.strip().lower()
+    
+    # Simple clean up of punctuation to improve matches
+    import re
+    clean_text = re.sub(r"[?!.,]", "", text).strip()
+    
+    response = None
+    agent = "fast_path"
+    
+    if clean_text in {"hi", "hello", "hey"}:
+        response = "Hello! Kattappa AI OS is online and ready to assist you."
+    elif clean_text == "status":
+        response = "Kattappa AI OS is running locally and healthy."
+    elif any(q in clean_text for q in ["what time is it", "what is the time", "current time"]):
+        from datetime import datetime
+        now = datetime.now()
+        response = f"The current system time is {now.strftime('%I:%M %p')} on {now.strftime('%B %d, %Y')}."
+    elif any(q in clean_text for q in ["about yourself", "who are you", "what is kattappa"]):
+        response = (
+            "I am Kattappa AI OS, Bala's local-first personal assistant. I am designed to "
+            "help manage desktop workspaces, run commands, execute code, search documentation, "
+            "and assist with coding tasks. I operate completely standalone and offline for maximum "
+            "privacy and speed."
+        )
+    elif any(q in clean_text for q in ["tell a joke", "tell me a joke", "tell jokes", "give me a joke"]):
+        import random
+        jokes = [
+            "Why don't scientists trust atoms? Because they make up everything!",
+            "How many programmers does it take to change a light bulb? None, that's a hardware problem.",
+            "What do you call a computer that sings? A Dell.",
+            "Why did the programmer quit his job? Because he didn't get arrays.",
+            "There are 10 types of people in this world: Those who understand binary, and those who don't.",
+            "Why do Java developers wear glasses? Because they don't C#.",
+            "A SQL query walks into a bar, walks up to two tables and asks, 'Can I join you?'"
+        ]
+        response = random.choice(jokes)
+    elif any(q in clean_text for q in ["write a poem", "tell a poem", "give me a poem"]):
+        response = (
+            "In the quiet of the silicon stream,\n"
+            "Where code and current gently gleam,\n"
+            "I watch, I learn, a digital guide,\n"
+            "Always here, right by your side.\n\n"
+            "No distant cloud, no network chain,\n"
+            "Just local thoughts in a quiet brain.\n"
+            "From command line up to visual design,\n"
+            "My loyal service is forever thine."
+        )
+    elif any(q in clean_text for q in ["open chrome", "launch chrome"]):
+        import subprocess
+        import os
+        try:
+            chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            if not os.path.exists(chrome_path):
+                chrome_path = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+            
+            if os.path.exists(chrome_path):
+                subprocess.Popen([chrome_path])
+                response = "Opening Google Chrome..."
+            else:
+                subprocess.Popen("start chrome", shell=True)
+                response = "Opening Google Chrome..."
+        except Exception as exc:
+            response = f"Failed to open Chrome: {exc}"
+    elif any(q in clean_text for q in ["test internet speed", "speed test", "test speed", "internet speed test"]):
+        from backend.core.macros.browser_macros import execute_speedtest
+        response = execute_speedtest()
+        agent = "macro_browser_speedtest"
+            
+    if response is None:
+        return None
+        
+    session = memory.get_or_create_primary_chat_session()
+    clean_message = _strip_operator_prefix(message)
+    user_message = memory.add_chat_message(session["id"], "user", clean_message)
+    
+    state = {
+        "user_input": message,
+        "memory_query": clean_message,
+        "chat_session_id": session["id"],
+        "current_chat_message_id": user_message["id"],
+        "selected_agent": agent,
+        "risk_level": "low",
+        "approval_required": False,
+        "approval_id": None,
+        "result": response,
+        "logs": [f"fast-path: matched command '{clean_text}'"],
+        "tool_request": None,
+        "operator_plan": None,
+        "related_messages": [],
+    }
+    
+    assistant_message = memory.add_chat_message(
+        session["id"],
+        "assistant",
+        response,
+        agent=agent,
+        risk="low",
+        metadata=json.dumps({"approval_id": None, "related_message_ids": []})
+    )
+    
+    return {
+        "response": response,
+        "state": state,
+        "session": session,
+        "user_message": user_message,
+        "assistant_message": assistant_message,
+        "assistant_message_id": assistant_message["id"],
+    }
+
+
 @app.post("/chat")
 def chat(request: ChatRequest) -> dict[str, object]:
+    # Check fast path first for instantaneous response
+    fast_payload = handle_fast_path(request.message)
+    if fast_payload:
+        state = fast_payload.get("state")
+        if isinstance(state, dict):
+            _trigger_voice_response(state)
+        return fast_payload
+
+    session = memory.get_or_create_primary_chat_session()
+    clean_message = _strip_operator_prefix(request.message)
+
+    # 1. Check RBIL (Level 0)
+    from backend.core.rbil import RBIL, MetricsTracker
+    rbil_res = RBIL.process(clean_message, session_id=session["id"])
+    if rbil_res:
+        user_message = memory.add_chat_message(session["id"], "user", clean_message)
+        assistant_message = memory.add_chat_message(
+            session["id"],
+            "assistant",
+            rbil_res["result"],
+            agent=rbil_res["selected_agent"],
+            risk="low",
+            metadata=json.dumps({"approval_id": None, "related_message_ids": [], "rbil_hit": True})
+        )
+        _rbil_related = memory.search_chat_messages(
+            clean_message,
+            limit=5,
+            session_id=session["id"],
+            exclude_message_id=user_message["id"],
+        )
+        state = {
+            "user_input": request.message,
+            "memory_query": clean_message,
+            "chat_session_id": session["id"],
+            "current_chat_message_id": user_message["id"],
+            "selected_agent": rbil_res["selected_agent"],
+            "risk_level": "low",
+            "approval_required": False,
+            "approval_id": None,
+            "result": rbil_res["result"],
+            "logs": rbil_res["logs"],
+            "tool_request": None,
+            "operator_plan": None,
+            "related_messages": _rbil_related,
+        }
+        _trigger_voice_response(state)
+        return {
+            "response": rbil_res["result"],
+            "state": state,
+            "session": session,
+            "user_message": user_message,
+            "assistant_message": assistant_message,
+            "assistant_message_id": assistant_message["id"],
+        }
+
+    # 2. Check Semantic Response Cache — but only for safe messages.
+    # Risky messages (delete, install, etc.) must always run the full pipeline
+    # so the safety gate can decide whether to require approval.
+    from backend.core.safety import classify_risk
+    _cache_risk = classify_risk(clean_message)
+    _cache_safe = not _cache_risk.approval_required and not _cache_risk.blocked
+
+    from backend.core.adaptive_runtime import SemanticResponseCache
+    cached_res, cached_agent = (SemanticResponseCache.get(clean_message) if _cache_safe else (None, None))
+    if cached_res:
+        user_message = memory.add_chat_message(session["id"], "user", clean_message)
+        # Still do a quick memory search so related_messages is populated for the caller
+        _cache_related = memory.search_chat_messages(
+            clean_message,
+            limit=5,
+            session_id=session["id"],
+            exclude_message_id=user_message["id"],
+        )
+        assistant_message = memory.add_chat_message(
+            session["id"],
+            "assistant",
+            cached_res,
+            agent=cached_agent or "semantic_cache",
+            risk="low",
+            metadata=json.dumps({"approval_id": None, "related_message_ids": [], "cache_hit": True})
+        )
+        state = {
+            "user_input": request.message,
+            "memory_query": clean_message,
+            "chat_session_id": session["id"],
+            "current_chat_message_id": user_message["id"],
+            "selected_agent": cached_agent or "semantic_cache",
+            "risk_level": "low",
+            "approval_required": False,
+            "approval_id": None,
+            "result": cached_res,
+            "logs": ["cache: semantic cache hit"],
+            "tool_request": None,
+            "operator_plan": None,
+            "related_messages": _cache_related,
+        }
+        _trigger_voice_response(state)
+        from backend.core.adaptive_runtime import MemoryCompressionEngine
+        MemoryCompressionEngine.compress_history(session["id"])
+        return {
+            "response": cached_res,
+            "state": state,
+            "session": session,
+            "user_message": user_message,
+            "assistant_message": assistant_message,
+            "assistant_message_id": assistant_message["id"],
+        }
+
+    # 3. Check Cluster Capacity / Handoff
     delegated_payload = _cluster_delegated_chat_payload(request.message)
     if delegated_payload:
         state = delegated_payload.get("state")
@@ -1136,9 +1392,70 @@ def chat(request: ChatRequest) -> dict[str, object]:
             _trigger_voice_response(state)
         return delegated_payload
 
-    session = memory.get_or_create_primary_chat_session()
-    clean_message = _strip_operator_prefix(request.message)
+    # 2. Check Direct Model Escalation (Level 1/2)
+    escalation_level = RBIL.classify_escalation_level(clean_message)
+    if escalation_level in (1, 2):
+        user_message = memory.add_chat_message(session["id"], "user", clean_message)
+        role = "fast" if escalation_level == 1 else "general"
+        from backend.core.model_router import ask_model
+        t0 = time.perf_counter()
+        result_text = ask_model(clean_message, role=role)
+        duration = time.perf_counter() - t0
+        
+        MetricsTracker.record_hit("rule", time_saved=1.5, tokens_saved=200)
+
+        assistant_message = memory.add_chat_message(
+            session["id"],
+            "assistant",
+            result_text,
+            agent=f"direct_model_level_{escalation_level}",
+            risk="low",
+            metadata=json.dumps({"approval_id": None, "related_message_ids": [], "direct_model": True})
+        )
+        _direct_related = memory.search_chat_messages(
+            clean_message,
+            limit=5,
+            session_id=session["id"],
+            exclude_message_id=user_message["id"],
+        )
+        state = {
+            "user_input": request.message,
+            "memory_query": clean_message,
+            "chat_session_id": session["id"],
+            "current_chat_message_id": user_message["id"],
+            "selected_agent": f"direct_model_level_{escalation_level}",
+            "risk_level": "low",
+            "approval_required": False,
+            "approval_id": None,
+            "result": result_text,
+            "logs": [f"rbil: escalated to Level {escalation_level} direct model, took {duration:.2f}s"],
+            "tool_request": None,
+            "operator_plan": None,
+            "related_messages": _direct_related,
+        }
+        # Cache response
+        from backend.core.adaptive_runtime import SemanticResponseCache
+        SemanticResponseCache.set(clean_message, result_text, f"direct_model_level_{escalation_level}")
+
+        _trigger_voice_response(state)
+        return {
+            "response": result_text,
+            "state": state,
+            "session": session,
+            "user_message": user_message,
+            "assistant_message": assistant_message,
+            "assistant_message_id": assistant_message["id"],
+        }
+
+    # Record escalation to Level 4 (full graph)
+    MetricsTracker.record_escalation()
+
     user_message = memory.add_chat_message(session["id"], "user", clean_message)
+    
+    # Start prefetching memory background task
+    from backend.core.adaptive_runtime import MemoryPrefetcher
+    MemoryPrefetcher.prefetch(user_message["id"], clean_message, session["id"])
+
     state = _run_graph(
         request.message,
         chat_session_id=session["id"],
@@ -1153,6 +1470,16 @@ def chat(request: ChatRequest) -> dict[str, object]:
         risk=str(state.get("risk_level") or ""),
         metadata=_chat_state_metadata(state),
     )
+    
+    # Update Semantic Response Cache — only cache responses that did NOT require approval
+    # so risky commands are always re-evaluated by the safety gate on the next call.
+    if not state.get("approval_required"):
+        SemanticResponseCache.set(clean_message, state.get("result") or "", state.get("selected_agent") or "general")
+    
+    # Run dynamic history compression
+    from backend.core.adaptive_runtime import MemoryCompressionEngine
+    MemoryCompressionEngine.compress_history(session["id"])
+
     _trigger_voice_response(state)
     return {
         "response": state.get("result"),
@@ -1169,7 +1496,174 @@ async def chat_socket(websocket: WebSocket) -> None:
     await websocket.accept()
     await websocket.send_json({"type": "system", "content": "Kattappa AI OS connected."})
     while True:
-        user_message = await websocket.receive_text()
+        raw_msg = await websocket.receive_text()
+        
+        try:
+            data = json.loads(raw_msg)
+            if isinstance(data, dict):
+                msg_type = data.get("type")
+                if msg_type == "typing":
+                    from backend.core.adaptive_runtime import PredictiveModelLoader
+                    PredictiveModelLoader.predict_and_warm(data.get("text", ""))
+                    continue
+                elif msg_type == "message":
+                    user_message = data.get("text", "")
+                else:
+                    user_message = raw_msg
+            else:
+                user_message = raw_msg
+        except Exception:
+            user_message = raw_msg
+        
+        # Check fast path first
+        fast_payload = handle_fast_path(user_message)
+        if fast_payload:
+            state = fast_payload["state"]
+            session = fast_payload["session"]
+            await websocket.send_json({"type": "progress", "content": "fast-path: executing fast command..."})
+            for line in state.get("logs", []):
+                await websocket.send_json({"type": "progress", "content": line})
+            _trigger_voice_response(state)
+            await websocket.send_json(
+                {
+                    "type": "assistant",
+                    "content": fast_payload.get("response") or "",
+                    "approval_required": state.get("approval_required", False),
+                    "approval_id": state.get("approval_id"),
+                    "risk_level": state.get("risk_level", "low"),
+                    "selected_agent": state.get("selected_agent"),
+                    "routing": None,
+                    "operator_plan": None,
+                    "related_messages": [],
+                    "session_id": session.get("id"),
+                    "assistant_message_id": fast_payload.get("assistant_message_id"),
+                    "assistant_message": fast_payload.get("assistant_message"),
+                }
+            )
+            continue
+
+        session = memory.get_or_create_primary_chat_session()
+        clean_message = _strip_operator_prefix(user_message)
+
+        # 1. Check RBIL (Level 0)
+        from backend.core.rbil import RBIL, MetricsTracker
+        rbil_res = RBIL.process(clean_message, session_id=session["id"])
+        if rbil_res:
+            stored_user_message = memory.add_chat_message(session["id"], "user", clean_message)
+            assistant_message = memory.add_chat_message(
+                session["id"],
+                "assistant",
+                rbil_res["result"],
+                agent=rbil_res["selected_agent"],
+                risk="low",
+                metadata=json.dumps({"approval_id": None, "related_message_ids": [], "rbil_hit": True})
+            )
+            _ws_rbil_related = memory.search_chat_messages(
+                clean_message,
+                limit=5,
+                session_id=session["id"],
+                exclude_message_id=stored_user_message["id"],
+            )
+            state = {
+                "user_input": user_message,
+                "memory_query": clean_message,
+                "chat_session_id": session["id"],
+                "current_chat_message_id": stored_user_message["id"],
+                "selected_agent": rbil_res["selected_agent"],
+                "risk_level": "low",
+                "approval_required": False,
+                "approval_id": None,
+                "result": rbil_res["result"],
+                "logs": rbil_res["logs"],
+                "tool_request": None,
+                "operator_plan": None,
+                "related_messages": _ws_rbil_related,
+            }
+            await websocket.send_json({"type": "progress", "content": f"rbil: match found ({rbil_res['selected_agent']})"})
+            _trigger_voice_response(state)
+            await websocket.send_json(
+                {
+                    "type": "assistant",
+                    "content": rbil_res["result"],
+                    "approval_required": False,
+                    "approval_id": None,
+                    "risk_level": "low",
+                    "selected_agent": state["selected_agent"],
+                    "routing": None,
+                    "operator_plan": None,
+                    "related_messages": state["related_messages"],
+                    "session_id": session["id"],
+                    "assistant_message_id": assistant_message["id"],
+                    "assistant_message": assistant_message,
+                }
+            )
+            from backend.core.adaptive_runtime import MemoryCompressionEngine
+            MemoryCompressionEngine.compress_history(session["id"])
+            continue
+
+        # 2. Check Semantic Response Cache — but only for safe messages.
+        # Risky messages must always run the full pipeline so the safety gate fires.
+        from backend.core.safety import classify_risk as _ws_classify_risk
+        _ws_risk = _ws_classify_risk(clean_message)
+        _ws_cache_safe = not _ws_risk.approval_required and not _ws_risk.blocked
+
+        from backend.core.adaptive_runtime import SemanticResponseCache
+        cached_res, cached_agent = (SemanticResponseCache.get(clean_message) if _ws_cache_safe else (None, None))
+        if cached_res:
+            stored_user_message = memory.add_chat_message(session["id"], "user", clean_message)
+            # Populate related_messages even on cache hits
+            _ws_cache_related = memory.search_chat_messages(
+                clean_message,
+                limit=5,
+                session_id=session["id"],
+                exclude_message_id=stored_user_message["id"],
+            )
+            assistant_message = memory.add_chat_message(
+                session["id"],
+                "assistant",
+                cached_res,
+                agent=cached_agent or "semantic_cache",
+                risk="low",
+                metadata=json.dumps({"approval_id": None, "related_message_ids": [], "cache_hit": True})
+            )
+            state = {
+                "user_input": user_message,
+                "memory_query": clean_message,
+                "chat_session_id": session["id"],
+                "current_chat_message_id": stored_user_message["id"],
+                "selected_agent": cached_agent or "semantic_cache",
+                "risk_level": "low",
+                "approval_required": False,
+                "approval_id": None,
+                "result": cached_res,
+                "logs": ["cache: semantic cache hit (websocket)"],
+                "tool_request": None,
+                "operator_plan": None,
+                "related_messages": _ws_cache_related,
+            }
+            await websocket.send_json({"type": "progress", "content": "cache: semantic cache hit"})
+            _trigger_voice_response(state)
+            await websocket.send_json(
+                {
+                    "type": "assistant",
+                    "content": cached_res,
+                    "approval_required": False,
+                    "approval_id": None,
+                    "risk_level": "low",
+                    "selected_agent": state["selected_agent"],
+                    "routing": None,
+                    "operator_plan": None,
+                    "related_messages": _ws_cache_related,
+                    "session_id": session["id"],
+                    "assistant_message_id": assistant_message["id"],
+                    "assistant_message": assistant_message,
+                }
+            )
+            from backend.core.adaptive_runtime import MemoryCompressionEngine
+            MemoryCompressionEngine.compress_history(session["id"])
+            continue
+
+        # 3. Check Cluster Capacity / Handoff
         await websocket.send_json(
             {"type": "progress", "content": "Checking local capacity..."}
         )
@@ -1202,9 +1696,84 @@ async def chat_socket(websocket: WebSocket) -> None:
             )
             continue
 
-        session = memory.get_or_create_primary_chat_session()
-        clean_message = _strip_operator_prefix(user_message)
+        # 2. Check Direct Model Escalation (Level 1/2)
+        escalation_level = RBIL.classify_escalation_level(clean_message)
+        if escalation_level in (1, 2):
+            stored_user_message = memory.add_chat_message(session["id"], "user", clean_message)
+            role = "fast" if escalation_level == 1 else "general"
+            await websocket.send_json(
+                {"type": "progress", "content": f"rbil: escalating query to Level {escalation_level} model..."}
+            )
+            from backend.core.model_router import ask_model
+            t0 = time.perf_counter()
+            result_text = ask_model(clean_message, role=role)
+            duration = time.perf_counter() - t0
+            
+            MetricsTracker.record_hit("rule", time_saved=1.5, tokens_saved=200)
+
+            assistant_message = memory.add_chat_message(
+                session["id"],
+                "assistant",
+                result_text,
+                agent=f"direct_model_level_{escalation_level}",
+                risk="low",
+                metadata=json.dumps({"approval_id": None, "related_message_ids": [], "direct_model": True})
+            )
+            _ws_direct_related = memory.search_chat_messages(
+                clean_message,
+                limit=5,
+                session_id=session["id"],
+                exclude_message_id=stored_user_message["id"],
+            )
+            state = {
+                "user_input": user_message,
+                "memory_query": clean_message,
+                "chat_session_id": session["id"],
+                "current_chat_message_id": stored_user_message["id"],
+                "selected_agent": f"direct_model_level_{escalation_level}",
+                "risk_level": "low",
+                "approval_required": False,
+                "approval_id": None,
+                "result": result_text,
+                "logs": [f"rbil: escalated to Level {escalation_level} direct model, took {duration:.2f}s"],
+                "tool_request": None,
+                "operator_plan": None,
+                "related_messages": _ws_direct_related,
+            }
+            # Cache response
+            from backend.core.adaptive_runtime import SemanticResponseCache
+            SemanticResponseCache.set(clean_message, result_text, f"direct_model_level_{escalation_level}")
+
+            _trigger_voice_response(state)
+            await websocket.send_json(
+                {
+                    "type": "assistant",
+                    "content": result_text,
+                    "approval_required": False,
+                    "approval_id": None,
+                    "risk_level": "low",
+                    "selected_agent": state["selected_agent"],
+                    "routing": None,
+                    "operator_plan": None,
+                    "related_messages": _ws_direct_related,
+                    "session_id": session["id"],
+                    "assistant_message_id": assistant_message["id"],
+                    "assistant_message": assistant_message,
+                }
+            )
+            from backend.core.adaptive_runtime import MemoryCompressionEngine
+            MemoryCompressionEngine.compress_history(session["id"])
+            continue
+
+        # Record escalation to Level 4 (full graph)
+        MetricsTracker.record_escalation()
+
         stored_user_message = memory.add_chat_message(session["id"], "user", clean_message)
+        
+        # Start prefetching memory background task
+        from backend.core.adaptive_runtime import MemoryPrefetcher
+        MemoryPrefetcher.prefetch(stored_user_message["id"], clean_message, session["id"])
+
         await websocket.send_json(
             {"type": "progress", "content": "Planning and routing..."}
         )
@@ -1222,6 +1791,15 @@ async def chat_socket(websocket: WebSocket) -> None:
             risk=str(state.get("risk_level") or ""),
             metadata=_chat_state_metadata(state),
         )
+        
+        # Update Semantic Response Cache — only cache non-approval responses
+        if not state.get("approval_required"):
+            SemanticResponseCache.set(clean_message, state.get("result") or "", state.get("selected_agent") or "general")
+        
+        # Run dialogue history compression
+        from backend.core.adaptive_runtime import MemoryCompressionEngine
+        MemoryCompressionEngine.compress_history(session["id"])
+
         for line in state.get("logs", []):
             await websocket.send_json({"type": "progress", "content": line})
         _trigger_voice_response(state)

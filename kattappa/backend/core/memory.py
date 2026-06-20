@@ -72,6 +72,54 @@ class MemorySystem:
             )
         return self.collection
 
+    def _chat_collection(self) -> Any:
+        if not hasattr(self, "chat_col") or self.chat_col is None:
+            import chromadb
+            from chromadb.config import Settings as ChromaSettings
+            from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+
+            if self.chroma is None:
+                self.chroma = chromadb.PersistentClient(
+                    path=str(self.config.chroma_path),
+                    settings=ChromaSettings(anonymized_telemetry=False),
+                )
+            self.chat_col = self.chroma.get_or_create_collection(
+                "kattappa_chat_messages",
+                embedding_function=DefaultEmbeddingFunction(),
+            )
+            self._sync_chat_messages_to_chroma()
+        return self.chat_col
+
+    def _sync_chat_messages_to_chroma(self) -> None:
+        try:
+            col = self.chat_col
+            count = col.count()
+            with sqlite3.connect(self.config.sqlite_path) as conn:
+                rows = conn.execute("SELECT id, session_id, role, content, agent, risk, created_at FROM chat_messages").fetchall()
+            if len(rows) > count:
+                ids = []
+                docs = []
+                metadatas = []
+                for row in rows:
+                    ids.append(row[0])
+                    docs.append(row[3])
+                    metadatas.append({
+                        "session_id": row[1],
+                        "role": row[2],
+                        "agent": row[4],
+                        "risk": row[5],
+                        "created_at": row[6]
+                    })
+                chunk_size = 200
+                for i in range(0, len(ids), chunk_size):
+                    col.add(
+                        ids=ids[i:i+chunk_size],
+                        documents=docs[i:i+chunk_size],
+                        metadatas=metadatas[i:i+chunk_size]
+                    )
+        except Exception:
+            pass
+
     def _init_sqlite(self) -> None:
         with sqlite3.connect(self.config.sqlite_path) as conn:
             conn.execute(
@@ -473,6 +521,22 @@ class MemorySystem:
                 (message_id, session_id, role, content, agent, risk, metadata, now),
             )
             conn.execute("UPDATE chat_sessions SET updated_at = ? WHERE id = ?", (now, session_id))
+        
+        try:
+            self._chat_collection().add(
+                ids=[message_id],
+                documents=[content],
+                metadatas=[{
+                    "session_id": session_id,
+                    "role": role,
+                    "agent": agent,
+                    "risk": risk,
+                    "created_at": now
+                }]
+            )
+        except Exception:
+            pass
+
         return {
             "id": message_id,
             "session_id": session_id,
@@ -564,6 +628,60 @@ class MemorySystem:
         ]
 
     def search_chat_messages(
+        self,
+        query: str,
+        limit: int = 8,
+        session_id: str | None = None,
+        exclude_message_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        if not query.strip():
+            return []
+
+        try:
+            col = self._chat_collection()
+            if col.count() == 0:
+                return []
+
+            where_filter = {}
+            if session_id:
+                where_filter["session_id"] = session_id
+
+            results = col.query(
+                query_texts=[query],
+                n_results=limit + (1 if exclude_message_id else 0),
+                where=where_filter if where_filter else None
+            )
+
+            matches: list[dict[str, object]] = []
+            if results and results.get("documents") and results["documents"][0]:
+                documents = results["documents"][0]
+                ids = results["ids"][0]
+                metadatas = results["metadatas"][0]
+                distances = results["distances"][0]
+
+                for doc, msg_id, meta, dist in zip(documents, ids, metadatas, distances):
+                    if exclude_message_id and msg_id == exclude_message_id:
+                        continue
+                    # dist is L2/Cosine, map it to a score [0, 1]
+                    score = round(1.0 - min(dist, 1.0), 3)
+                    matches.append({
+                        "id": msg_id,
+                        "session_id": meta["session_id"],
+                        "session_title": "Active Chat",
+                        "role": meta["role"],
+                        "content": doc,
+                        "agent": meta["agent"],
+                        "risk": meta["risk"],
+                        "created_at": meta["created_at"],
+                        "score": score
+                    })
+
+            matches.sort(key=lambda item: (float(item["score"]), str(item["created_at"])), reverse=True)
+            return matches[:limit]
+        except Exception:
+            return self._search_chat_messages_sqlite_fallback(query, limit, session_id, exclude_message_id)
+
+    def _search_chat_messages_sqlite_fallback(
         self,
         query: str,
         limit: int = 8,
@@ -1366,7 +1484,16 @@ def recall(query: str, n_results: int = 5) -> list[str]:
     return memory.recall(query, n_results=n_results)
 
 
+_cached_git_status: str = ""
+_last_git_status_time: float = 0.0
+
+
 def get_git_status() -> str:
+    global _cached_git_status, _last_git_status_time
+    import time
+    now = time.time()
+    if now - _last_git_status_time < 30.0 and _cached_git_status:
+        return _cached_git_status
     import subprocess
     try:
         config = load_config()
@@ -1381,8 +1508,11 @@ def get_git_status() -> str:
         if res.returncode == 0:
             lines = res.stdout.strip().splitlines()
             if not lines:
-                return "Git workspace is clean."
-            return "Active changes in workspace:\n" + "\n".join(f"- {line}" for line in lines[:15])
+                _cached_git_status = "Git workspace is clean."
+            else:
+                _cached_git_status = "Active changes in workspace:\n" + "\n".join(f"- {line}" for line in lines[:15])
+            _last_git_status_time = now
+            return _cached_git_status
         return "Not a git repository or git command failed."
     except Exception as exc:
         return f"Could not retrieve git status: {exc}"
@@ -1394,13 +1524,22 @@ def build_memory_context(
     current_chat_message_id: str | None = None,
     related_messages: list[dict[str, object]] | None = None,
 ) -> str:
-    docs = recall(prompt, n_results=5)
+    from backend.core.adaptive_runtime import AdaptiveContext
+    profile = memory.config.hardware_profile
+    limits = AdaptiveContext.get_dynamic_budget(prompt, profile)
+    max_context_tokens = limits["max_context_tokens"]
+    history_max_turns = limits["history_max_turns"]
+
+    # Retrieve docs matching budget capacity
+    n_results = 2 if max_context_tokens <= 1000 else 5
+    docs = recall(prompt, n_results=n_results)
+    
     chat_hits = (
         related_messages
         if related_messages is not None
         else memory.search_chat_messages(
             prompt,
-            limit=8,
+            limit=history_max_turns,
             session_id=chat_session_id,
             exclude_message_id=current_chat_message_id,
         )
@@ -1412,7 +1551,7 @@ def build_memory_context(
         try:
             all_msgs = memory.list_chat_messages(chat_session_id, limit=50)
             filtered = [m for m in all_msgs if m["id"] != current_chat_message_id]
-            recent_messages = filtered[-6:]
+            recent_messages = filtered[-history_max_turns:]
         except Exception:
             pass
 

@@ -1,0 +1,23 @@
+{
+  "rank": 5,
+  "id": "musical-keyboard",
+  "name": "Musical Keyboard",
+  "motive": "Offline app that plays selected instrument notes for every keyboard/touch key press.",
+  "priority_reason": "Fast to polish and useful as a low-risk audio/UI project.",
+  "next_build": "Add record/replay, MIDI export, WAV export, sustain, octave controls, local eval smoke tests, Mermaid docs, better samples, and optional piezo/pressure-sensor experiments.",
+  "integration_role": "Kattappa AI OS can open it, change instruments, record, and suggest music ideas.",
+  "safety_boundary": "Use copyright-safe/free samples.",
+  "free_tools": [
+    "piezoelectric_sensors",
+    "localsend",
+    "git_cli_safety_workflow",
+    "github_desktop",
+    "mermaid",
+    "local_eval_harness",
+    "hardware_awareness",
+    "free_programming_books",
+    "local_product_analytics",
+    "local_workflow_queue",
+    "local_multi_agent_orchestrator"
+  ]
+}

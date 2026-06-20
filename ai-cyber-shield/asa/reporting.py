@@ -71,6 +71,24 @@ class ReportWriter:
             ]
         )
         report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # Write to Obsidian Memory Graph
+        try:
+            from .obsidian_memory import ObsidianMemory
+            obsidian = ObsidianMemory()
+            obsidian.write_daily_note(
+                content=f"AI Cyber Shield generated incident report: {report_path.name}. Severity counts: {dict(severity_counts)}",
+                category="cyber-shield"
+            )
+            obsidian.write_concept_page(
+                title=f"ASA-Incident-{_stamp()}",
+                content="\n".join(lines),
+                tags=["cyber-shield", "incident-report"],
+                connections=["Balu Cyber Shield"]
+            )
+        except Exception:
+            pass
+
         return report_path
 
     def _events(self) -> list[dict[str, Any]]:

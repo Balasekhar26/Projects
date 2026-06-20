@@ -1,0 +1,30 @@
+{
+  "rank": 6,
+  "id": "dews",
+  "name": "DEWS / Defensive Early Warning System",
+  "motive": "Safe defensive early warning: camera/thermal hazard detection, restricted-zone alerts, evidence reports, and simulation.",
+  "priority_reason": "Must stay in safe detection/simulation/alerting form.",
+  "next_build": "Build webcam + thermal hazard detection, safe risk scoring, networked alerts, simulation, local safety eval drills, Mermaid incident diagrams, and incident report export.",
+  "integration_role": "Kattappa AI OS explains alerts; Cyber Shield protects the device; PCB Doctor supports sensor hardware maintenance.",
+  "safety_boundary": "Original weapon-disabling motive is history only. No destructive emitters, no weapon/ammunition/missile disablement, no targeting logic, no range optimization, and no autonomous engagement.",
+  "free_tools": [
+    "mirofish",
+    "ccna_networking",
+    "hardware_awareness",
+    "piezoelectric_sensors",
+    "git_cli_safety_workflow",
+    "github_desktop",
+    "local_eval_harness",
+    "local_sovereign_frugal_ai_patterns",
+    "mermaid",
+    "cosmos3",
+    "physical_ai_world_models",
+    "agentic_rag",
+    "localsend",
+    "sqlite_builtin_backend",
+    "pocketbase_optional_backend",
+    "local_product_analytics",
+    "local_workflow_queue",
+    "local_multi_agent_orchestrator"
+  ]
+}

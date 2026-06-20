@@ -1,0 +1,21 @@
+{
+  "rank": 11,
+  "id": "portal",
+  "name": "PORTAL",
+  "motive": "Spacetime Shortcuts / Teleportation: A system for instant relocation across distance through spacetime shortcuts using stable, exotic-matter wormhole-like mechanisms.",
+  "priority_reason": "Enables near-instant coordinate relocation bypassing physical transit.",
+  "next_build": "Investigate Einstein-Rosen bridges, negative energy density stabilization, ER=EPR macro quantum state transfer, and earth rotation drift navigation.",
+  "integration_role": "Kattappa AI OS maps source-destination coordinate fields and corrects orbital movement drift.",
+  "safety_boundary": "Theoretical calculations only; biological preservation containment boundaries must remain fully active.",
+  "free_tools": [
+    "gemma",
+    "git_cli_safety_workflow",
+    "github_desktop",
+    "local_eval_harness",
+    "localsend",
+    "sqlite_builtin_backend",
+    "local_workflow_queue",
+    "local_multi_agent_orchestrator",
+    "mermaid"
+  ]
+}

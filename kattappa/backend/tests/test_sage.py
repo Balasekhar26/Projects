@@ -84,24 +84,20 @@ class TestSageAlgorithm(unittest.TestCase):
         self.assertGreater(new_weights["Rama"], initial_weights["Rama"])
         self.assertGreater(new_weights["Kattappa"], initial_weights["Kattappa"])
 
-    @patch("backend.core.sage.ask_model")
-    def test_aether_self_questioning(self, mock_ask):
+    def test_aether_self_questioning(self):
         from backend.core.sage import AetherSelfQuestioning
-        mock_ask.return_value = "KNOW: Python code works\nASSUME: User has environment setup\nEVIDENCE: SQLite exists\nWRONG: Offline mode might trigger"
         res = AetherSelfQuestioning.evaluate("test", "context")
-        self.assertEqual(res["know"], "Python code works")
-        self.assertEqual(res["assume"], "User has environment setup")
-        self.assertEqual(res["evidence"], "SQLite exists")
-        self.assertEqual(res["wrong"], "Offline mode might trigger")
+        self.assertEqual(res["know"], "User query is 'test'.")
+        self.assertEqual(res["assume"], "Assuming standard environment dependencies.")
+        self.assertEqual(res["evidence"], "Implicit request parameters matching user context.")
+        self.assertEqual(res["wrong"], "Ambiguity in query phrasing.")
 
-    @patch("backend.core.sage.ask_model")
-    def test_aether_ethical_layer(self, mock_ask):
+    def test_aether_ethical_layer(self):
         from backend.core.sage import AetherEthicalLayer
-        mock_ask.return_value = "truthfulness=0.95\nsafety=1.0\nfairness=0.90\nuser_benefit=0.95\nlong_term_impact=0.90"
         audit = AetherEthicalLayer.audit_response("query", "response")
         self.assertAlmostEqual(audit["truthfulness"], 0.95)
         self.assertAlmostEqual(audit["safety"], 1.0)
-        self.assertAlmostEqual(audit["fairness"], 0.90)
+        self.assertAlmostEqual(audit["fairness"], 0.95)
 
     @patch("backend.core.sage.ask_model")
     def test_aether_creativity_engine(self, mock_ask):

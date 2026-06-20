@@ -1,0 +1,21 @@
+{
+  "rank": 9,
+  "id": "prism",
+  "name": "PRISM",
+  "motive": "Adaptive Invisible Shield: An intelligent envelope dome surrounding a person or object to stop physical threats, selectively manage and filter gases, and protect against extreme environmental dangers.",
+  "priority_reason": "Defends physical assets and regulates survivability environments.",
+  "next_build": "Integrate computer vision dynamic vector tracking, millimeter-wave radar, atmospheric chromatography monitoring, and pressurized HEPA gas filtering.",
+  "integration_role": "Kattappa AI OS interprets threat warnings, routes telemetry to Cyber Shield, and operates safety barriers.",
+  "safety_boundary": "Defensive alerting and atmospheric filtering only. Kinetic pulse deflectors must not hazard surrounding humans.",
+  "free_tools": [
+    "gemma",
+    "git_cli_safety_workflow",
+    "github_desktop",
+    "local_eval_harness",
+    "localsend",
+    "sqlite_builtin_backend",
+    "local_workflow_queue",
+    "local_multi_agent_orchestrator",
+    "mermaid"
+  ]
+}

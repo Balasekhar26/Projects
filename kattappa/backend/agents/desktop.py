@@ -55,13 +55,17 @@ def desktop_node(state):
         state["logs"].append("desktop: approval created")
         return state
 
-    state["result"] = _desktop_response(
-        "Tell me the visible target/window and I will guide the next step.",
-        usable_screen_text,
-        guidance_text,
-    )
+    try:
+        from backend.agents.autonomous_agent import AutonomousAgent
+        agent = AutonomousAgent()
+        execution_result = agent.execute_task(state["user_input"])
+        state["result"] = f"Task Execution Output: {execution_result}"
+        state["logs"].append("desktop: executed autonomous task successfully")
+    except Exception as e:
+        state["result"] = f"Failed to execute autonomous task: {e}"
+        state["logs"].append(f"desktop error: {e}")
+
     state["approval_required"] = False
-    state["logs"].append("desktop: guide generated")
     return state
 
 

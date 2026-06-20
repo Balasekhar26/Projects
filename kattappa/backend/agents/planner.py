@@ -311,8 +311,12 @@ def planner_node(state):
 
     lower_input = state["user_input"].lower().strip()
     direct_routing = _direct_route(lower_input)
-    is_simple = len(lower_input) < 15 or lower_input in {"hi", "hello", "hey", "status"}
-    if is_simple and (direct_routing or selected == "evaluator"):
+    is_simple = (
+        len(lower_input) < 60
+        or lower_input in {"hi", "hello", "hey", "status"}
+        or any(phrase in lower_input for phrase in ["tell a joke", "tell me a joke", "write a poem", "open chrome", "what time", "about yourself"])
+    )
+    if is_simple:
         if direct_routing:
             selected = str(direct_routing["agent"])
             reason = str(direct_routing["reason"])

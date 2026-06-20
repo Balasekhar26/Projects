@@ -32,6 +32,8 @@ class BackendConfig:
     audio_dir: Path
     logs_dir: Path
     workspace_dir: Path
+    hardware_profile: str
+    context_budget: int
 
 
 def _load_yaml() -> dict[str, Any]:
@@ -77,6 +79,31 @@ def legacy_runtime_path(value: str | None, fallback: str) -> Path:
     return (ROOT / path).resolve()
 
 
+def _detect_hardware_defaults_profile() -> tuple[str, str, str, str, str, int]:
+    from backend.core.adaptive_runtime import HardwareProfiler, PerformanceProfile, AdaptiveContext
+    try:
+        hw = HardwareProfiler.get_profile()
+        profile = PerformanceProfile.resolve_profile(hw)
+    except Exception:
+        profile = "BALANCED"
+        
+    limits = AdaptiveContext.get_limits(profile)
+    budget = limits["max_context_tokens"]
+    
+    if profile == "ECO":
+        # ECO mode: small, fast footprint models
+        return "qwen2.5:0.5b", "qwen2.5-coder:3b", "qwen2.5-coder:3b", "qwen2.5-coder:3b", profile, budget
+    elif profile == "BALANCED":
+        # BALANCED mode: qwen3 4b + coder 3b
+        return "qwen3:4b", "qwen2.5-coder:3b", "qwen2.5-coder:3b", "qwen2.5-coder:3b", profile, budget
+    elif profile == "PERFORMANCE":
+        # PERFORMANCE mode: qwen3 4b + coder 3b + mistral 7b
+        return "qwen3:4b", "mistral:latest", "qwen2.5-coder:3b", "mistral:latest", profile, budget
+    else:  # BEAST
+        # BEAST mode: qwen3 4b + coder 3b + mistral 7b
+        return "qwen3:4b", "mistral:latest", "qwen2.5-coder:3b", "mistral:latest", profile, budget
+
+
 def load_config() -> BackendConfig:
     data = _load_yaml()
     models = data.get("models", {})
@@ -85,6 +112,8 @@ def load_config() -> BackendConfig:
     paths = data.get("paths", {})
     ollama = data.get("ollama", {})
 
+    d_fast_gen, d_power, d_coder, d_reasoning, profile, budget = _detect_hardware_defaults_profile()
+
     return BackendConfig(
         root=ROOT,
         backend_root=BACKEND_ROOT,
@@ -92,19 +121,19 @@ def load_config() -> BackendConfig:
             "OLLAMA_HOST", ollama.get("host", "http://127.0.0.1:11434")
         ),
         model_map={
-            "fast": os.getenv("KATTAPPA_MODEL_FAST", models.get("fast", "qwen3:4b")),
+            "fast": os.getenv("KATTAPPA_MODEL_FAST", models.get("fast", d_fast_gen)),
             "general": os.getenv(
-                "KATTAPPA_MODEL_GENERAL", models.get("general", "qwen3:4b")
+                "KATTAPPA_MODEL_GENERAL", models.get("general", d_fast_gen)
             ),
-            "power": os.getenv("KATTAPPA_MODEL_POWER", models.get("power", "qwen3:30b")),
+            "power": os.getenv("KATTAPPA_MODEL_POWER", models.get("power", d_power)),
             "coder": os.getenv(
-                "KATTAPPA_MODEL_CODER", models.get("coder", "qwen2.5-coder:3b")
+                "KATTAPPA_MODEL_CODER", models.get("coder", d_coder)
             ),
             "vision": os.getenv(
                 "KATTAPPA_MODEL_VISION", models.get("vision", "qwen3-vl:8b")
             ),
             "reasoning": os.getenv(
-                "KATTAPPA_MODEL_REASONING", models.get("reasoning", "gpt-oss:20b")
+                "KATTAPPA_MODEL_REASONING", models.get("reasoning", d_reasoning)
             ),
         },
         chroma_path=_resolve_runtime_path(
@@ -142,6 +171,8 @@ def load_config() -> BackendConfig:
         audio_dir=_resolve_runtime_path(paths.get("audio"), "backend/data/audio"),
         logs_dir=_resolve_runtime_path(paths.get("logs"), "backend/data/logs"),
         workspace_dir=_resolve_runtime_path(paths.get("workspace"), "workspace"),
+        hardware_profile=profile,
+        context_budget=budget,
     )
 
 JARVIS_MODE = True

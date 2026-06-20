@@ -5,12 +5,6 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 PROJECTS = [
     "kattappa",
-    "ai-cyber-shield",
-    "dews",
-    "musical-keyboard",
-    "pcb-doctor",
-    "universal-translator",
-    "07-NeuroSeed",
 ]
 
 

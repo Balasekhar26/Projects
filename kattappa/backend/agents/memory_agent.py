@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.core.memory import build_memory_context, memory
+from backend.core.obsidian_memory import ObsidianMemory
 
 
 def memory_node(state):
@@ -13,6 +14,21 @@ def memory_node(state):
     remembered = _remember_command_payload(state["user_input"])
     if remembered:
         memory_id = memory.remember(remembered, category="user_memory")
+        
+        # Write to Obsidian Memory Graph
+        try:
+            obsidian = ObsidianMemory()
+            obsidian.write_daily_note(f"Saved memory: {remembered}", category="user-memory")
+            obsidian.write_concept_page(
+                title=f"UserMemory-{memory_id[:8]}", 
+                content=remembered, 
+                tags=["kattappa", "memory", "user_memory"],
+                connections=["Kattappa Memory System"]
+            )
+            state["logs"].append("memory: synced memory to Obsidian vault")
+        except Exception as e:
+            state["logs"].append(f"memory error: failed to write to Obsidian: {e}")
+
         state["selected_agent"] = "memory"
         state["plan"] = "Store the explicit user memory, then confirm it in chat."
         state["tool_request"] = {
@@ -29,24 +45,36 @@ def memory_node(state):
         return state
 
     query = state.get("memory_query") or state["user_input"]
-    related_messages = memory.search_chat_messages(
-        query,
-        limit=5,
-        session_id=state.get("chat_session_id"),
-        exclude_message_id=state.get("current_chat_message_id"),
-    )
-    state["related_messages"] = related_messages
-    state["memory_context"] = build_memory_context(
-        query,
-        chat_session_id=state.get("chat_session_id"),
-        current_chat_message_id=state.get("current_chat_message_id"),
-        related_messages=related_messages,
-    )
-    state["logs"].append(
-        f"memory: {len(related_messages)} related older message(s) found"
-        if related_messages
-        else "memory: no related older messages found"
-    )
+    message_id = state.get("current_chat_message_id")
+    pref_result = None
+    if message_id:
+        from backend.core.adaptive_runtime import MemoryPrefetcher
+        pref_result = MemoryPrefetcher.get_result(message_id)
+
+    if pref_result:
+        related_messages = pref_result["related_messages"]
+        state["related_messages"] = related_messages
+        state["memory_context"] = pref_result["memory_context"]
+        state["logs"].append("memory: retrieved prefetched context (0ms entry latency)")
+    else:
+        related_messages = memory.search_chat_messages(
+            query,
+            limit=5,
+            session_id=state.get("chat_session_id"),
+            exclude_message_id=state.get("current_chat_message_id"),
+        )
+        state["related_messages"] = related_messages
+        state["memory_context"] = build_memory_context(
+            query,
+            chat_session_id=state.get("chat_session_id"),
+            current_chat_message_id=state.get("current_chat_message_id"),
+            related_messages=related_messages,
+        )
+        state["logs"].append(
+            f"memory: {len(related_messages)} related older message(s) found"
+            if related_messages
+            else "memory: no related older messages found"
+        )
     return state
 
 

@@ -1,0 +1,21 @@
+{
+  "rank": 10,
+  "id": "tempo",
+  "name": "TEMPO",
+  "motive": "Temporal Dilation / Time Manipulation: A controlled localized environment where time flows differently from the outside world, enabling accelerated future travel through engineered relativistic temporal conditions.",
+  "priority_reason": "Explores localized time speedups and relativistic spacetime physics.",
+  "next_build": "Model mathematical spacetime geodesics, run relativistic gravity potential simulators, and measure centrifuge optical lattice clocks.",
+  "integration_role": "Kattappa AI OS runs relativity models and collects precision clock calibration logs.",
+  "safety_boundary": "Theoretical and modeling research only; energy density limits must prevent micro-gravity hazards.",
+  "free_tools": [
+    "gemma",
+    "git_cli_safety_workflow",
+    "github_desktop",
+    "local_eval_harness",
+    "localsend",
+    "sqlite_builtin_backend",
+    "local_workflow_queue",
+    "local_multi_agent_orchestrator",
+    "mermaid"
+  ]
+}

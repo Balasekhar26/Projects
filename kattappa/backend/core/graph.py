@@ -132,6 +132,15 @@ def run_graph(
         "logs": [],
         "operator_plan": None,
     }
+    from backend.core.rbil import RBIL
+    rbil_res = RBIL.process(user_input)
+    if rbil_res:
+        state.update(rbil_res)
+        log_event(
+            f"rbil_hit request={user_input!r} agent={state.get('selected_agent')}"
+        )
+        return state
+
     result = compiled_graph.invoke(state)
     log_event(
         f"request={user_input!r} agent={result.get('selected_agent')} risk={result.get('risk_level')}"

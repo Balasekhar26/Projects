@@ -18,6 +18,40 @@ class DiagnosticEngine:
         )
         root_path = self._trace_root_path(findings, by_node)
         summary = self._summary(findings, root_path)
+
+        # Write to Obsidian Memory Graph
+        try:
+            from datetime import datetime
+            from .obsidian_memory import ObsidianMemory
+            obsidian = ObsidianMemory()
+            obsidian.write_daily_note(
+                content=f"PCB Doctor ran diagnosis. Root path: {' -> '.join(root_path) if root_path else 'none'}. Summary: {summary}",
+                category="pcb-doctor"
+            )
+            
+            findings_text = "\n".join([
+                f"- **{f.node_id}**: {f.message} (Severity: {f.severity}, Score: {f.score})\n"
+                f"  - Probable Causes: {', '.join(f.probable_causes)}\n"
+                f"  - Next Steps: {', '.join(f.next_steps)}"
+                for f in findings
+            ])
+            report_content = (
+                f"## Diagnostic Summary\n"
+                f"{summary}\n\n"
+                f"### Root Cause Path\n"
+                f"{' -> '.join(root_path) if root_path else 'N/A'}\n\n"
+                f"### Findings\n"
+                f"{findings_text}"
+            )
+            obsidian.write_concept_page(
+                title=f"PCB-Diagnostic-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                content=report_content,
+                tags=["pcb-doctor", "diagnostic-report"],
+                connections=["PCB Doctor Pro"]
+            )
+        except Exception:
+            pass
+
         return DiagnosticReport(
             findings=tuple(findings),
             root_cause_path=tuple(root_path),

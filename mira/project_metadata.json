@@ -1,0 +1,21 @@
+{
+  "rank": 12,
+  "id": "mira",
+  "name": "MIRA",
+  "motive": "Matter Mapping & Atomic Reconstruction: A system capable of copying the exact sub-nanometer atomic structure of an object and recreating it elsewhere using available feedstock.",
+  "priority_reason": "Enables high-fidelity matter replicating and programmatic self-assembly.",
+  "next_build": "Deploy STM/AFM atomic scanning, compile chemical feedstock libraries, and design nanoscale programmatic self-assembly builders.",
+  "integration_role": "Kattappa AI OS stores object blueprints and issues atomic printer commands.",
+  "safety_boundary": "Reconstruction must use non-toxic, safe feedstock elements; zero copy-protection circumvention.",
+  "free_tools": [
+    "gemma",
+    "git_cli_safety_workflow",
+    "github_desktop",
+    "local_eval_harness",
+    "localsend",
+    "sqlite_builtin_backend",
+    "local_workflow_queue",
+    "local_multi_agent_orchestrator",
+    "mermaid"
+  ]
+}

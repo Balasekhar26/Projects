@@ -1,0 +1,21 @@
+{
+  "rank": 13,
+  "id": "voltis",
+  "name": "VOLTIS",
+  "motive": "Intelligent Power Cover: An intelligent smartphone back cover that harvests energy from sunlight, heat, and motion, optimizes charging protocols, protects battery health, and manages temperatures.",
+  "priority_reason": "Enhances device battery life, performance, and thermal safety through multi-source harvesting and smart power gateway management.",
+  "next_build": "Build energy harvesting proof of concept (solar, TEG, piezo), prototype USB-C Power Delivery charging negotiation, implement STM32/ESP32 charging controller, and develop live analytics mobile app.",
+  "integration_role": "Kattappa AI OS monitors battery health analytics, processes thermal warnings, and recommends optimal charging sources.",
+  "safety_boundary": "Ensure strict compliance with USB Power Delivery specifications to prevent over-voltage or over-current damage; thermal shutoffs must be hardwired.",
+  "free_tools": [
+    "gemma",
+    "git_cli_safety_workflow",
+    "github_desktop",
+    "local_eval_harness",
+    "localsend",
+    "sqlite_builtin_backend",
+    "local_workflow_queue",
+    "local_multi_agent_orchestrator",
+    "mermaid"
+  ]
+}

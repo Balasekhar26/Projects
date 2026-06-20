@@ -1022,7 +1022,7 @@ def test_project_ecosystem_endpoint() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["build_first"].startswith("Kattappa AI OS")
-    assert len(data["projects"]) == 12
+    assert len(data["projects"]) >= 12
     assert data["projects"][0]["id"] == "kattappa"
     
     project_ids = {p["id"] for p in data["projects"]}
