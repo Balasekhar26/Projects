@@ -31,6 +31,7 @@ backend/data/goals.json
 backend/data/reliability.json
 backend/data/capabilities.json
 backend/data/skills.json
+backend/data/world_model.json
 logs/
 backend/data/logs/
 runtime/

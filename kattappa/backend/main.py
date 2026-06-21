@@ -512,8 +512,33 @@ class SkillAddRequest(BaseModel):
     tags: list[str] = []
 
 
-class SkillResultRequest(BaseModel):
+class SkillLibResultRequest(BaseModel):
     success: bool
+
+
+class WorldEntityRequest(BaseModel):
+    name: str
+    type: str = "other"
+    status: str = ""
+    attributes: dict[str, object] = {}
+
+
+class WorldRelationRequest(BaseModel):
+    src: str
+    dst: str
+    relation: str = "related"
+
+
+class SimulateRequest(BaseModel):
+    scenario: dict[str, object] = {}
+    trials: int = 1000
+    seed: int = 42
+
+
+class DistillRequest(BaseModel):
+    observations: list[str] = []
+    min_cluster: int = 3
+    principle_hints: dict[str, str] = {}
 
 
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
@@ -962,12 +987,61 @@ def skills_add(request: SkillAddRequest) -> dict[str, object]:
 
 
 @app.post("/skills/{name}/result")
-def skills_result(name: str, request: SkillResultRequest) -> dict[str, object]:
+def skills_result(name: str, request: SkillLibResultRequest) -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     try:
         return SkillLibrary.record_result(name, request.success)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/world")
+def world_status() -> dict[str, object]:
+    from backend.core.world_model import WorldModel
+    return WorldModel.status()
+
+
+@app.post("/world/entity")
+def world_add_entity(request: WorldEntityRequest) -> dict[str, object]:
+    from backend.core.world_model import WorldModel
+    try:
+        return {"item": WorldModel.add_entity(
+            request.name, request.type, status=request.status, attributes=request.attributes)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/world/relation")
+def world_add_relation(request: WorldRelationRequest) -> dict[str, object]:
+    from backend.core.world_model import WorldModel
+    try:
+        return {"item": WorldModel.add_relation(request.src, request.dst, request.relation)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/world/impact/{name}")
+def world_impact(name: str) -> dict[str, object]:
+    from backend.core.world_model import WorldModel
+    try:
+        return WorldModel.impact_of(name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/simulate")
+def simulate(request: SimulateRequest) -> dict[str, object]:
+    from backend.core.simulation_engine import SimulationEngine
+    return SimulationEngine.simulate_dict(
+        request.scenario, trials=request.trials, seed=request.seed).to_dict()
+
+
+@app.post("/distill")
+def distill(request: DistillRequest) -> dict[str, object]:
+    from backend.core.knowledge_distillation import KnowledgeDistiller
+    return KnowledgeDistiller.distill(
+        request.observations, min_cluster=request.min_cluster,
+        principle_hints=request.principle_hints).to_dict()
 
 
 import threading
