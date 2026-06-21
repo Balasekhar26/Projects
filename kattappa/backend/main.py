@@ -450,6 +450,7 @@ class RouterRouteRequest(BaseModel):
 
 class ConsensusDecideRequest(BaseModel):
     outputs: list[dict[str, object]] = []
+    context: dict[str, object] | None = None
 
 
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
@@ -730,7 +731,7 @@ def router_route(request: RouterRouteRequest) -> dict[str, object]:
 @app.post("/consensus/decide")
 def consensus_decide(request: ConsensusDecideRequest) -> dict[str, object]:
     from backend.core.consensus_engine import decide_from_dicts
-    return decide_from_dicts(request.outputs).to_dict()
+    return decide_from_dicts(request.outputs, request.context).to_dict()
 
 
 import threading
