@@ -97,17 +97,25 @@ class IntentCategory(str, Enum):
     RESEARCH = "research"
     ARCHITECTURE = "architecture"
     CODING = "coding"
+    DEBUGGING = "debugging"
+    DOCUMENTATION = "documentation"
+    PRESENTATION = "presentation"
+    ANALYSIS = "analysis"
     TEACHING = "teaching"
     NAMING = "naming"
     MEMORY = "memory"
     GENERAL = "general"
 
 
-# Intent -> ordered agent activation set (from the Router v1 spec).
+# Intent -> ordered agent activation set.
 ACTIVATION_MATRIX: dict[IntentCategory, tuple[str, ...]] = {
     IntentCategory.RESEARCH: ("Scientist", "Critic"),
     IntentCategory.ARCHITECTURE: ("Scientist", "Engineer", "Critic", "Planner", "Security"),
     IntentCategory.CODING: ("Engineer", "Builder", "Security"),
+    IntentCategory.DEBUGGING: ("Engineer", "Builder", "Critic"),
+    IntentCategory.DOCUMENTATION: ("Teacher",),
+    IntentCategory.PRESENTATION: ("Poet",),
+    IntentCategory.ANALYSIS: ("Scientist", "Critic"),
     IntentCategory.TEACHING: ("Teacher",),
     IntentCategory.NAMING: ("Poet",),
     IntentCategory.MEMORY: ("Memory Keeper",),
@@ -121,14 +129,22 @@ _INTENT_KEYWORDS: tuple[tuple[IntentCategory, tuple[str, ...]], ...] = (
                              "call it", "title for", "logo")),
     (IntentCategory.MEMORY, ("remember", "recall", "what did i", "do you remember",
                              "forget", "memorize")),
+    (IntentCategory.PRESENTATION, ("presentation", "slides", "slide deck", "pitch deck",
+                                   "keynote")),
+    (IntentCategory.DOCUMENTATION, ("documentation", "readme", "docstring", "write docs",
+                                    "api docs", "document the")),
     (IntentCategory.ARCHITECTURE, ("architecture", "design a", "design an", "system design",
                                    "topology", "mesh", "infrastructure", "schematic",
                                    "pinout", "rf ", "embedded system", "microservice")),
-    (IntentCategory.CODING, ("code", "implement", "write a function", "bug", "refactor",
-                             "script", "compile", "api endpoint", "unit test", "debug")),
+    (IntentCategory.DEBUGGING, ("debug", "stack trace", "traceback", "not working",
+                                "why is this failing", "exception", "fix the bug")),
+    (IntentCategory.CODING, ("code", "implement", "write a function", "refactor",
+                             "script", "compile", "api endpoint", "unit test")),
+    (IntentCategory.ANALYSIS, ("analysis", "analyze", "compare", "evaluate", "trade-off",
+                               "tradeoff", "assessment")),
     (IntentCategory.RESEARCH, ("research", "feasibility", "will this work", "prove",
                                "derive", "hypothesis", "physics", "equation",
-                               "first principles", "analyze")),
+                               "first principles")),
     (IntentCategory.TEACHING, ("explain", "teach", "what is", "how does", "learn",
                                "tutorial", "understand", "walk me through")),
 )
@@ -161,6 +177,82 @@ def is_security_sensitive(prompt: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Confidence scoring (Router v2)
+#
+# CRITICAL: routing confidence is NOT correctness confidence. A score of 0.92
+# means "the Router is 0.92 confident this is the right specialist", never "the
+# answer is 92% correct". The two must never be conflated.
+# ---------------------------------------------------------------------------
+
+_MATCH_WEIGHT = 0.15  # deterministic score per keyword match
+
+
+class ConfidenceTier(str, Enum):
+    HIGH = "high"      # >= 0.80 : route directly to the primary agent
+    MEDIUM = "medium"  # 0.50-0.79 : route primary, keep a secondary candidate
+    LOW = "low"        # < 0.50 : ambiguous -> escalate to multi-agent (top 2)
+
+    @classmethod
+    def classify(cls, score: float) -> "ConfidenceTier":
+        if score >= 0.80:
+            return cls.HIGH
+        if score >= 0.50:
+            return cls.MEDIUM
+        return cls.LOW
+
+
+# Per-agent capability schemas used for confidence scoring.
+AGENT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "Scientist": ("physics", "quantum", "energy", "voltage", "current", "rf",
+                  "frequency", "propagation", "wave", "feasibility", "equation",
+                  "theorem", "probability", "signal", "simulation"),
+    "Engineer": ("architecture", "design", "system", "topology", "firmware",
+                 "hardware", "circuit", "embedded", "schematic", "pinout",
+                 "interface", "infrastructure", "pcb", "sensor", "mesh",
+                 "network", "build", "microcontroller"),
+    "Builder": ("code", "implement", "function", "script", "compile", "generate",
+                "refactor", "class", "module", "test suite"),
+    "Teacher": ("explain", "teach", "learn", "tutorial", "understand", "concept",
+                "basics", "documentation", "readme", "docstring"),
+    "Poet": ("name", "naming", "brand", "branding", "slogan", "tagline", "story",
+             "copy", "presentation", "slides", "pitch", "creative", "theme"),
+    "Planner": ("plan", "roadmap", "milestone", "schedule", "priority",
+                "dependency", "timeline", "backlog", "sprint", "sequence"),
+    "Critic": ("review", "critique", "flaw", "edge case", "risk", "weakness",
+               "assumption", "failure", "analyze", "analysis", "evaluate"),
+    "Security": ("login", "auth", "authentication", "password", "credential",
+                 "security", "encryption", "vulnerability", "firewall", "token",
+                 "privilege", "threat"),
+    "Memory Keeper": ("remember", "recall", "memory", "forget", "history", "remind"),
+}
+
+
+@dataclass(frozen=True)
+class AgentScore:
+    agent: str
+    score: float
+    matches: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"agent": self.agent, "score": round(self.score, 4), "matches": list(self.matches)}
+
+
+def _routing_confidence(ranked_scores: list[float]) -> float:
+    """Routing certainty from the ranked raw agent scores.
+
+    A clear winner (large margin / uncontested) yields high confidence; a
+    contested field yields low confidence and triggers multi-agent escalation.
+    """
+    if not ranked_scores or ranked_scores[0] <= 0.0:
+        return 0.0
+    top = ranked_scores[0]
+    second = ranked_scores[1] if len(ranked_scores) > 1 else 0.0
+    margin = top - second
+    uncontested_bonus = 0.4 if second == 0.0 else 0.0
+    return round(min(1.0, top + margin + uncontested_bonus), 4)
+
+
+# ---------------------------------------------------------------------------
 # Routing decision
 # ---------------------------------------------------------------------------
 
@@ -175,6 +267,23 @@ class RoutingDecision:
     estimated_cost: ActivationCost
     budget: BudgetAllocation
     reasons: tuple[str, ...]
+    # Router v2 confidence scoring (advisory routing metadata).
+    selected_agent: str | None = None
+    routing_confidence: float = 0.0
+    confidence_tier: ConfidenceTier = ConfidenceTier.LOW
+    agent_scores: tuple[AgentScore, ...] = ()
+    routing_mode: str = "single"        # "single" | "multi_agent"
+    escalated: bool = False
+    secondary_agent: str | None = None
+
+    @property
+    def top_agents(self) -> tuple[str, ...]:
+        """The agents to actually engage given the confidence tier."""
+        if self.escalated:
+            return tuple(s.agent for s in self.agent_scores[:2])
+        if self.selected_agent is None:
+            return ()
+        return (self.selected_agent,)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -187,6 +296,15 @@ class RoutingDecision:
             "estimated_cost": self.estimated_cost.value,
             "budget": self.budget.to_dict(),
             "reasons": list(self.reasons),
+            "selected_agent": self.selected_agent,
+            # NOTE: routing confidence != correctness confidence.
+            "routing_confidence": self.routing_confidence,
+            "confidence_tier": self.confidence_tier.value,
+            "agent_scores": [s.to_dict() for s in self.agent_scores],
+            "routing_mode": self.routing_mode,
+            "escalated": self.escalated,
+            "secondary_agent": self.secondary_agent,
+            "top_agents": list(self.top_agents),
         }
 
 
@@ -199,6 +317,25 @@ class AgentRouter:
 
     def __init__(self, registry: AgentRegistry | None = None) -> None:
         self._registry = registry or DEFAULT_REGISTRY
+
+    def score_agents(self, prompt: str) -> list[AgentScore]:
+        """Deterministically score each specialist against the prompt.
+
+        Ranked highest-first; ties broken by registry priority then name.
+        """
+        text = _normalise(prompt)
+        scores: list[AgentScore] = []
+        for agent, keywords in AGENT_KEYWORDS.items():
+            matches = tuple(kw for kw in keywords if re.search(rf"\b{re.escape(kw)}", text))
+            if matches:
+                scores.append(AgentScore(agent, min(1.0, _MATCH_WEIGHT * len(matches)), matches))
+
+        def priority(name: str) -> int:
+            agent = self._registry.get(name)
+            return agent.priority if agent else 0
+
+        scores.sort(key=lambda s: (-s.score, -priority(s.agent), s.agent))
+        return scores
 
     def route(self, prompt: str, mode: RouterMode | str = RouterMode.BALANCED) -> RoutingDecision:
         mode = RouterMode.coerce(mode)
@@ -232,6 +369,22 @@ class AgentRouter:
         budget = BudgetManager.allocate(mode, len(kept))
         cost = self._estimate_cost(kept)
 
+        # Router v2 confidence scoring.
+        scores = self.score_agents(prompt)
+        routing_confidence = _routing_confidence([s.score for s in scores])
+        tier = ConfidenceTier.classify(routing_confidence)
+        selected_agent = scores[0].agent if scores else None
+        # Ambiguous (low confidence) with a real contender -> escalate to top 2.
+        escalated = tier is ConfidenceTier.LOW and len(scores) >= 2
+        routing_mode = "multi_agent" if escalated else "single"
+        secondary_agent = (
+            scores[1].agent if tier is ConfidenceTier.MEDIUM and len(scores) > 1 else None
+        )
+        reasons.append(
+            f"routing confidence {routing_confidence:.2f} ({tier.value}); "
+            f"selected={selected_agent}, mode={routing_mode}"
+        )
+
         return RoutingDecision(
             prompt=prompt,
             intent=intent,
@@ -242,6 +395,13 @@ class AgentRouter:
             estimated_cost=cost,
             budget=budget,
             reasons=tuple(reasons),
+            selected_agent=selected_agent,
+            routing_confidence=routing_confidence,
+            confidence_tier=tier,
+            agent_scores=tuple(scores),
+            routing_mode=routing_mode,
+            escalated=escalated,
+            secondary_agent=secondary_agent,
         )
 
     @staticmethod
