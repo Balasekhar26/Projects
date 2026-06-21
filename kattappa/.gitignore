@@ -26,6 +26,9 @@ backend/data/audio/
 backend/data/cluster/
 backend/data/attention/
 backend/data/memory_human/
+backend/data/reflections.json
+backend/data/goals.json
+backend/data/reliability.json
 logs/
 backend/data/logs/
 runtime/

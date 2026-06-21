@@ -464,6 +464,26 @@ class PolicyGateRequest(BaseModel):
     consensus_requires_human: bool = False
 
 
+class ReliabilityRecordRequest(BaseModel):
+    agent: str
+    success: bool
+
+
+class GoalCreateRequest(BaseModel):
+    title: str
+    parent_id: str | None = None
+    depends_on: list[str] = []
+
+
+class ReflectionProposeRequest(BaseModel):
+    problem: str
+    cause: str = ""
+    improvement: str = ""
+    category: str = "reasoning"
+    evidence_source: str = "reasoning"
+    confidence: int = 50
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -771,6 +791,88 @@ def policy_gate(request: PolicyGateRequest) -> dict[str, object]:
         consensus_approved=request.consensus_approved,
         consensus_requires_human=request.consensus_requires_human,
     ).to_dict()
+
+
+@app.get("/reliability")
+def reliability_stats() -> dict[str, object]:
+    from backend.core.reliability_monitor import ReliabilityMonitor
+    return ReliabilityMonitor.stats()
+
+
+@app.post("/reliability/record")
+def reliability_record(request: ReliabilityRecordRequest) -> dict[str, object]:
+    from backend.core.reliability_monitor import ReliabilityMonitor
+    return ReliabilityMonitor.record_outcome(request.agent, request.success)
+
+
+@app.get("/goals")
+def goals_status() -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    return GoalManager.status()
+
+
+@app.get("/goals/list")
+def goals_list() -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    return {"items": GoalManager.list_goals()}
+
+
+@app.post("/goals")
+def goals_add(request: GoalCreateRequest) -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    try:
+        return {"item": GoalManager.add_goal(request.title, request.parent_id, request.depends_on)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/goals/{goal_id}/{action}")
+def goals_transition(goal_id: str, action: str) -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    handlers = {"start": GoalManager.start, "complete": GoalManager.complete, "abandon": GoalManager.abandon}
+    handler = handlers.get(action)
+    if handler is None:
+        raise HTTPException(status_code=400, detail=f"Unknown action {action!r}")
+    try:
+        return {"item": handler(goal_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/reflection")
+def reflection_status(status: str | None = None) -> dict[str, object]:
+    from backend.core.reflection_engine import ReflectionEngine
+    if status:
+        return {"items": ReflectionEngine.list_reflections(status=status)}
+    return ReflectionEngine.status()
+
+
+@app.post("/reflection/propose")
+def reflection_propose(request: ReflectionProposeRequest) -> dict[str, object]:
+    from backend.core.reflection_engine import ReflectionEngine
+    try:
+        return ReflectionEngine.reflect(
+            request.problem, request.cause, request.improvement,
+            category=request.category, evidence_source=request.evidence_source,
+            confidence=request.confidence,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/reflection/{reflection_id}/{action}")
+def reflection_decide(reflection_id: str, action: str) -> dict[str, object]:
+    from backend.core.reflection_engine import ReflectionEngine
+    handlers = {"accept": ReflectionEngine.accept, "reject": ReflectionEngine.reject}
+    handler = handlers.get(action)
+    if handler is None:
+        raise HTTPException(status_code=400, detail=f"Unknown action {action!r}")
+    try:
+        return handler(reflection_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 import threading
