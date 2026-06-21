@@ -27,13 +27,16 @@ class EpisodicMemory:
     - Background embedding queue to keep the chat loop fast.
     - Vector GC to prevent ghost recalls.
     """
-    
     _lock = threading.RLock()
     _embed_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
     _worker_thread: threading.Thread | None = None
+    _gc_thread: threading.Thread | None = None
     _stop_event = threading.Event()
     _chroma_client: Any | None = None
     _collection: Any | None = None
+    _query_cache: dict[str, Any] = {}
+    _emb_fn: Any | None = None
+    _schema_ensured = False
 
     @classmethod
     def _get_sqlite_conn(cls) -> sqlite3.Connection:
@@ -43,13 +46,16 @@ class EpisodicMemory:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        cls._ensure_schema(conn)
+        with cls._lock:
+            if not cls._schema_ensured:
+                cls._ensure_schema(conn)
+                cls._schema_ensured = True
         return conn
 
     @classmethod
     def _ensure_schema(cls, conn: sqlite3.Connection) -> None:
         with cls._lock:
-            # 1. Authoritative SQLite Episodes Table
+            # 1. Authoritative SQLite Episodes Table & Archive Table
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS hm_episodes (
@@ -66,6 +72,17 @@ class EpisodicMemory:
                 );
                 CREATE INDEX IF NOT EXISTS idx_hm_episodes_session ON hm_episodes(session_id);
                 CREATE INDEX IF NOT EXISTS idx_hm_episodes_category ON hm_episodes(category);
+
+                CREATE TABLE IF NOT EXISTS hm_episodes_archive (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    importance REAL NOT NULL,
+                    category TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    archived_at REAL NOT NULL,
+                    tags TEXT DEFAULT '[]'
+                );
 
                 -- 2. FTS5 Virtual Table for External Content mapping (Memory System v2.0)
                 CREATE VIRTUAL TABLE IF NOT EXISTS hm_episodes_fts USING fts5(
@@ -123,21 +140,25 @@ class EpisodicMemory:
     @classmethod
     def start_worker(cls) -> None:
         with cls._lock:
-            if cls._worker_thread is not None and cls._worker_thread.is_alive():
-                return
             cls._stop_event.clear()
-            cls._worker_thread = threading.Thread(target=cls._worker_loop, daemon=True)
-            cls._worker_thread.start()
+            if cls._worker_thread is None or not cls._worker_thread.is_alive():
+                cls._worker_thread = threading.Thread(target=cls._worker_loop, daemon=True)
+                cls._worker_thread.start()
+            if cls._gc_thread is None or not cls._gc_thread.is_alive():
+                cls._gc_thread = threading.Thread(target=cls._gc_scheduler_loop, daemon=True)
+                cls._gc_thread.start()
 
     @classmethod
     def stop_worker(cls) -> None:
         with cls._lock:
-            if cls._worker_thread is None:
-                return
             cls._stop_event.set()
             cls._embed_queue.put(("", "")) # Unblock loop
-            cls._worker_thread.join(timeout=3.0)
-            cls._worker_thread = None
+            if cls._worker_thread is not None:
+                cls._worker_thread.join(timeout=2.0)
+                cls._worker_thread = None
+            if cls._gc_thread is not None:
+                cls._gc_thread.join(timeout=2.0)
+                cls._gc_thread = None
 
     @classmethod
     def _worker_loop(cls) -> None:
@@ -359,8 +380,9 @@ class EpisodicMemory:
         try:
             collection = cls._get_chroma_collection()
             if collection.count() > 0:
+                query_vector = cls._get_query_embedding(query)
                 results = collection.query(
-                    query_texts=[query],
+                    query_embeddings=[query_vector],
                     n_results=min(limit * 3, collection.count())
                 )
                 if results and results.get("ids") and results["ids"][0]:
@@ -480,3 +502,89 @@ class EpisodicMemory:
             log_event(f"episodic_memory: GC sweep failed: {e}")
 
         return orphans_purged
+
+    # ----- Query Cache, Archiving & GC Scheduler -----
+
+    @classmethod
+    def _get_embedding_fn(cls) -> Any:
+        with cls._lock:
+            if cls._emb_fn is None:
+                cls._emb_fn = DefaultEmbeddingFunction()
+            return cls._emb_fn
+
+    @classmethod
+    def _get_query_embedding(cls, query: str) -> list[float]:
+        """Retrieve the query embedding, using a thread-safe local LRU cache if available."""
+        with cls._lock:
+            if query in cls._query_cache:
+                return cls._query_cache[query]
+
+            emb_fn = cls._get_embedding_fn()
+            embedding = emb_fn([query])[0]
+
+            if len(cls._query_cache) > 500:
+                cls._query_cache.pop(next(iter(cls._query_cache)))
+            cls._query_cache[query] = embedding
+            return embedding
+
+    @classmethod
+    def archive_decayed_episodes(cls, threshold: float = 0.1) -> int:
+        """Archive strategy: moves unpinned episodes with computed decay_score < threshold to archive table."""
+        archived_count = 0
+        conn = cls._get_sqlite_conn()
+        try:
+            rows = conn.execute("SELECT * FROM hm_episodes WHERE pinned = 0").fetchall()
+            now = time.time()
+            to_archive = []
+
+            for row in rows:
+                decay = cls._calculate_decay(row["importance"], row["last_recalled_at"], False)
+                if decay < threshold:
+                    to_archive.append(dict(row))
+
+            if to_archive:
+                with cls._lock:
+                    for item in to_archive:
+                        eid = item["id"]
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO hm_episodes_archive (
+                                id, session_id, content, importance, category, created_at, archived_at, tags
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (eid, item["session_id"], item["content"], item["importance"],
+                             item["category"], item["created_at"], now, item["tags"])
+                        )
+                        conn.execute("DELETE FROM hm_episodes WHERE id = ?", (eid,))
+
+                        try:
+                            collection = cls._get_chroma_collection()
+                            collection.delete(ids=[eid])
+                        except Exception:
+                            pass
+
+                        archived_count += 1
+                    conn.commit()
+        except Exception as e:
+            log_event(f"episodic_memory: scheduled archiving failed: {e}")
+        finally:
+            conn.close()
+        return archived_count
+
+    @classmethod
+    def _gc_scheduler_loop(cls) -> None:
+        """Background daemon scheduler that runs vector GC and archiving every 10 minutes (600s)."""
+        while not cls._stop_event.is_set():
+            # Wait for 600s in 1s increments to stop quickly
+            for _ in range(600):
+                if cls._stop_event.is_set():
+                    break
+                time.sleep(1.0)
+            if cls._stop_event.is_set():
+                break
+
+            try:
+                cls.run_vector_gc()
+                cls.archive_decayed_episodes(threshold=0.1)
+            except Exception as e:
+                log_event(f"episodic_memory: scheduled GC and archive sweep failed: {e}")
