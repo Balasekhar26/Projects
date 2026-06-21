@@ -7,9 +7,9 @@ from backend.core.safety import classify_risk
 
 
 def safety_node(state):
-    decision = classify_risk(state["user_input"])
+    decision = classify_risk(state["user_input"], trust_tag=state.get("trust_tag", "SYSTEM_TRUST"))
     state["risk_level"] = decision.level
-    state["approval_required"] = decision.approval_required
+    state["approval_required"] = state.get("approval_required") or decision.approval_required
     state["logs"].append(f"safety: {decision.level} - {decision.reason}")
     if decision.blocked:
         state["selected_agent"] = "evaluator"

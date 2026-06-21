@@ -276,11 +276,90 @@ class AgentHibernationEngine:
     _monitor_started = False
 
     @classmethod
+    def get_vram_occupancy(cls, ollama_host: str) -> float:
+        """Returns the VRAM (or RAM if CPU-only) occupancy percentage."""
+        try:
+            from backend.core.adaptive_runtime import HardwareProfiler
+            hw = HardwareProfiler.get_profile()
+            total_vram_gb = hw.get("gpu_vram_gb", 0.0)
+            has_gpu = hw.get("has_gpu_acceleration", False)
+            
+            if has_gpu and total_vram_gb > 0.0:
+                # 1. Query active models in VRAM from Ollama
+                try:
+                    res = httpx.get(f"{ollama_host}/api/ps", timeout=2.0)
+                    if res.status_code == 200:
+                        models = res.json().get("models", [])
+                        total_size_vram = sum(m.get("size_vram", 0) for m in models)
+                        used_vram_gb = total_size_vram / (1024**3)
+                        return (used_vram_gb / total_vram_gb) * 100.0
+                except Exception:
+                    pass
+                
+                # 2. Fallback: query via torch.cuda if available
+                if torch.cuda.is_available():
+                    try:
+                        allocated = torch.cuda.memory_allocated(0)
+                        reserved = torch.cuda.memory_reserved(0)
+                        used_gb = max(allocated, reserved) / (1024**3)
+                        return (used_gb / total_vram_gb) * 100.0
+                    except Exception:
+                        pass
+                return 0.0
+            else:
+                # Fallback to system RAM if CPU-only
+                return psutil.virtual_memory().percent
+        except Exception:
+            return 0.0
+
+    @classmethod
+    def _check_and_evict_lru(cls, incoming_model: str, ollama_host: str) -> None:
+        """Evicts the oldest idle model (LRU) from memory if VRAM occupancy exceeds 80%."""
+        try:
+            occupancy = cls.get_vram_occupancy(ollama_host)
+            if occupancy > 80.0:
+                res = httpx.get(f"{ollama_host}/api/ps", timeout=2.0)
+                if res.status_code != 200:
+                    return
+                models = res.json().get("models", [])
+                loaded_models = []
+                for m in models:
+                    name = m.get("name") or m.get("model")
+                    if name and (m.get("size_vram", 0) > 0 or m.get("size", 0) > 0):
+                        loaded_models.append(name)
+                
+                candidates = [m for m in loaded_models if m != incoming_model]
+                if not candidates:
+                    return
+                
+                # Safely find the oldest touched model under lock
+                with cls._lock:
+                    oldest_model = min(candidates, key=lambda m: cls._last_used.get(m, 0.0))
+                    if oldest_model in cls._last_used:
+                        del cls._last_used[oldest_model]
+                
+                # Evict model outside of lock to prevent blockages
+                cls.hibernate_model(oldest_model, ollama_host)
+                from backend.core.logger import log_event
+                log_event(f"vram_eviction model={oldest_model} occupancy={occupancy:.1f}%")
+        except Exception as e:
+            from backend.core.logger import log_event
+            log_event(f"vram_eviction_error error={e}")
+
+    @classmethod
     def touch_model(cls, model_name: str) -> None:
         with cls._lock:
             cls._last_used[model_name] = time.time()
             if not cls._monitor_started:
                 cls.start_monitor_loop()
+        
+        # Check VRAM limits and evict oldest model if exceeding budget
+        try:
+            from backend.core.config import load_config
+            cfg = load_config()
+            cls._check_and_evict_lru(model_name, cfg.ollama_host)
+        except Exception:
+            pass
 
     @classmethod
     def hibernate_model(cls, model_name: str, ollama_host: str) -> bool:
@@ -308,6 +387,12 @@ class AgentHibernationEngine:
                 time.sleep(30)
                 try:
                     cfg = load_config()
+                    
+                    # Keep inactive models warm if VRAM occupancy is < 70%
+                    occupancy = cls.get_vram_occupancy(cfg.ollama_host)
+                    if occupancy < 70.0:
+                        continue
+                        
                     profile = cfg.hardware_profile
                     # ECO: 60s, BALANCED: 300s, PERFORMANCE/BEAST: 600s
                     ttl = 60 if profile == "ECO" else (300 if profile == "BALANCED" else 600)

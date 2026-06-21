@@ -24,6 +24,8 @@ memory/screenshots/
 backend/data/screenshots/
 backend/data/audio/
 backend/data/cluster/
+backend/data/attention/
+backend/data/memory_human/
 logs/
 backend/data/logs/
 runtime/

@@ -21,3 +21,4 @@ class AgentState(TypedDict):
     result: str | None
     logs: list[str]
     operator_plan: dict[str, Any] | None
+    trust_tag: str

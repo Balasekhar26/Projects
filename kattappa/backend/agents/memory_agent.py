@@ -13,6 +13,32 @@ def memory_node(state):
 
     remembered = _remember_command_payload(state["user_input"])
     if remembered:
+        if state.get("trust_tag") == "UNTRUSTED_ENVIRONMENT":
+            approved_id = state.get("approved_approval_id")
+            if approved_id and _approved_continuation_matches(str(approved_id), state["user_input"]):
+                state["logs"].append("memory: saving approved untrusted memory")
+            else:
+                import json
+                approval_id = memory.create_approval(
+                    state["user_input"],
+                    "medium",
+                    continuation_type="chat",
+                    continuation_payload=json.dumps(
+                        {
+                            "message": state["user_input"],
+                            "memory_query": state.get("memory_query") or state["user_input"],
+                            "chat_session_id": state.get("chat_session_id"),
+                            "chat_message_id": state.get("current_chat_message_id"),
+                            "source": "memory",
+                        }
+                    ),
+                )
+                state["approval_id"] = approval_id
+                state["approval_required"] = True
+                state["result"] = "Approval needed. Approve to continue saving memory."
+                state["logs"].append(f"memory: untrusted save request blocked pending approval {approval_id}")
+                return state
+
         memory_id = memory.remember(remembered, category="user_memory")
         
         # Write to Obsidian Memory Graph
@@ -100,3 +126,18 @@ def _remember_command_payload(text: str) -> str:
         if lower.startswith(prefix):
             return clean[len(prefix):].strip(" .")
     return ""
+
+
+def _approved_continuation_matches(approval_id: str, message: str) -> bool:
+    import json
+    approval = memory.get_approval(approval_id)
+    if not approval or approval["status"] != "approved":
+        return False
+    if approval["continuation_type"] not in {"chat", "desktop", "manual"}:
+        return False
+    try:
+        payload = json.loads(approval.get("continuation_payload") or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    approved_message = str(payload.get("message") or approval["action"])
+    return approved_message == message

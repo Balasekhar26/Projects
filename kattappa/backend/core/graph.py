@@ -112,6 +112,7 @@ def run_graph(
     current_chat_message_id: str | None = None,
     memory_query: str | None = None,
     ephemeral_worker: bool = False,
+    trust_tag: str = "SYSTEM_TRUST",
 ) -> AgentState:
     state: AgentState = {
         "user_input": user_input,
@@ -131,6 +132,7 @@ def run_graph(
         "result": None,
         "logs": [],
         "operator_plan": None,
+        "trust_tag": trust_tag,
     }
     from backend.core.rbil import RBIL
     rbil_res = RBIL.process(user_input)

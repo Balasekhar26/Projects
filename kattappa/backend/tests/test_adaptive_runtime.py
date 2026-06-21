@@ -182,3 +182,43 @@ class TestAdaptiveRuntime(unittest.TestCase):
             mock_ask.return_value = "compressed summary"
             MemoryCompressionEngine.compress_history("session-123", threshold=10)
             mock_ask.assert_called()
+
+    @patch("httpx.get")
+    @patch("httpx.post")
+    def test_vram_occupancy_and_lru_eviction(self, mock_post, mock_get):
+        from backend.core.adaptive_runtime import AgentHibernationEngine
+        
+        # Mock HardwareProfiler profile
+        with patch("backend.core.adaptive_runtime.HardwareProfiler.get_profile") as mock_profile:
+            mock_profile.return_value = {
+                "gpu_vram_gb": 4.0,
+                "has_gpu_acceleration": True
+            }
+            
+            # Mock get response for /api/ps to show VRAM occupancy > 80% (3.5 GB used out of 4 GB)
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = {
+                "models": [
+                    {"name": "old-model-1", "model": "old-model-1", "size_vram": 2 * 1024**3},
+                    {"name": "old-model-2", "model": "old-model-2", "size_vram": 1.5 * 1024**3}
+                ]
+            }
+            
+            # Record last used times
+            AgentHibernationEngine._last_used["old-model-1"] = 100.0
+            AgentHibernationEngine._last_used["old-model-2"] = 200.0
+            
+            # Touching "incoming-model" should trigger eviction of "old-model-1" (oldest timestamp 100.0 < 200.0)
+            AgentHibernationEngine.touch_model("incoming-model")
+            
+            # Verify hibernate was called on old-model-1
+            mock_post.assert_any_call(
+                "http://127.0.0.1:11434/api/chat",
+                json={
+                    "model": "old-model-1",
+                    "messages": [],
+                    "keep_alive": 0,
+                    "stream": False
+                },
+                timeout=5.0
+            )

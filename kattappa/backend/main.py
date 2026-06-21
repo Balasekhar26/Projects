@@ -400,6 +400,49 @@ class SageFeedbackRequest(BaseModel):
     rating: int
 
 
+class AttentionEventRequest(BaseModel):
+    text: str
+    source: str = "user"
+    active_context: str | None = None
+    record: bool = True
+
+
+class AttentionGoalRequest(BaseModel):
+    title: str
+    keywords: list[str] = []
+    priority: str = "normal"
+
+
+class AttentionEntityRequest(BaseModel):
+    name: str
+    relation: str = "contact"
+    importance: float = 0.6
+
+
+class AttentionFocusRequest(BaseModel):
+    objective: str
+    event_text: str
+
+
+class AttentionReflectRequest(BaseModel):
+    events: list[dict[str, object]] = []
+
+
+class MemoryIngestRequest(BaseModel):
+    text: str
+    source: str = "user"
+    session_id: str = "primary"
+    trusted: bool | None = None
+    relationship_hit: bool = False
+
+
+class MemoryLinkRequest(BaseModel):
+    src: str
+    dst: str
+    relation: str = "related"
+    weight: float = 1.0
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -465,6 +508,190 @@ def get_sage_status() -> dict[str, object]:
 def post_sage_feedback(request: SageFeedbackRequest) -> dict[str, object]:
     from backend.core.sage import SAGE
     return SAGE.learn_from(request.user_input, request.source, request.rating)
+
+
+@app.get("/attention/status")
+def attention_status() -> dict[str, object]:
+    from backend.core.lighthouse import LIGHTHOUSE
+    return LIGHTHOUSE.status()
+
+
+@app.post("/attention/evaluate")
+def attention_evaluate(request: AttentionEventRequest) -> dict[str, object]:
+    from backend.core.lighthouse import LIGHTHOUSE
+    result = LIGHTHOUSE.process_event(
+        request.text,
+        source=request.source,
+        active_context=request.active_context,
+        record=request.record,
+    )
+    return result.to_dict()
+
+
+@app.get("/attention/goals")
+def attention_list_goals() -> dict[str, object]:
+    from backend.core.lighthouse import GoalRegistry
+    return {"items": GoalRegistry.list_goals()}
+
+
+@app.post("/attention/goals")
+def attention_add_goal(request: AttentionGoalRequest) -> dict[str, object]:
+    from backend.core.lighthouse import GoalRegistry
+    try:
+        return {"item": GoalRegistry.add_goal(request.title, request.keywords, request.priority)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/attention/goals/{goal_id}")
+def attention_remove_goal(goal_id: str) -> dict[str, object]:
+    from backend.core.lighthouse import GoalRegistry
+    if not GoalRegistry.remove_goal(goal_id):
+        raise HTTPException(status_code=404, detail="Goal not found")
+    return {"removed": True, "goal_id": goal_id}
+
+
+@app.get("/attention/relationships")
+def attention_list_relationships() -> dict[str, object]:
+    from backend.core.lighthouse import RelationshipRegistry
+    return {"items": RelationshipRegistry.list_entities()}
+
+
+@app.post("/attention/relationships")
+def attention_add_relationship(request: AttentionEntityRequest) -> dict[str, object]:
+    from backend.core.lighthouse import RelationshipRegistry
+    try:
+        return {
+            "item": RelationshipRegistry.add_entity(
+                request.name, request.relation, request.importance
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/attention/relationships/{entity_id}")
+def attention_remove_relationship(entity_id: str) -> dict[str, object]:
+    from backend.core.lighthouse import RelationshipRegistry
+    if not RelationshipRegistry.remove_entity(entity_id):
+        raise HTTPException(status_code=404, detail="Entity not found")
+    return {"removed": True, "entity_id": entity_id}
+
+
+@app.get("/attention/curiosity")
+def attention_curiosity_queue(status: str | None = None) -> dict[str, object]:
+    from backend.core.lighthouse import CuriosityEngine
+    return {"items": CuriosityEngine.list_queue(status=status)}
+
+
+@app.post("/attention/curiosity/{item_id}/resolve")
+def attention_resolve_curiosity(item_id: str, status: str = "done") -> dict[str, object]:
+    from backend.core.lighthouse import CuriosityEngine
+    if not CuriosityEngine.resolve(item_id, status=status):
+        raise HTTPException(status_code=404, detail="Curiosity item not found")
+    return {"resolved": True, "item_id": item_id, "status": status}
+
+
+@app.post("/attention/focus-check")
+def attention_focus_check(request: AttentionFocusRequest) -> dict[str, object]:
+    from backend.core.lighthouse import FocusGuardian
+    return FocusGuardian.check(request.objective, request.event_text).to_dict()
+
+
+@app.post("/attention/reflect")
+def attention_reflect(request: AttentionReflectRequest) -> dict[str, object]:
+    from backend.core.lighthouse import LIGHTHOUSE
+    return LIGHTHOUSE.reflect(request.events)
+
+
+@app.get("/human-memory/status")
+def human_memory_status() -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return MEMORY.status()
+
+
+@app.post("/human-memory/ingest")
+def human_memory_ingest(request: MemoryIngestRequest) -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return MEMORY.ingest(
+        request.text,
+        source=request.source,
+        session_id=request.session_id,
+        trusted=request.trusted,
+        relationship_hit=request.relationship_hit,
+    ).to_dict()
+
+
+@app.get("/human-memory/recall")
+def human_memory_recall(q: str, limit: int = 5, include_forgotten: bool = False) -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return {"items": MEMORY.recall(q, limit=limit, include_forgotten=include_forgotten)}
+
+
+@app.get("/human-memory/working/{session_id}")
+def human_memory_working(session_id: str) -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return MEMORY.working_memory(session_id)
+
+
+@app.get("/human-memory/pending")
+def human_memory_pending() -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return {"items": MEMORY.list_pending()}
+
+
+@app.post("/human-memory/approve/{memory_id}")
+def human_memory_approve(memory_id: str) -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    if not MEMORY.approve_pending(memory_id):
+        raise HTTPException(status_code=404, detail="Pending memory not found")
+    return {"approved": True, "memory_id": memory_id}
+
+
+@app.post("/human-memory/pin/{memory_id}")
+def human_memory_pin(memory_id: str) -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    if not MEMORY.pin(memory_id):
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"pinned": True, "memory_id": memory_id}
+
+
+@app.post("/human-memory/unpin/{memory_id}")
+def human_memory_unpin(memory_id: str) -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    if not MEMORY.unpin(memory_id):
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"unpinned": True, "memory_id": memory_id}
+
+
+@app.post("/human-memory/decay/run")
+def human_memory_decay_run() -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return MEMORY.run_decay()
+
+
+@app.post("/human-memory/reflect")
+def human_memory_reflect() -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return MEMORY.reflect()
+
+
+@app.post("/human-memory/relationship/link")
+def human_memory_link(request: MemoryLinkRequest) -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return MEMORY.link(request.src, request.dst, request.relation, request.weight)
+
+
+@app.post("/human-memory/relationship/gc")
+def human_memory_gc() -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return MEMORY.garbage_collect()
+
+
+@app.get("/human-memory/wisdom")
+def human_memory_wisdom(limit: int = 20) -> dict[str, object]:
+    from backend.core.human_memory import MEMORY
+    return {"items": MEMORY.wisdom(limit=limit)}
 
 
 import threading

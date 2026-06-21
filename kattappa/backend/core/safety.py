@@ -39,16 +39,19 @@ class RiskDecision:
     approval_required: bool
     blocked: bool
     reason: str
+    trust_tag: str = "SYSTEM_TRUST"
 
 
-def classify_risk(text: str) -> RiskDecision:
+def classify_risk(text: str, trust_tag: str = "SYSTEM_TRUST") -> RiskDecision:
     lower = text.lower()
     blocked_hit = next((word for word in BLOCKED_KEYWORDS if word in lower), None)
     if blocked_hit:
-        return RiskDecision("blocked", False, True, f"Blocked keyword: {blocked_hit}")
+        return RiskDecision("blocked", False, True, f"Blocked keyword: {blocked_hit}", trust_tag)
 
     risky_hit = next((word for word in RISKY_KEYWORDS if word in lower), None)
     if risky_hit:
-        return RiskDecision("medium", True, False, f"Approval keyword: {risky_hit}")
+        if trust_tag == "UNTRUSTED_ENVIRONMENT":
+            return RiskDecision("blocked", False, True, f"Blocked untrusted action: {risky_hit}", trust_tag)
+        return RiskDecision("medium", True, False, f"Approval keyword: {risky_hit}", trust_tag)
 
-    return RiskDecision("safe", False, False, "No risky action detected")
+    return RiskDecision("safe", False, False, "No risky action detected", trust_tag)
