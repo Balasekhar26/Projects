@@ -71,7 +71,9 @@ class SemanticMemory:
                     source_episode_ids TEXT DEFAULT '[]',
                     provenance TEXT,
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    contradicts_id TEXT,
+                    status TEXT DEFAULT 'draft'
                 );
                 CREATE INDEX IF NOT EXISTS idx_hm_semantic_nodes_concept ON hm_semantic_nodes(concept);
 
@@ -117,6 +119,16 @@ class SemanticMemory:
                 END;
                 """
             )
+            
+            # Migration to add contradicts_id and status columns if table already exists
+            try:
+                conn.execute("ALTER TABLE hm_semantic_nodes ADD COLUMN contradicts_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE hm_semantic_nodes ADD COLUMN status TEXT DEFAULT 'draft'")
+            except sqlite3.OperationalError:
+                pass
             
             # Sync FTS table if it has missed items
             fts_count = conn.execute("SELECT COUNT(*) AS c FROM hm_semantic_nodes_fts").fetchone()["c"]
@@ -187,10 +199,11 @@ class SemanticMemory:
                     except queue.Empty:
                         break
 
-                cls._process_embeddings(items)
-                
-                for _ in range(len(items)):
-                    cls._embed_queue.task_done()
+                try:
+                    cls._process_embeddings(items)
+                finally:
+                    for _ in range(len(items)):
+                        cls._embed_queue.task_done()
             except queue.Empty:
                 continue
             except Exception as e:
@@ -287,6 +300,18 @@ class SemanticMemory:
                 node_id = existing_node["id"]
                 evidence_count = existing_node["evidence_count"] + 1
                 
+                # Accumulate provenance
+                if provenance:
+                    if existing_node.get("provenance"):
+                        if provenance not in existing_node["provenance"]:
+                            effective_provenance = f"{existing_node['provenance']}; {provenance}"
+                        else:
+                            effective_provenance = existing_node["provenance"]
+                    else:
+                         effective_provenance = provenance
+                else:
+                    effective_provenance = existing_node.get("provenance")
+                
                 try:
                     episode_ids = json.loads(existing_node["source_episode_ids"])
                 except Exception:
@@ -294,7 +319,23 @@ class SemanticMemory:
                 if source_episode_id not in episode_ids:
                     episode_ids.append(source_episode_id)
                 episode_ids_json = json.dumps(episode_ids)
+
+                # A-2: Trust check for promoted fact corroboration
+                from backend.core.memory_governance import MemoryGovernance
+                if existing_node["evidence_count"] >= 2 or evidence_count >= 2:
+                    # Check the new episode trust
+                    trust = MemoryGovernance.get_trust(source_episode_id)
+                    if trust == "TRUST_UNTRUSTED":
+                        raise ValueError(f"Cannot corroborate promoted fact with untrusted episode {source_episode_id}")
+
+                    # Run policy promotion check if we are promoting now
+                    allowed, reason = MemoryGovernance.can_promote_fact(episode_ids)
+                    if not allowed and reason == "untrusted_source_episodes":
+                        raise ValueError(f"Cannot promote fact derived from untrusted episodes: {reason}")
                 
+                if evidence_count >= 2 and not effective_provenance:
+                    raise ValueError("Provenance is required for promoted facts (evidence count >= 2).")
+
                 # Asymptotic confidence model
                 new_confidence = min(1.0, 1.0 - (0.5 ** evidence_count))
                 
@@ -311,14 +352,30 @@ class SemanticMemory:
                 with cls._lock:
                     conn = cls._get_sqlite_conn()
                     try:
+                        # Check peer contradiction status inside the lock
+                        status = "draft"
+                        if evidence_count >= 2:
+                            peer_id = existing_node.get("contradicts_id")
+                            if peer_id:
+                                peer_row = conn.execute("SELECT confidence, status FROM hm_semantic_nodes WHERE id = ?", (peer_id,)).fetchone()
+                                if peer_row and peer_row["confidence"] >= 0.3:
+                                    status = "contested"
+                                    conn.execute("UPDATE hm_semantic_nodes SET status = 'contested', updated_at = ? WHERE id = ?", (now, peer_id))
+                                else:
+                                    status = "verified"
+                            else:
+                                status = "verified"
+                        else:
+                            status = existing_node.get("status") or "draft"
+
                         conn.execute(
                             """
                             UPDATE hm_semantic_nodes 
                             SET description = ?, confidence = ?, evidence_count = ?, 
-                                source_episode_ids = ?, updated_at = ?
+                                source_episode_ids = ?, provenance = ?, updated_at = ?, status = ?
                             WHERE id = ?
                             """,
-                            (merged_desc, new_confidence, evidence_count, episode_ids_json, now, node_id)
+                            (merged_desc, new_confidence, evidence_count, episode_ids_json, effective_provenance, now, status, node_id)
                         )
                         conn.commit()
                     except Exception as e:
@@ -327,15 +384,67 @@ class SemanticMemory:
                     finally:
                         conn.close()
 
+                # A-1: Log provenance for semantic node promotion
+                if evidence_count >= 2:
+                    try:
+                        MemoryGovernance.log_provenance(
+                            memory_id=node_id,
+                            memory_type="semantic",
+                            source="episodic_promotion",
+                            created_by="semantic_layer",
+                            confidence=new_confidence,
+                            derived_from=episode_ids
+                        )
+                    except Exception as e:
+                        log_event(f"semantic_memory: failed to log provenance for {node_id}: {e}")
+
                 cls.start_worker()
                 cls._embed_queue.put((node_id, existing_node["concept"], merged_desc))
                 
                 return node_id
             else:
-                log_event(f"semantic_memory: polarity mismatch against existing concept '{existing_node['concept']}' - skipping merge")
+                # Contradiction: opposite polarity detected!
+                new_node_id = str(uuid.uuid4())
+                # 1. Lower confidence of the existing contradictory node by 0.2 (min 0.0)
+                new_existing_confidence = max(0.0, existing_node["confidence"] - 0.2)
+                now = time.time()
+                with cls._lock:
+                    conn = cls._get_sqlite_conn()
+                    try:
+                        conn.execute(
+                            """
+                            UPDATE hm_semantic_nodes 
+                            SET confidence = ?, updated_at = ?, contradicts_id = ?, status = 'contested' 
+                            WHERE id = ?
+                            """,
+                            (new_existing_confidence, now, new_node_id, existing_node["id"])
+                        )
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        raise e
+                    finally:
+                        conn.close()
+                
+                # 2. Lower confidence of the new incoming contradictory node by 0.2 (min 0.0)
+                confidence = max(0.0, confidence - 0.2)
+                log_event(
+                     f"semantic_memory: polarity mismatch (contradiction) against existing concept "
+                     f"'{existing_node['concept']}' - lowering confidence on existing node to {new_existing_confidence} "
+                     f"and inserting new contested fact with confidence {confidence}"
+                )
+                contradicts_id = existing_node["id"]
+                status = "contested"
+                # Falls through to insert the new fact as a separate node in step 4, using new_node_id.
 
         # 4. Create new node (no polarity-compatible match found)
-        node_id = str(uuid.uuid4())
+        if 'new_node_id' in locals():
+            node_id = new_node_id
+        else:
+            node_id = str(uuid.uuid4())
+            contradicts_id = None
+            status = "draft"
+
         episode_ids_json = json.dumps([source_episode_id])
         now = time.time()
 
@@ -346,11 +455,12 @@ class SemanticMemory:
                     """
                     INSERT INTO hm_semantic_nodes (
                         id, concept, description, confidence, evidence_count,
-                        source_episode_ids, provenance, created_at, updated_at
+                        source_episode_ids, provenance, created_at, updated_at,
+                        contradicts_id, status
                     )
-                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
                     """,
-                    (node_id, concept_clean, description_clean, confidence, episode_ids_json, provenance, now, now)
+                    (node_id, concept_clean, description_clean, confidence, episode_ids_json, provenance, now, now, contradicts_id, status)
                 )
                 conn.commit()
             except Exception as e:
@@ -374,6 +484,7 @@ class SemanticMemory:
                 return None
             record = dict(row)
             record["source_episode_ids"] = json.loads(record["source_episode_ids"])
+            record["last_updated"] = record["updated_at"]
             return record
         finally:
             conn.close()
@@ -503,12 +614,13 @@ class SemanticMemory:
         
         conn = cls._get_sqlite_conn()
         try:
-            start_row = conn.execute("SELECT * FROM hm_semantic_nodes WHERE id = ?", (start_node_id,)).fetchone()
+            start_row = conn.execute("SELECT * FROM hm_semantic_nodes WHERE id = ? AND evidence_count >= 2 AND status != 'contested'", (start_node_id,)).fetchone()
             if not start_row:
                 return {"nodes": {}, "edges": []}
             
             start_node = dict(start_row)
             start_node["source_episode_ids"] = json.loads(start_node["source_episode_ids"])
+            start_node["last_updated"] = start_node["updated_at"]
             visited_nodes[start_node_id] = start_node
             
             idx = 0
@@ -521,10 +633,10 @@ class SemanticMemory:
                 
                 rows = conn.execute(
                     """
-                    SELECT e.*, n.concept, n.description, n.confidence, n.evidence_count, n.source_episode_ids, n.provenance
+                    SELECT e.*, n.concept, n.description, n.confidence, n.evidence_count, n.source_episode_ids, n.provenance, n.created_at, n.updated_at, n.status
                     FROM hm_semantic_edges e
                     JOIN hm_semantic_nodes n ON e.target_node_id = n.id
-                    WHERE e.source_node_id = ? AND e.weight >= ?
+                    WHERE e.source_node_id = ? AND e.weight >= ? AND n.evidence_count >= 2 AND n.status != 'contested'
                     """,
                     (current_id, min_weight)
                 ).fetchall()
@@ -549,7 +661,9 @@ class SemanticMemory:
                             "confidence": r["confidence"],
                             "evidence_count": r["evidence_count"],
                             "source_episode_ids": json.loads(r["source_episode_ids"]),
-                            "provenance": r["provenance"]
+                            "provenance": r["provenance"],
+                            "created_at": r["created_at"],
+                            "last_updated": r["updated_at"]
                         }
                         visited_nodes[target_id] = target_node
                         queue_bfs.append((target_id, hop + 1))
@@ -568,7 +682,7 @@ class SemanticMemory:
         words = re.findall(r"\w+", query)
         if not words:
             return ""
-        return " OR ".join(f'"{w}"*' for w in words)
+        return " AND ".join(f'"{w}"*' for w in words)
 
     @classmethod
     def recall(
@@ -582,61 +696,57 @@ class SemanticMemory:
         fts_hits: list[str] = []
         vector_hits: list[str] = []
 
-        # 1. Lexical search via FTS5
-        sanitized = cls._sanitize_fts_query(query)
-        if sanitized:
-            conn = cls._get_sqlite_conn()
-            try:
-                rows = conn.execute(
-                    """
-                    SELECT id FROM hm_semantic_nodes 
-                    WHERE rowid IN (
-                        SELECT rowid FROM hm_semantic_nodes_fts WHERE hm_semantic_nodes_fts MATCH ?
-                    )
-                    LIMIT ?
-                    """,
-                    (sanitized, limit * 3)
-                ).fetchall()
-                fts_hits = [r["id"] for r in rows]
-            except Exception as e:
-                log_event(f"semantic_memory: FTS5 recall error: {e}")
-            finally:
-                conn.close()
-
-        # 2. Semantic search via ChromaDB vector index
-        try:
-            collection = cls._get_chroma_collection()
-            if collection.count() > 0:
-                query_vector = cls._get_query_embedding(query)
-                results = collection.query(
-                    query_embeddings=[query_vector],
-                    n_results=min(limit * 3, collection.count())
-                )
-                if results and results.get("ids") and results["ids"][0]:
-                    for idx, vid in enumerate(results["ids"][0]):
-                        dist = results["distances"][0][idx] if (results.get("distances") and len(results["distances"]) > 0) else 0.0
-                        if dist <= similarity_threshold:
-                            vector_hits.append(str(vid))
-        except Exception as e:
-            log_event(f"semantic_memory: Vector recall error: {e}")
-
-        # 3. Reciprocal Rank Fusion (RRF)
-        rrf_scores: dict[str, float] = {}
-        k = 60.0
-
-        for rank, nid in enumerate(fts_hits):
-            rrf_scores[nid] = rrf_scores.get(nid, 0.0) + (1.0 / (k + rank + 1))
-
-        for rank, nid in enumerate(vector_hits):
-            rrf_scores[nid] = rrf_scores.get(nid, 0.0) + (1.0 / (k + rank + 1))
-
-        sorted_candidates = sorted(rrf_scores.items(), key=lambda kv: kv[1], reverse=True)
-
-        # 4. Fetch live records from SQLite
-        recalled_nodes: list[dict[str, Any]] = []
-        
         conn = cls._get_sqlite_conn()
         try:
+            # 1. Lexical search via FTS5
+            sanitized = cls._sanitize_fts_query(query)
+            if sanitized:
+                try:
+                    rows = conn.execute(
+                        """
+                        SELECT n.id FROM hm_semantic_nodes n
+                        JOIN hm_semantic_nodes_fts f ON n.rowid = f.rowid
+                        WHERE f.hm_semantic_nodes_fts MATCH ?
+                        ORDER BY f.rank
+                        LIMIT ?
+                        """,
+                        (sanitized, limit * 3)
+                    ).fetchall()
+                    fts_hits = [r["id"] for r in rows]
+                except Exception as e:
+                    log_event(f"semantic_memory: FTS5 recall error: {e}")
+
+            # 2. Semantic search via ChromaDB vector index
+            try:
+                collection = cls._get_chroma_collection()
+                if collection.count() > 0:
+                    query_vector = cls._get_query_embedding(query)
+                    results = collection.query(
+                        query_embeddings=[query_vector],
+                        n_results=min(limit * 3, collection.count())
+                    )
+                    if results and results.get("ids") and results["ids"][0]:
+                        for idx, vid in enumerate(results["ids"][0]):
+                            dist = results["distances"][0][idx] if (results.get("distances") and len(results["distances"]) > 0) else 0.0
+                            if dist <= similarity_threshold:
+                                vector_hits.append(str(vid))
+            except Exception as e:
+                log_event(f"semantic_memory: Vector recall error: {e}")
+
+            # 3. Reciprocal Rank Fusion (RRF)
+            rrf_scores: dict[str, float] = {}
+            k = 60.0
+
+            for rank, nid in enumerate(fts_hits):
+                rrf_scores[nid] = rrf_scores.get(nid, 0.0) + (1.0 / (k + rank + 1))
+
+            for rank, nid in enumerate(vector_hits):
+                rrf_scores[nid] = rrf_scores.get(nid, 0.0) + (1.0 / (k + rank + 1))
+
+            sorted_candidates = sorted(rrf_scores.items(), key=lambda kv: kv[1], reverse=True)
+
+            # 4. Fetch live records from SQLite
+            recalled_nodes: list[dict[str, Any]] = []
             for nid, rrf_score in sorted_candidates:
                 if rrf_score < relevance_floor:
                     continue
@@ -646,9 +756,14 @@ class SemanticMemory:
                     log_event(f"semantic_memory: consistency warning - vector index contains orphan ID {nid}")
                     continue
 
+                if row["evidence_count"] < 2 or row["status"] == "contested":
+                    # Skip unpromoted or contested node (requires at least 2 independent episodes and no active contradiction)
+                    continue
+
                 record = dict(row)
                 record["source_episode_ids"] = json.loads(record["source_episode_ids"])
                 record["rrf_score"] = rrf_score
+                record["last_updated"] = record["updated_at"]
 
                 recalled_nodes.append(record)
 

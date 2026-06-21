@@ -182,11 +182,11 @@ class EpisodicMemory:
                     except queue.Empty:
                         break
 
-                # Execute write to vector store
-                cls._process_embeddings(items)
-                
-                for _ in range(len(items)):
-                    cls._embed_queue.task_done()
+                try:
+                    cls._process_embeddings(items)
+                finally:
+                    for _ in range(len(items)):
+                        cls._embed_queue.task_done()
             except queue.Empty:
                 continue
             except Exception as e:
@@ -214,7 +214,8 @@ class EpisodicMemory:
         category: str,
         session_id: str = "primary",
         tags: list[str] | None = None,
-        pinned: int = 0
+        pinned: int = 0,
+        source: Optional[str] = None
     ) -> str:
         """Creates a new episodic memory record and queues it for semantic vector indexing."""
         episode_id = str(uuid.uuid4())
@@ -241,6 +242,21 @@ class EpisodicMemory:
                 raise e
             finally:
                 conn.close()
+
+        # Log provenance via MemoryGovernance
+        try:
+            from backend.core.memory_governance import MemoryGovernance
+            effective_source = source or category or "chat"
+            MemoryGovernance.log_provenance(
+                memory_id=episode_id,
+                memory_type="episodic",
+                source=effective_source,
+                created_by="episodic_layer",
+                confidence=importance,
+                metadata={"category": category, "tags": tags or []}
+            )
+        except Exception as e:
+            log_event(f"episodic_memory: failed to log provenance for {episode_id}: {e}")
 
         # 2. Queue for background Chroma vector indexing
         cls.start_worker()
@@ -343,9 +359,9 @@ class EpisodicMemory:
         words = re.findall(r"\w+", query)
         if not words:
             return ""
-        # Format as a prefix OR match, e.g., "word1"* OR "word2"*
+        # Format as a prefix AND match, e.g., "word1"* AND "word2"*
         # This completely prevents search syntax injection errors
-        return " OR ".join(f'"{w}"*' for w in words)
+        return " AND ".join(f'"{w}"*' for w in words)
 
     # ----- Retrieval & Hybrid Fusion -----
 
@@ -362,10 +378,10 @@ class EpisodicMemory:
             try:
                 rows = conn.execute(
                     """
-                    SELECT id FROM hm_episodes 
-                    WHERE rowid IN (
-                        SELECT rowid FROM hm_episodes_fts WHERE hm_episodes_fts MATCH ?
-                    )
+                    SELECT e.id FROM hm_episodes e
+                    JOIN hm_episodes_fts f ON e.rowid = f.rowid
+                    WHERE f.hm_episodes_fts MATCH ?
+                    ORDER BY f.rank
                     LIMIT ?
                     """,
                     (sanitized, limit * 3)

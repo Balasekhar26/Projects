@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import time
 import unittest
 from unittest.mock import patch
@@ -6,28 +7,67 @@ from unittest.mock import patch
 from backend.core.semantic_memory import SemanticMemory
 
 
+class NoCloseConnection:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        # Do not close the shared in-memory test database
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
 class TestSemanticMemory(unittest.TestCase):
 
     def setUp(self):
-        # Reset memory state
+        # Reset query cache so stale embeddings don't carry over between tests
+        SemanticMemory._query_cache.clear()
+
+        # Fully reset the Chroma collection to prevent state bleed between tests
         try:
-            SemanticMemory._get_chroma_collection()
+            SemanticMemory._get_chroma_collection()  # ensure client is initialized
             SemanticMemory._chroma_client.delete_collection("semantic_vectors")
-            SemanticMemory._collection = None
         except Exception:
             pass
-        # Reset schema ensured flag to force fresh schema check
-        SemanticMemory._schema_ensured = False
-        conn = SemanticMemory._get_sqlite_conn()
+        SemanticMemory._collection = None  # force lazy re-create on next access
+
+        # Create a single in-memory database connection for the test class to bypass slow file system handle opens on Windows
+        if not hasattr(self.__class__, "_shared_conn"):
+            self.__class__._shared_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            self.__class__._shared_conn.row_factory = sqlite3.Row
+            SemanticMemory._ensure_schema(self.__class__._shared_conn)
+
+        # Clear tables between tests
+        self.__class__._shared_conn.execute("DELETE FROM hm_semantic_edges")
+        self.__class__._shared_conn.execute("DELETE FROM hm_semantic_nodes")
+        self.__class__._shared_conn.commit()
+
+        # Reset FTS5 virtual table
         try:
-            conn.execute("DELETE FROM hm_semantic_edges")
-            conn.execute("DELETE FROM hm_semantic_nodes")
-            conn.commit()
-        finally:
-            conn.close()
+            self.__class__._shared_conn.execute("DELETE FROM hm_semantic_nodes_fts")
+            self.__class__._shared_conn.commit()
+        except Exception:
+            pass
+
+        # Patch _get_sqlite_conn to return our wrapped shared in-memory connection
+        self.conn_patcher = patch.object(
+            SemanticMemory,
+            "_get_sqlite_conn",
+            return_value=NoCloseConnection(self.__class__._shared_conn)
+        )
+        self.conn_patcher.start()
 
     def tearDown(self):
         SemanticMemory.stop_worker()
+        self.conn_patcher.stop()
 
     def test_semantic_node_crud(self):
         # 1. Create Node (first occurrence of a fact)
@@ -68,7 +108,8 @@ class TestSemanticMemory(unittest.TestCase):
         nid2 = SemanticMemory.upsert_node(
             concept="Python programming language",
             description="Python is a popular general-purpose high-level programming language.",
-            source_episode_id="ep-python-2"
+            source_episode_id="ep-python-2",
+            provenance="user input"
         )
         SemanticMemory.flush_embeddings()
 
@@ -85,11 +126,6 @@ class TestSemanticMemory(unittest.TestCase):
         self.assertIn("programming language", node["description"])
 
     def test_negation_blocking(self):
-        conn = SemanticMemory._get_sqlite_conn()
-        schema_sql = conn.execute("SELECT sql FROM sqlite_master WHERE name='hm_semantic_nodes'").fetchone()[0]
-        print("\nDATABASE SCHEMA IS:", schema_sql)
-        conn.close()
-
         # 1. Affirmative statement
         nid1 = SemanticMemory.upsert_node(
             concept="Kattappa OS safety",
@@ -111,21 +147,100 @@ class TestSemanticMemory(unittest.TestCase):
 
         self.assertNotEqual(nid1, nid2)
 
-    def test_edges_and_graph_traversal(self):
-        # Create a tiny semantic property graph
-        # Node A -> Node B -> Node C -> Node D -> Node E
-        # Relationship paths:
-        # A: Tauri (id_tauri)
-        # B: Rust (id_rust)
-        # C: Cargo (id_cargo)
-        # D: Crates (id_crates)
-        # E: Remote repository (id_remote)
+    def test_contradiction_handling(self):
+        # Create initial node
+        nid1 = SemanticMemory.upsert_node(
+            concept="Rust performance",
+            description="Rust is extremely fast and performant.",
+            source_episode_id="ep-fast",
+            confidence=0.8
+        )
+        SemanticMemory.flush_embeddings()
         
+        # Upsert a contradictory statement (opposite polarity)
+        nid2 = SemanticMemory.upsert_node(
+            concept="Rust performance",
+            description="Rust is not extremely fast and performant.",
+            source_episode_id="ep-not-fast",
+            confidence=0.7
+        )
+        SemanticMemory.flush_embeddings()
+        
+        # They must be separate nodes
+        self.assertNotEqual(nid1, nid2)
+        
+        # Node 1 confidence should be lowered by 0.2 (0.8 -> 0.6)
+        node1 = SemanticMemory.get_node(nid1)
+        self.assertAlmostEqual(node1["confidence"], 0.6)
+        
+        # Node 2 confidence should be lowered by 0.2 (0.7 -> 0.5)
+        node2 = SemanticMemory.get_node(nid2)
+        self.assertAlmostEqual(node2["confidence"], 0.5)
+
+    def test_promotion_rules_and_provenance(self):
+        # 1. First episode upsert: evidence_count = 1
+        nid = SemanticMemory.upsert_node(
+            concept="Aether engine",
+            description="Aether engine processes hierarchical representations.",
+            source_episode_id="ep-a1",
+            provenance=None
+        )
+        SemanticMemory.flush_embeddings()
+        
+        # It exists in SQLite (direct lookup works)
+        node = SemanticMemory.get_node(nid)
+        self.assertIsNotNone(node)
+        self.assertEqual(node["evidence_count"], 1)
+        
+        # But it should NOT be returned by recall because it is not promoted yet (evidence_count < 2)
+        recalled = SemanticMemory.recall("Aether engine", limit=2)
+        self.assertEqual(len(recalled), 0)
+        
+        # 2. Try to promote it without provenance -> should raise ValueError
+        with self.assertRaises(ValueError):
+            SemanticMemory.upsert_node(
+                concept="Aether engine",
+                description="Aether engine processes hierarchical representations.",
+                source_episode_id="ep-a2",
+                provenance=None
+            )
+        
+        # 3. Promote it WITH provenance -> succeeds
+        nid2 = SemanticMemory.upsert_node(
+            concept="Aether engine",
+            description="Aether engine processes hierarchical representations.",
+            source_episode_id="ep-a2",
+            provenance="System docs"
+        )
+        SemanticMemory.flush_embeddings()
+        
+        self.assertEqual(nid, nid2)
+        node = SemanticMemory.get_node(nid)
+        self.assertEqual(node["evidence_count"], 2)
+        self.assertEqual(node["provenance"], "System docs")
+        
+        # Now it should be returned by recall!
+        recalled = SemanticMemory.recall("Aether engine", limit=2)
+        self.assertEqual(len(recalled), 1)
+        self.assertEqual(recalled[0]["id"], nid)
+
+    def test_edges_and_graph_traversal(self):
+        # Create a tiny semantic property graph with promoted nodes (evidence_count = 2)
         nid_tauri = SemanticMemory.upsert_node("Tauri", "A desktop app construction framework.", "ep-1", similarity_threshold=0.2)
+        SemanticMemory.upsert_node("Tauri", "A desktop app construction framework.", "ep-1-prom", provenance="test", similarity_threshold=0.2)
+        
         nid_rust = SemanticMemory.upsert_node("Rust", "A systems programming language focusing on safety.", "ep-2", similarity_threshold=0.2)
+        SemanticMemory.upsert_node("Rust", "A systems programming language focusing on safety.", "ep-2-prom", provenance="test", similarity_threshold=0.2)
+        
         nid_cargo = SemanticMemory.upsert_node("Cargo", "The Rust package manager.", "ep-3", similarity_threshold=0.2)
+        SemanticMemory.upsert_node("Cargo", "The Rust package manager.", "ep-3-prom", provenance="test", similarity_threshold=0.2)
+        
         nid_crates = SemanticMemory.upsert_node("Crates.io", "The official package registry for Rust.", "ep-4", similarity_threshold=0.2)
+        SemanticMemory.upsert_node("Crates.io", "The official package registry for Rust.", "ep-4-prom", provenance="test", similarity_threshold=0.2)
+        
         nid_remote = SemanticMemory.upsert_node("Remote Repo", "Cloud hosting for rust packages.", "ep-5", similarity_threshold=0.2)
+        SemanticMemory.upsert_node("Remote Repo", "Cloud hosting for rust packages.", "ep-5-prom", provenance="test", similarity_threshold=0.2)
+        
         SemanticMemory.flush_embeddings()
 
         # Edges
@@ -154,6 +269,9 @@ class TestSemanticMemory(unittest.TestCase):
         self.assertIn(nid_crates, nodes)
         self.assertNotIn(nid_remote, nodes)
 
+        # Verify last_updated is present
+        self.assertIn("last_updated", nodes[nid_tauri])
+
         # Verify edges count
         edges = graph["edges"]
         self.assertEqual(len(edges), 3)
@@ -165,7 +283,11 @@ class TestSemanticMemory(unittest.TestCase):
 
     def test_hybrid_retrieval(self):
         nid_ollama = SemanticMemory.upsert_node("Ollama server", "Ollama runs large language models locally.", "ep-o1")
+        SemanticMemory.upsert_node("Ollama server", "Ollama runs large language models locally.", "ep-o1-prom", provenance="test")
+
         nid_gpu = SemanticMemory.upsert_node("GPU acceleration", "CUDA and ROCm enable massive hardware speedups.", "ep-o2")
+        SemanticMemory.upsert_node("GPU acceleration", "CUDA and ROCm enable massive hardware speedups.", "ep-o2-prom", provenance="test")
+
         SemanticMemory.flush_embeddings()
 
         # Lexical search via FTS5
@@ -173,46 +295,225 @@ class TestSemanticMemory(unittest.TestCase):
         self.assertEqual(len(results_lex), 1)
         self.assertEqual(results_lex[0]["id"], nid_ollama)
 
-        # Semantic search via ChromaDB vector
+        # Semantic search via ChromaDB vector — query uses 'hardware'/'graphics' keywords
+        # that map to the GPU family in the mock embedding function
         results_sem = SemanticMemory.recall("hardware graphics card execution profiles", limit=2)
         self.assertEqual(len(results_sem), 1)
         self.assertEqual(results_sem[0]["id"], nid_gpu)
 
-    def test_scalability_smoke(self):
-        # Verify sub-millisecond retrieval scaling on a batch insertion using mocked embeddings
-        dummy_embedding = [0.1] * 384
-        def mock_emb_fn(texts):
-            return [dummy_embedding for _ in texts]
+    def test_vector_gc(self):
+        # Create node with 2 episodes to make it promoted/GC candidate
+        nid = SemanticMemory.upsert_node("GC candidate", "This will be cleaned up by the consistency sweep.", "ep-gc-1")
+        SemanticMemory.upsert_node("GC candidate", "This will be cleaned up by the consistency sweep.", "ep-gc-2", provenance="GC docs")
+        SemanticMemory.flush_embeddings()
+        
+        # Delete node only in SQLite, creating a ghost vector in Chroma
+        conn = SemanticMemory._get_sqlite_conn()
+        try:
+            conn.execute("DELETE FROM hm_semantic_nodes WHERE id = ?", (nid,))
+            conn.commit()
+        finally:
+            conn.close()
+            
+        # Trigger vector GC
+        purged = SemanticMemory.run_vector_gc()
+        self.assertEqual(purged, 1)
+        
+        # Verify removed from Chroma
+        collection = SemanticMemory._get_chroma_collection()
+        self.assertEqual(collection.count(), 0)
 
-        with patch("chromadb.utils.embedding_functions.DefaultEmbeddingFunction.__call__", side_effect=mock_emb_fn):
-            start = time.time()
+    def test_fts5_synchronization(self):
+        # Create node
+        nid = SemanticMemory.upsert_node("Sync target", "Initial description for sync checking.", "ep-sync-1")
+        SemanticMemory.flush_embeddings()
+        
+        # Verify FTS5 has the concept
+        conn = SemanticMemory._get_sqlite_conn()
+        try:
+            row = conn.execute("SELECT count(*) as c FROM hm_semantic_nodes_fts WHERE concept MATCH 'Sync'").fetchone()
+            self.assertEqual(row["c"], 1)
+        finally:
+            conn.close()
             
-            # Perform 50 insertions of facts and relationships
-            node_ids = []
-            for i in range(50):
-                nid = SemanticMemory.upsert_node(
-                    concept=f"Knowledge Piece {i}",
-                    description=f"This is the description of the factual piece of knowledge number {i}.",
-                    source_episode_id=f"ep-scale-{i}",
-                    similarity_threshold=0.2
-                )
-                node_ids.append(nid)
-                
-                # Create a simple chain relation
-                if i > 0:
-                    SemanticMemory.create_edge(node_ids[i-1], node_ids[i], "leads_to", 0.6)
-                    
-            SemanticMemory.flush_embeddings()
+        # Update node description -> trigger should sync
+        SemanticMemory.upsert_node(
+            concept="Sync target",
+            description="Updated description for sync checking.",
+            source_episode_id="ep-sync-2",
+            provenance="update"
+        )
+        SemanticMemory.flush_embeddings()
+        
+        # Verify FTS5 matches updated description
+        conn = SemanticMemory._get_sqlite_conn()
+        try:
+            row = conn.execute("SELECT count(*) as c FROM hm_semantic_nodes_fts WHERE description MATCH 'Updated'").fetchone()
+            self.assertEqual(row["c"], 1)
+        finally:
+            conn.close()
             
-            # Warm up
-            SemanticMemory.recall("warmup", limit=1)
+        # Delete node -> trigger should delete from FTS5
+        SemanticMemory.delete_node(nid)
+        
+        conn = SemanticMemory._get_sqlite_conn()
+        try:
+            row = conn.execute("SELECT count(*) as c FROM hm_semantic_nodes_fts").fetchone()
+            self.assertEqual(row["c"], 0)
+        finally:
+            conn.close()
 
-            # Measure retrieval performance
-            q_start = time.time()
-            results = SemanticMemory.recall("factual piece of knowledge number 25", limit=5)
-            q_end = time.time()
+    def test_scalability_simulation(self):
+        # We simulate 50k nodes in SQLite to verify query performance.
+        # To make it run fast, perform insertions in a single transaction.
+        conn = SemanticMemory._get_sqlite_conn()
+        try:
+            # Disable foreign keys and triggers temporarily during mass insert to make it instant
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("DROP TRIGGER IF EXISTS trg_hm_semantic_nodes_ai")
             
-            duration = q_end - q_start
-            print(f"\n[TIMING] Mocked recall took: {duration:.6f}s")
-            self.assertLess(duration, 0.5) # Retrieval should be fast (typically < 10ms with mocked embeddings)
-            self.assertGreater(len(results), 0)
+            # Insert 50,000 nodes using executemany
+            now = time.time()
+            nodes_data = []
+            for i in range(50000):
+                ev_count = 2 if i % 5000 == 0 else 1
+                status = "verified" if ev_count >= 2 else "draft"
+                nodes_data.append((
+                    f"node-uuid-{i}",
+                    f"Concept Scale {i}",
+                    f"Factual knowledge description piece number {i}.",
+                    0.8,
+                    ev_count,
+                    json.dumps([f"ep-{i}"]),
+                    "simulation",
+                    now,
+                    now,
+                    status
+                ))
+            
+            conn.executemany(
+                """
+                INSERT INTO hm_semantic_nodes (
+                    id, concept, description, confidence, evidence_count,
+                    source_episode_ids, provenance, created_at, updated_at, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                nodes_data
+            )
+            conn.commit()
+            
+            # Re-create trigger and sync FTS virtual table
+            conn.executescript(
+                """
+                CREATE TRIGGER trg_hm_semantic_nodes_ai AFTER INSERT ON hm_semantic_nodes BEGIN
+                    INSERT INTO hm_semantic_nodes_fts(rowid, concept, description) VALUES (new.rowid, new.concept, new.description);
+                END;
+                INSERT INTO hm_semantic_nodes_fts(rowid, concept, description) SELECT rowid, concept, description FROM hm_semantic_nodes;
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+            
+        # Warm up
+        SemanticMemory.recall("warmup", limit=1)
+
+        # Test recall execution time
+        start_time = time.time()
+        results = SemanticMemory.recall("Concept Scale 10000", limit=5)
+        end_time = time.time()
+        
+        elapsed = end_time - start_time
+        print(f"\n[TIMING] 50k-Node simulated recall took: {elapsed:.6f}s")
+        # Must remain acceptable (< 150ms)
+        self.assertLess(elapsed, 0.15)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["concept"], "Concept Scale 10000")
+
+    def test_corroboration_trust_recheck(self):
+        """Corroborating a fact with a node/episode marked as TRUST_UNTRUSTED must raise ValueError."""
+        # 1. Register episode as untrusted
+        from backend.core.memory_governance import MemoryGovernance
+        MemoryGovernance.set_trust("ep-untrusted-1", "memory", "TRUST_UNTRUSTED")
+        
+        # 2. Insert original fact (starts as draft, evidence_count = 1)
+        nid = SemanticMemory.upsert_node(
+            concept="Unproven concept",
+            description="Concept is unverified initially.",
+            source_episode_id="ep-100",
+            provenance="official",
+            confidence=0.5
+        )
+        
+        # 3. Attempt to corroborate with the untrusted episode, which should raise ValueError
+        with self.assertRaises(ValueError):
+            SemanticMemory.upsert_node(
+                concept="Unproven concept",
+                description="Concept is unverified initially.",
+                source_episode_id="ep-untrusted-1",
+                provenance="official",
+                confidence=0.5
+            )
+
+    def test_contradiction_contested_status(self):
+        """Opposite polarities should trigger contested status and peer contradicts_id linking."""
+        # 1. Insert original fact
+        nid1 = SemanticMemory.upsert_node(
+            concept="Water boiling point",
+            description="Water boils at 100 degrees Celsius under standard pressure.",
+            source_episode_id="ep-w1",
+            provenance="official",
+            confidence=0.8
+        )
+        
+        # 2. Insert contradictory fact (negated polarity)
+        nid2 = SemanticMemory.upsert_node(
+            concept="Water boiling point",
+            description="Water does not boil at 100 degrees Celsius under standard pressure.",
+            source_episode_id="ep-w2",
+            provenance="official",
+            confidence=0.8
+        )
+        
+        # Both must be marked as contested
+        node1 = SemanticMemory.get_node(nid1)
+        node2 = SemanticMemory.get_node(nid2)
+        
+        self.assertEqual(node1["status"], "contested")
+        self.assertEqual(node2["status"], "contested")
+        self.assertEqual(node1["contradicts_id"], nid2)
+        self.assertEqual(node2["contradicts_id"], nid1)
+        
+        # 3. Contested nodes must not be recalled
+        recalled = SemanticMemory.recall("Water boiling point")
+        recalled_ids = [n["id"] for n in recalled]
+        self.assertNotIn(nid1, recalled_ids)
+        self.assertNotIn(nid2, recalled_ids)
+
+    def test_provenance_logged_on_promotion(self):
+        """Provenance must be logged when a fact is promoted (evidence count >= 2)."""
+        nid = SemanticMemory.upsert_node(
+            concept="Unique fact",
+            description="Description of unique fact.",
+            source_episode_id="ep-u1",
+            provenance="user",
+            confidence=0.5
+        )
+        # First occurrence is draft (evidence count = 1), no provenance logged in governance yet
+        from backend.core.memory_governance import MemoryGovernance
+        self.assertIsNone(MemoryGovernance.get_provenance(nid))
+        
+        # Corroborate to promote (evidence count = 2)
+        SemanticMemory.upsert_node(
+            concept="Unique fact",
+            description="Description of unique fact.",
+            source_episode_id="ep-u2",
+            provenance="user",
+            confidence=0.5
+        )
+        
+        # Verify provenance is logged in governance
+        prov = MemoryGovernance.get_provenance(nid)
+        self.assertIsNotNone(prov)
+        self.assertEqual(prov["memory_type"], "semantic")
+        self.assertEqual(prov["source"], "episodic_promotion")
