@@ -453,6 +453,11 @@ class ConsensusDecideRequest(BaseModel):
     context: dict[str, object] | None = None
 
 
+class ValidatorRunRequest(BaseModel):
+    payload: dict[str, object] = {}
+    validators: list[str] | None = None
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -732,6 +737,18 @@ def router_route(request: RouterRouteRequest) -> dict[str, object]:
 def consensus_decide(request: ConsensusDecideRequest) -> dict[str, object]:
     from backend.core.consensus_engine import decide_from_dicts
     return decide_from_dicts(request.outputs, request.context).to_dict()
+
+
+@app.get("/validators")
+def list_validators() -> dict[str, object]:
+    from backend.core.validators import DEFAULT_VALIDATORS
+    return {"validators": [{"name": v.name, "veto": v.veto} for v in DEFAULT_VALIDATORS.values()]}
+
+
+@app.post("/validators/run")
+def validators_run(request: ValidatorRunRequest) -> dict[str, object]:
+    from backend.core.validators import run_validators
+    return run_validators(request.payload, request.validators).to_dict()
 
 
 import threading
