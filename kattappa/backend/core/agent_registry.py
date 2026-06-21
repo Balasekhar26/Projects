@@ -26,7 +26,7 @@ uniform five-field contract above.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
@@ -218,7 +218,7 @@ def _build_default_agents() -> list[AgentDefinition]:
             purpose="First-principles validation: physics, mathematics, algorithms, feasibility.",
             tools=("symbolic_solver", "physics_simulator", "web_research"),
             memory_permissions={MemoryLayer.SEMANTIC: MemoryPermission.READ},
-            priority=75,
+            priority=80,
             kind=AgentKind.LLM_SPECIALIST,
             activation_cost=ActivationCost.HIGH,
             description="Answers 'Can this work, and why?' with evidence and a feasibility estimate.",
@@ -231,7 +231,7 @@ def _build_default_agents() -> list[AgentDefinition]:
                 MemoryLayer.WORKING: MemoryPermission.READ_WRITE,
                 MemoryLayer.STRATEGIC: MemoryPermission.READ_WRITE,
             },
-            priority=70,
+            priority=75,
             kind=AgentKind.LLM_SPECIALIST,
             activation_cost=ActivationCost.HIGH,
             description="Answers 'How do we build it?' across hardware and software.",
@@ -258,6 +258,16 @@ def _build_default_agents() -> list[AgentDefinition]:
             kind=AgentKind.LLM_SPECIALIST,
             activation_cost=ActivationCost.HIGH,
             description="Answers 'How do we implement this?' as concrete artifacts.",
+        ),
+        AgentDefinition(
+            name="Critic",
+            purpose="Adversarial review: challenge assumptions, find edge cases and failure modes.",
+            tools=("edge_case_analysis", "failure_mode_mapping", "assumption_checker"),
+            memory_permissions={MemoryLayer.REFLECTION: MemoryPermission.READ},
+            priority=70,
+            kind=AgentKind.LLM_SPECIALIST,
+            activation_cost=ActivationCost.MEDIUM,
+            description="Produces only objections; never writes memory, plans, or routes.",
         ),
         AgentDefinition(
             name="Teacher",

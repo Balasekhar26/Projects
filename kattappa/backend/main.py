@@ -443,6 +443,11 @@ class MemoryLinkRequest(BaseModel):
     weight: float = 1.0
 
 
+class RouterRouteRequest(BaseModel):
+    prompt: str
+    mode: str = "BALANCED"
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -707,6 +712,15 @@ def get_agent(name: str) -> dict[str, object]:
     if agent is None:
         raise HTTPException(status_code=404, detail=f"No agent named {name!r}")
     return agent.to_dict()
+
+
+@app.post("/router/route")
+def router_route(request: RouterRouteRequest) -> dict[str, object]:
+    from backend.core.agent_router import DEFAULT_ROUTER
+    try:
+        return DEFAULT_ROUTER.route(request.prompt, mode=request.mode).to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 import threading

@@ -17,7 +17,7 @@ from backend.core.agent_registry import (
 
 EXPECTED_AGENTS = {
     "Scientist", "Engineer", "Planner", "Builder",
-    "Teacher", "Poet", "Security", "Memory Keeper",
+    "Teacher", "Poet", "Security", "Memory Keeper", "Critic",
 }
 
 
@@ -30,9 +30,26 @@ def registry() -> AgentRegistry:
 # All eight required agents exist with the required fields
 # ---------------------------------------------------------------------------
 
-def test_all_eight_agents_registered(registry):
-    assert len(registry) == 8
+def test_all_agents_registered(registry):
+    assert len(registry) == 9
     assert set(registry.names()) == EXPECTED_AGENTS
+
+
+def test_critic_is_read_only_specialist(registry):
+    critic = registry.get_or_raise("Critic")
+    assert critic.kind is AgentKind.LLM_SPECIALIST
+    assert critic.priority == 70
+    assert critic.veto is False
+    assert critic.can_read(MemoryLayer.REFLECTION)
+    # Critic must never hold write access to any layer.
+    for layer in MemoryLayer:
+        assert not critic.can_write(layer), layer
+    assert critic.has_tool("assumption_checker")
+
+
+def test_critic_executes_before_planner(registry):
+    names = registry.names()  # priority-ordered
+    assert names.index("Critic") < names.index("Planner")
 
 
 def test_every_agent_has_required_fields(registry):
@@ -121,9 +138,8 @@ def test_only_security_holds_veto(registry):
 
 def test_llm_specialists_count(registry):
     specialists = registry.by_kind(AgentKind.LLM_SPECIALIST)
-    # Scientist, Engineer, Planner, Builder, Teacher, Poet
     assert {a.name for a in specialists} == {
-        "Scientist", "Engineer", "Planner", "Builder", "Teacher", "Poet"
+        "Scientist", "Engineer", "Planner", "Builder", "Teacher", "Poet", "Critic"
     }
 
 
@@ -177,7 +193,7 @@ def test_duplicate_registration_rejected(registry):
 def test_to_dict_is_json_serialisable(registry):
     payload = json.dumps(registry.to_dict())
     data = json.loads(payload)
-    assert len(data["agents"]) == 8
+    assert len(data["agents"]) == 9
     first = data["agents"][0]
     assert set(first) >= {"name", "purpose", "tools", "memory_permissions", "priority"}
 
