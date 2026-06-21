@@ -133,9 +133,15 @@ class ProceduralMemory:
                     all_episode_ids.extend(node.get("source_episode_ids") or [])
             
             from backend.core.memory_governance import MemoryGovernance
-            allowed, reason = MemoryGovernance.can_promote_fact(all_episode_ids)
-            if not allowed and reason == "untrusted_source_episodes" and clean_trust in {"SYSTEM_TRUST", "USER_APPROVED"}:
-                raise ValueError(f"Cannot register trusted procedure derived from untrusted episodes: {reason}")
+            for eid in all_episode_ids:
+                trust = MemoryGovernance.get_trust(eid)
+                if trust == "TRUST_UNTRUSTED":
+                    if clean_trust in {"SYSTEM_TRUST", "USER_APPROVED"}:
+                        raise ValueError(f"Cannot register trusted procedure derived from untrusted episodes")
+                prov = MemoryGovernance.get_provenance(eid)
+                if prov and prov.get("source") in {"web", "ocr", "untrusted"}:
+                    if clean_trust in {"SYSTEM_TRUST", "USER_APPROVED"}:
+                        raise ValueError(f"Cannot register trusted procedure derived from untrusted episodes")
 
         signature = cls.calculate_signature(
             clean_skill, clean_steps, clean_trust, clean_phrase, procedure_version

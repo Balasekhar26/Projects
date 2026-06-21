@@ -44,10 +44,15 @@ class TestSemanticMemory(unittest.TestCase):
             self.__class__._shared_conn = sqlite3.connect(":memory:", check_same_thread=False)
             self.__class__._shared_conn.row_factory = sqlite3.Row
             SemanticMemory._ensure_schema(self.__class__._shared_conn)
+            
+            from backend.core.memory_governance import MemoryGovernance
+            MemoryGovernance._ensure_schema(self.__class__._shared_conn)
 
         # Clear tables between tests
         self.__class__._shared_conn.execute("DELETE FROM hm_semantic_edges")
         self.__class__._shared_conn.execute("DELETE FROM hm_semantic_nodes")
+        self.__class__._shared_conn.execute("DELETE FROM hm_trust_registry")
+        self.__class__._shared_conn.execute("DELETE FROM hm_provenance")
         self.__class__._shared_conn.commit()
 
         # Reset FTS5 virtual table
@@ -58,16 +63,18 @@ class TestSemanticMemory(unittest.TestCase):
             pass
 
         # Patch _get_sqlite_conn to return our wrapped shared in-memory connection
-        self.conn_patcher = patch.object(
-            SemanticMemory,
-            "_get_sqlite_conn",
-            return_value=NoCloseConnection(self.__class__._shared_conn)
-        )
-        self.conn_patcher.start()
+        from backend.core.memory_governance import MemoryGovernance
+        self.conn_patchers = [
+            patch.object(SemanticMemory, "_get_sqlite_conn", return_value=NoCloseConnection(self.__class__._shared_conn)),
+            patch.object(MemoryGovernance, "_get_sqlite_conn", return_value=NoCloseConnection(self.__class__._shared_conn)),
+        ]
+        for p in self.conn_patchers:
+            p.start()
 
     def tearDown(self):
         SemanticMemory.stop_worker()
-        self.conn_patcher.stop()
+        for p in self.conn_patchers:
+            p.stop()
 
     def test_semantic_node_crud(self):
         # 1. Create Node (first occurrence of a fact)

@@ -5,6 +5,25 @@ from unittest.mock import patch
 from backend.core.episodic_memory import EpisodicMemory
 
 
+import sqlite3
+
+class NoCloseConnection:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
 class TestEpisodicMemory(unittest.TestCase):
 
     def setUp(self):
@@ -15,15 +34,34 @@ class TestEpisodicMemory(unittest.TestCase):
             EpisodicMemory._collection = None
         except Exception:
             pass
-        conn = EpisodicMemory._get_sqlite_conn()
-        try:
-            conn.execute("DELETE FROM hm_episodes")
-            conn.commit()
-        finally:
-            conn.close()
+
+        # Create a single in-memory database connection for the test class to bypass slow file system handles
+        if not hasattr(self.__class__, "_shared_conn"):
+            self.__class__._shared_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            self.__class__._shared_conn.row_factory = sqlite3.Row
+            EpisodicMemory._ensure_schema(self.__class__._shared_conn)
+            
+            from backend.core.memory_governance import MemoryGovernance
+            MemoryGovernance._ensure_schema(self.__class__._shared_conn)
+
+        # Clear tables
+        self.__class__._shared_conn.execute("DELETE FROM hm_episodes")
+        self.__class__._shared_conn.execute("DELETE FROM hm_provenance")
+        self.__class__._shared_conn.commit()
+
+        # Patch connection
+        from backend.core.memory_governance import MemoryGovernance
+        self.conn_patchers = [
+            patch.object(EpisodicMemory, "_get_sqlite_conn", return_value=NoCloseConnection(self.__class__._shared_conn)),
+            patch.object(MemoryGovernance, "_get_sqlite_conn", return_value=NoCloseConnection(self.__class__._shared_conn)),
+        ]
+        for p in self.conn_patchers:
+            p.start()
 
     def tearDown(self):
         EpisodicMemory.stop_worker()
+        for p in self.conn_patchers:
+            p.stop()
 
     def test_episodic_crud(self):
         # 1. Create Episode
