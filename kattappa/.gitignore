@@ -29,6 +29,8 @@ backend/data/memory_human/
 backend/data/reflections.json
 backend/data/goals.json
 backend/data/reliability.json
+backend/data/capabilities.json
+backend/data/skills.json
 logs/
 backend/data/logs/
 runtime/

@@ -484,6 +484,38 @@ class ReflectionProposeRequest(BaseModel):
     confidence: int = 50
 
 
+class CapabilityRegisterRequest(BaseModel):
+    name: str
+    kind: str = "skill"
+    available: bool = True
+    depends_on: list[str] = []
+    alternatives: list[str] = []
+    risk: str = ""
+
+
+class CapabilityAssessRequest(BaseModel):
+    goal: str
+    required: list[str] = []
+
+
+class TrustAssessRequest(BaseModel):
+    statement: str
+    evidence: list[dict[str, object]] = []
+
+
+class SkillAddRequest(BaseModel):
+    name: str
+    description: str = ""
+    inputs: list[str] = []
+    steps: list[str] = []
+    outputs: list[str] = []
+    tags: list[str] = []
+
+
+class SkillResultRequest(BaseModel):
+    success: bool
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -873,6 +905,69 @@ def reflection_decide(reflection_id: str, action: str) -> dict[str, object]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/capabilities")
+def capabilities_status() -> dict[str, object]:
+    from backend.core.capability_graph import CapabilityGraph
+    return {"status": CapabilityGraph.status(), "items": CapabilityGraph.list_capabilities()}
+
+
+@app.post("/capabilities")
+def capabilities_register(request: CapabilityRegisterRequest) -> dict[str, object]:
+    from backend.core.capability_graph import CapabilityGraph
+    try:
+        return {"item": CapabilityGraph.register(
+            request.name, request.kind, available=request.available,
+            depends_on=request.depends_on, alternatives=request.alternatives, risk=request.risk,
+        )}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/capabilities/assess")
+def capabilities_assess(request: CapabilityAssessRequest) -> dict[str, object]:
+    from backend.core.capability_graph import CapabilityGraph
+    return CapabilityGraph.assess(request.goal, request.required)
+
+
+@app.post("/trust/assess")
+def trust_assess(request: TrustAssessRequest) -> dict[str, object]:
+    from backend.core.trust_evidence import assess_from_dicts
+    return assess_from_dicts(request.statement, request.evidence).to_dict()
+
+
+@app.get("/skills")
+def skills_status() -> dict[str, object]:
+    from backend.core.skill_library import SkillLibrary
+    return {"status": SkillLibrary.status(), "items": SkillLibrary.list_skills()}
+
+
+@app.get("/skills/search")
+def skills_search(q: str) -> dict[str, object]:
+    from backend.core.skill_library import SkillLibrary
+    return {"items": SkillLibrary.search(q)}
+
+
+@app.post("/skills")
+def skills_add(request: SkillAddRequest) -> dict[str, object]:
+    from backend.core.skill_library import SkillLibrary
+    try:
+        return {"item": SkillLibrary.add_skill(
+            request.name, request.description, inputs=request.inputs,
+            steps=request.steps, outputs=request.outputs, tags=request.tags,
+        )}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/skills/{name}/result")
+def skills_result(name: str, request: SkillResultRequest) -> dict[str, object]:
+    from backend.core.skill_library import SkillLibrary
+    try:
+        return SkillLibrary.record_result(name, request.success)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 import threading
