@@ -694,6 +694,21 @@ def human_memory_wisdom(limit: int = 20) -> dict[str, object]:
     return {"items": MEMORY.wisdom(limit=limit)}
 
 
+@app.get("/agents")
+def list_agents() -> dict[str, object]:
+    from backend.core.agent_registry import DEFAULT_REGISTRY
+    return DEFAULT_REGISTRY.to_dict()
+
+
+@app.get("/agents/{name}")
+def get_agent(name: str) -> dict[str, object]:
+    from backend.core.agent_registry import DEFAULT_REGISTRY
+    agent = DEFAULT_REGISTRY.get(name)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"No agent named {name!r}")
+    return agent.to_dict()
+
+
 import threading
 
 @app.on_event("startup")
