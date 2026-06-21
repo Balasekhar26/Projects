@@ -281,10 +281,20 @@ class MemoryGovernance:
         # 3. Archive Decayed Episodes
         archived_episodes = EpisodicMemory.archive_decayed_episodes(threshold=0.1)
 
+        # 4. Prune expired relationship memory candidates and emotional states
+        try:
+            from backend.core.relationship_memory import RelationshipMemory
+            rel_counts = RelationshipMemory.run_cleanup_sweep()
+        except Exception as exc:
+            log_event(f"memory_governance: relationship memory cleanup failed: {exc}")
+            rel_counts = {"expired_candidates_pruned": 0, "expired_emotions_pruned": 0}
+
         counts = {
             "episodic_orphans_purged": episodic_purged,
             "semantic_orphans_purged": semantic_purged,
             "decayed_episodes_archived": archived_episodes,
+            "expired_candidates_pruned": rel_counts.get("expired_candidates_pruned", 0),
+            "expired_emotions_pruned": rel_counts.get("expired_emotions_pruned", 0),
         }
 
         cls.log_governance_event("GC_SWEEP", details=counts)

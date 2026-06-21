@@ -47,6 +47,7 @@ class MemoryAssembler:
         query_text: str,
         limit: int = 5,
         include_actions: bool = True,
+        skip_semantic: bool = False,
     ) -> Dict[str, Any]:
         """Retrieve a ranked cross-layer context for *query_text*.
 
@@ -58,6 +59,8 @@ class MemoryAssembler:
             Maximum number of items per section (facts, episodes).
         include_actions:
             Whether to run procedural trigger matching.
+        skip_semantic:
+            If True, skips retrieving Tier 4 semantic/episodic recall to optimize hot-path latencies.
 
         Returns
         -------
@@ -67,13 +70,13 @@ class MemoryAssembler:
         query_text = query_text.strip()
 
         try:
-            semantic_hits: List[Dict[str, Any]] = cls._query_semantic(query_text, limit)
+            semantic_hits: List[Dict[str, Any]] = [] if skip_semantic else cls._query_semantic(query_text, limit)
         except Exception as exc:
             log_event(f"memory_assembler: semantic layer failed: {exc}")
             semantic_hits = []
 
         try:
-            episodic_hits: List[Dict[str, Any]] = cls._query_episodic(query_text, limit)
+            episodic_hits: List[Dict[str, Any]] = [] if skip_semantic else cls._query_episodic(query_text, limit)
         except Exception as exc:
             log_event(f"memory_assembler: episodic layer failed: {exc}")
             episodic_hits = []
@@ -92,10 +95,47 @@ class MemoryAssembler:
             log_event(f"memory_assembler: strategic layer failed: {exc}")
             goal_hits = []
 
+        # Retrieve Layer 7 Relationship Memory (primary personalization)
+        relationship_ctx: Dict[str, Any] = {}
+        try:
+            from backend.core.relationship_memory import RelationshipMemory
+            entity_id = "primary"
+            # Ensure primary user entity exists
+            RelationshipMemory.get_or_create_entity(entity_id, "User", "user", "TRUST_USER")
+            
+            # Tier 1
+            approved_prefs = RelationshipMemory.get_preferences(entity_id, min_confidence=0.5)
+            active_rel_goals = [g for g in RelationshipMemory.get_user_goals(entity_id, include_unapproved=False, min_priority=0.3) if g["status"] == "active"]
+            
+            # Tier 2
+            active_projects = [p for p in RelationshipMemory.get_projects(entity_id, min_priority=0.3) if p["status"] == "active"]
+            recent_history = RelationshipMemory.get_history(entity_id, limit=5, min_importance=0.3)
+            
+            # Tier 3
+            archived_rel_goals = [g for g in RelationshipMemory.get_user_goals(entity_id, include_unapproved=True, min_priority=0.3) if g["status"] in ("completed", "archived")]
+            older_history = RelationshipMemory.get_history(entity_id, limit=20, min_importance=0.3)[5:]
+            
+            # Ephemeral Emotional State (Opt-in)
+            emotional_state = RelationshipMemory.get_emotional_state(entity_id)
+
+            relationship_ctx = {
+                "preferences": approved_prefs,
+                "active_goals": active_rel_goals,
+                "active_projects": active_projects,
+                "recent_history": recent_history,
+                "archived_goals": archived_rel_goals,
+                "older_history": older_history,
+                "emotional_state": emotional_state,
+            }
+        except Exception as exc:
+            log_event(f"memory_assembler: relationship memory layer failed: {exc}")
+
         # RRF fusion across facts and episodes in their respective lists.
         fused_facts, fused_episodes = cls._fuse(semantic_hits, episodic_hits, limit)
 
         total_hits = len(semantic_hits) + len(episodic_hits) + len(procedural_hits) + len(goal_hits)
+        if relationship_ctx:
+            total_hits += len(relationship_ctx.get("preferences", [])) + len(relationship_ctx.get("active_goals", []))
 
         return {
             "query": query_text,
@@ -103,6 +143,7 @@ class MemoryAssembler:
             "episodes": fused_episodes,
             "actions": procedural_hits,
             "goals": goal_hits,
+            "relationship_memory": relationship_ctx,
             "total_hits": total_hits,
         }
 
