@@ -458,6 +458,12 @@ class ValidatorRunRequest(BaseModel):
     validators: list[str] | None = None
 
 
+class PolicyGateRequest(BaseModel):
+    action: str
+    consensus_approved: bool = True
+    consensus_requires_human: bool = False
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -749,6 +755,22 @@ def list_validators() -> dict[str, object]:
 def validators_run(request: ValidatorRunRequest) -> dict[str, object]:
     from backend.core.validators import run_validators
     return run_validators(request.payload, request.validators).to_dict()
+
+
+@app.get("/policy")
+def list_policies() -> dict[str, object]:
+    from backend.core.execution_policy import DEFAULT_POLICY_ENGINE
+    return DEFAULT_POLICY_ENGINE.to_dict()
+
+
+@app.post("/policy/gate")
+def policy_gate(request: PolicyGateRequest) -> dict[str, object]:
+    from backend.core.execution_policy import DEFAULT_POLICY_ENGINE
+    return DEFAULT_POLICY_ENGINE.gate(
+        request.action,
+        consensus_approved=request.consensus_approved,
+        consensus_requires_human=request.consensus_requires_human,
+    ).to_dict()
 
 
 import threading
