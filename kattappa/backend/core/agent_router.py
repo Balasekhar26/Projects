@@ -45,7 +45,9 @@ class RouterMode(str, Enum):
 
     @property
     def max_agents(self) -> int:
-        return {RouterMode.ECO: 1, RouterMode.BALANCED: 3, RouterMode.BEAST: 6}[self]
+        # BEAST caps at 5: Scientist, Engineer, Critic, Planner, Security cover the
+        # heaviest design tasks; beyond that, opinions start to duplicate.
+        return {RouterMode.ECO: 1, RouterMode.BALANCED: 3, RouterMode.BEAST: 5}[self]
 
     @property
     def token_budget(self) -> int:

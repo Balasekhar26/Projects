@@ -448,6 +448,10 @@ class RouterRouteRequest(BaseModel):
     mode: str = "BALANCED"
 
 
+class ConsensusDecideRequest(BaseModel):
+    outputs: list[dict[str, object]] = []
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -721,6 +725,12 @@ def router_route(request: RouterRouteRequest) -> dict[str, object]:
         return DEFAULT_ROUTER.route(request.prompt, mode=request.mode).to_dict()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/consensus/decide")
+def consensus_decide(request: ConsensusDecideRequest) -> dict[str, object]:
+    from backend.core.consensus_engine import decide_from_dicts
+    return decide_from_dicts(request.outputs).to_dict()
 
 
 import threading

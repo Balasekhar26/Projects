@@ -28,7 +28,7 @@ def router() -> AgentRouter:
 def test_mode_caps_and_budgets():
     assert RouterMode.ECO.max_agents == 1
     assert RouterMode.BALANCED.max_agents == 3
-    assert RouterMode.BEAST.max_agents == 6
+    assert RouterMode.BEAST.max_agents == 5
     assert RouterMode.ECO.token_budget == 1500
     assert RouterMode.BALANCED.token_budget == 6000
     assert RouterMode.BEAST.token_budget == 20000
