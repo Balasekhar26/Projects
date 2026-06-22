@@ -971,19 +971,19 @@ def trust_assess(request: TrustAssessRequest) -> dict[str, object]:
     return assess_from_dicts(request.statement, request.evidence).to_dict()
 
 
-@app.get("/skills")
+@app.get("/skills/library")
 def skills_status() -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     return {"status": SkillLibrary.status(), "items": SkillLibrary.list_skills()}
 
 
-@app.get("/skills/search")
+@app.get("/skills/library/search")
 def skills_search(q: str) -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     return {"items": SkillLibrary.search(q)}
 
 
-@app.post("/skills")
+@app.post("/skills/library")
 def skills_add(request: SkillAddRequest) -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     try:
@@ -995,7 +995,7 @@ def skills_add(request: SkillAddRequest) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/skills/{name}/result")
+@app.post("/skills/library/{name}/result")
 def skills_result(name: str, request: SkillLibResultRequest) -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     try:

@@ -39,6 +39,8 @@ try:
             "serialization": 14,
             "consistency": 15,
             "sweeps": 15,
+            "git": 16,
+            "aurora": 17,
         }
         for text in input:
             text_lower = text.lower()
