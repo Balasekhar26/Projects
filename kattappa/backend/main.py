@@ -1040,19 +1040,19 @@ def trust_assess(request: TrustAssessRequest) -> dict[str, object]:
 
 
 @app.get("/skills/library")
-def skills_status() -> dict[str, object]:
+def skills_library_status() -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     return {"status": SkillLibrary.status(), "items": SkillLibrary.list_skills()}
 
 
 @app.get("/skills/library/search")
-def skills_search(q: str) -> dict[str, object]:
+def skills_library_search(q: str) -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     return {"items": SkillLibrary.search(q)}
 
 
 @app.post("/skills/library")
-def skills_add(request: SkillAddRequest) -> dict[str, object]:
+def skills_library_add(request: SkillAddRequest) -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     try:
         return {"item": SkillLibrary.add_skill(
@@ -1064,12 +1064,52 @@ def skills_add(request: SkillAddRequest) -> dict[str, object]:
 
 
 @app.post("/skills/library/{name}/result")
-def skills_result(name: str, request: SkillLibResultRequest) -> dict[str, object]:
+def skills_library_result(name: str, request: SkillLibResultRequest) -> dict[str, object]:
     from backend.core.skill_library import SkillLibrary
     try:
         return SkillLibrary.record_result(name, request.success)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/skills")
+def skills(trust: str | None = None, limit: int = 50) -> dict[str, object]:
+    return {"items": memory.list_skills(trust=trust, limit=limit)}
+
+
+@app.post("/skills")
+def create_skill(request: SkillRequest) -> dict[str, object]:
+    try:
+        skill_id = memory.create_skill(
+            name=request.name,
+            trigger=request.trigger,
+            steps=request.steps,
+            tools=request.tools,
+            risk=request.risk,
+            trust=request.trust,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": memory.get_skill(skill_id)}
+
+
+@app.post("/skills/{skill_id}/result")
+def record_skill_result(
+    skill_id: str, request: SkillResultRequest
+) -> dict[str, object]:
+    item = memory.record_skill_result(
+        skill_id, success=request.success, reflection=request.reflection
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    memory.create_reflection(
+        task=f"Skill result: {item['name']}",
+        outcome="success" if request.success else "failure",
+        lesson=request.reflection or "No reflection supplied.",
+        skill_id=skill_id,
+    )
+    return {"item": item}
+
 
 
 @app.get("/world")
@@ -2686,25 +2726,7 @@ def decide_improvement(
     return {"item": item, "publish": publish_result}
 
 
-@app.get("/skills")
-def skills(trust: str | None = None, limit: int = 50) -> dict[str, object]:
-    return {"items": memory.list_skills(trust=trust, limit=limit)}
 
-
-@app.post("/skills")
-def create_skill(request: SkillRequest) -> dict[str, object]:
-    try:
-        skill_id = memory.create_skill(
-            name=request.name,
-            trigger=request.trigger,
-            steps=request.steps,
-            tools=request.tools,
-            risk=request.risk,
-            trust=request.trust,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"item": memory.get_skill(skill_id)}
 
 
 @app.post("/skills/{skill_id}/trust")
@@ -2720,22 +2742,7 @@ def update_skill_trust(
     return {"item": item}
 
 
-@app.post("/skills/{skill_id}/result")
-def record_skill_result(
-    skill_id: str, request: SkillResultRequest
-) -> dict[str, object]:
-    item = memory.record_skill_result(
-        skill_id, success=request.success, reflection=request.reflection
-    )
-    if item is None:
-        raise HTTPException(status_code=404, detail="Skill not found")
-    memory.create_reflection(
-        task=f"Skill result: {item['name']}",
-        outcome="success" if request.success else "failure",
-        lesson=request.reflection or "No reflection supplied.",
-        skill_id=skill_id,
-    )
-    return {"item": item}
+
 
 
 @app.get("/reflections")
