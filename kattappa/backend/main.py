@@ -521,6 +521,27 @@ class BenchmarkCompareRequest(BaseModel):
     floors: dict[str, float] | None = None
 
 
+class ProposalObserveRequest(BaseModel):
+    issue: str
+    severity: str
+    metrics: dict[str, object] | None = None
+
+
+class ProposalCreateRequest(BaseModel):
+    title: str
+    problem: str
+    evidence: str
+    proposal: str
+    expected_gain: float
+    complexity: int
+    confidence: int
+
+
+class ProposalNegativeKnowledgeRequest(BaseModel):
+    title: str
+    reason: str
+
+
 class GoalCreateRequest(BaseModel):
     title: str
     parent_id: str | None = None
@@ -999,6 +1020,54 @@ def benchmark_compare(request: BenchmarkCompareRequest) -> dict[str, object]:
 def benchmark_history() -> dict[str, object]:
     from backend.core.benchmark_arena import BenchmarkArena
     return {"history": BenchmarkArena.load_history()}
+
+
+@app.post("/proposal/observe")
+def proposal_observe(request: ProposalObserveRequest) -> dict[str, object]:
+    from backend.core.proposal_engine import ProposalEngine
+    obs = ProposalEngine.observe_issue(request.issue, request.severity, request.metrics)
+    hyps = ProposalEngine.reflect_on_observation(obs)
+    return {"observation": obs, "hypotheses": hyps}
+
+
+@app.post("/proposal/create")
+def proposal_create(request: ProposalCreateRequest) -> dict[str, object]:
+    from backend.core.proposal_engine import ProposalEngine
+    return ProposalEngine.create_proposal(
+        title=request.title,
+        problem=request.problem,
+        evidence=request.evidence,
+        proposal=request.proposal,
+        expected_gain=request.expected_gain,
+        complexity=request.complexity,
+        confidence=request.confidence,
+    )
+
+
+@app.get("/proposal/list")
+def proposal_list() -> dict[str, object]:
+    from backend.core.proposal_engine import ProposalEngine
+    return {"proposals": ProposalEngine.list_proposals()}
+
+
+@app.post("/proposal/approve/{proposal_id}")
+def proposal_approve(proposal_id: str, status: str = "sandbox_approved") -> dict[str, object]:
+    from backend.core.proposal_engine import ProposalEngine, ProposalStatus
+    try:
+        new_status = ProposalStatus(status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {status}") from exc
+    try:
+        return ProposalEngine.transition_status(proposal_id, new_status)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/proposal/negative-knowledge")
+def proposal_negative_knowledge(request: ProposalNegativeKnowledgeRequest) -> dict[str, object]:
+    from backend.core.proposal_engine import ProposalEngine
+    entry = ProposalEngine.register_negative_knowledge(request.title, request.reason)
+    return {"entry": entry}
 
 
 @app.get("/goals")
