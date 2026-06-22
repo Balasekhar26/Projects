@@ -972,7 +972,9 @@ def trust_assess(request: TrustAssessRequest) -> dict[str, object]:
 
 
 @app.get("/skills")
-def skills_status() -> dict[str, object]:
+def skills_status(trust: str | None = None, limit: int = 50) -> dict[str, object]:
+    if trust is not None:
+        return {"items": memory.list_skills(trust=trust, limit=limit)}
     from backend.core.skill_library import SkillLibrary
     return {"status": SkillLibrary.status(), "items": SkillLibrary.list_skills()}
 
@@ -984,15 +986,32 @@ def skills_search(q: str) -> dict[str, object]:
 
 
 @app.post("/skills")
-def skills_add(request: SkillAddRequest) -> dict[str, object]:
-    from backend.core.skill_library import SkillLibrary
-    try:
-        return {"item": SkillLibrary.add_skill(
-            request.name, request.description, inputs=request.inputs,
-            steps=request.steps, outputs=request.outputs, tags=request.tags,
-        )}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+def skills_add(payload: dict[str, Any]) -> dict[str, object]:
+    if "trigger" in payload:
+        try:
+            from backend.main import SkillRequest
+            request = SkillRequest(**payload)
+            skill_id = memory.create_skill(
+                name=request.name,
+                trigger=request.trigger,
+                steps=request.steps,
+                tools=request.tools,
+                risk=request.risk,
+                trust=request.trust,
+            )
+            return {"item": memory.get_skill(skill_id)}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        try:
+            request = SkillAddRequest(**payload)
+            from backend.core.skill_library import SkillLibrary
+            return {"item": SkillLibrary.add_skill(
+                request.name, request.description, inputs=request.inputs,
+                steps=request.steps, outputs=request.outputs, tags=request.tags,
+            )}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/skills/{name}/result")
@@ -2618,25 +2637,7 @@ def decide_improvement(
     return {"item": item, "publish": publish_result}
 
 
-@app.get("/skills")
-def skills(trust: str | None = None, limit: int = 50) -> dict[str, object]:
-    return {"items": memory.list_skills(trust=trust, limit=limit)}
 
-
-@app.post("/skills")
-def create_skill(request: SkillRequest) -> dict[str, object]:
-    try:
-        skill_id = memory.create_skill(
-            name=request.name,
-            trigger=request.trigger,
-            steps=request.steps,
-            tools=request.tools,
-            risk=request.risk,
-            trust=request.trust,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"item": memory.get_skill(skill_id)}
 
 
 @app.post("/skills/{skill_id}/trust")

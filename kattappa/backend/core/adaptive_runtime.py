@@ -478,7 +478,7 @@ class SemanticResponseCache:
                 
             distance = res["distances"][0][0]
             # Cosine/L2 distance metric threshold for semantic similarity
-            if distance > 0.25:
+            if distance > 0.45:
                 return None, None
                 
             meta = res["metadatas"][0][0]
