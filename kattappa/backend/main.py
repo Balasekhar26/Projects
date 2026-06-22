@@ -469,6 +469,29 @@ class ReliabilityRecordRequest(BaseModel):
     success: bool
 
 
+class MetaCognitionSuperviseRequest(BaseModel):
+    prompt: str
+    routing_confidence: float = 1.0
+    evidence_count: int = 1
+    missing_validators: bool = False
+    vetoes: list[dict[str, object]] = []
+    blocking_findings: list[dict[str, object]] = []
+    consensus_status: str = "approved"
+    simulation_success_rate: float | None = None
+    goal: str | None = None
+    required_caps: list[str] | None = None
+    chat_history: list[dict[str, object]] | None = None
+    failed_runs_count: int = 0
+    is_production: bool = False
+    is_code_change: bool = False
+
+
+class MetaCognitionModeRequest(BaseModel):
+    prompt: str
+    is_production: bool = False
+    is_code_change: bool = False
+
+
 class GoalCreateRequest(BaseModel):
     title: str
     parent_id: str | None = None
@@ -869,6 +892,51 @@ def reliability_stats() -> dict[str, object]:
 def reliability_record(request: ReliabilityRecordRequest) -> dict[str, object]:
     from backend.core.reliability_monitor import ReliabilityMonitor
     return ReliabilityMonitor.record_outcome(request.agent, request.success)
+
+
+@app.get("/meta-cognition/status")
+def meta_cognition_status() -> dict[str, object]:
+    return {
+        "status": "active",
+        "rules": {
+            "modes": ["DIRECT", "DEEP_ANALYSIS", "HIGH_ASSURANCE"],
+            "precedence": "ESCALATE > REQUEST_MORE_EVIDENCE > CHANGE_REASONING_MODE > ALLOW",
+            "uncertainty_routing_threshold": 0.5,
+            "simulation_success_threshold": 0.5,
+            "repeated_failed_runs_threshold": 2
+        }
+    }
+
+
+@app.post("/meta-cognition/supervise")
+def meta_cognition_supervise(request: MetaCognitionSuperviseRequest) -> dict[str, object]:
+    from backend.core.meta_cognition import MetaCognitionEngine
+    return MetaCognitionEngine.supervise(
+        prompt=request.prompt,
+        routing_confidence=request.routing_confidence,
+        evidence_count=request.evidence_count,
+        missing_validators=request.missing_validators,
+        vetoes=request.vetoes,
+        blocking_findings=request.blocking_findings,
+        consensus_status=request.consensus_status,
+        simulation_success_rate=request.simulation_success_rate,
+        goal=request.goal,
+        required_caps=request.required_caps,
+        chat_history=request.chat_history,
+        failed_runs_count=request.failed_runs_count,
+        is_production=request.is_production,
+        is_code_change=request.is_code_change,
+    )
+
+
+@app.post("/meta-cognition/mode")
+def meta_cognition_mode(request: MetaCognitionModeRequest) -> dict[str, object]:
+    from backend.core.meta_cognition import MetaCognitionEngine
+    return MetaCognitionEngine.select_cognitive_mode(
+        prompt=request.prompt,
+        is_production=request.is_production,
+        is_code_change=request.is_code_change,
+    )
 
 
 @app.get("/goals")
