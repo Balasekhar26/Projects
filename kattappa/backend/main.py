@@ -541,6 +541,15 @@ class DistillRequest(BaseModel):
     principle_hints: dict[str, str] = {}
 
 
+class ValueScoreRequest(BaseModel):
+    signals: dict[str, object] = {}
+
+
+class ValueRankRequest(BaseModel):
+    plans: list[dict[str, object]] = []
+    profile: str = "default"
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -1042,6 +1051,35 @@ def distill(request: DistillRequest) -> dict[str, object]:
     return KnowledgeDistiller.distill(
         request.observations, min_cluster=request.min_cluster,
         principle_hints=request.principle_hints).to_dict()
+
+
+@app.get("/value/profiles")
+def value_profiles() -> dict[str, object]:
+    from backend.core.value_engine import PROFILES
+    return {"profiles": {p.value: w for p, w in PROFILES.items()}}
+
+
+@app.post("/value/score")
+def value_score(request: ValueScoreRequest) -> dict[str, object]:
+    from backend.core.value_engine import PlanSignals, ValueEngine
+    return ValueEngine.score_plan(PlanSignals.from_dict(request.signals))
+
+
+@app.post("/value/rank")
+def value_rank(request: ValueRankRequest) -> dict[str, object]:
+    from backend.core.value_engine import PlanSignals, ValueEngine, ValueProfile
+    plans = [PlanSignals.from_dict(p) for p in request.plans]
+    try:
+        profile = ValueProfile.coerce(request.profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ValueEngine.rank(plans, profile).to_dict()
+
+
+@app.get("/value/drift")
+def value_drift() -> dict[str, object]:
+    from backend.core.value_engine import ValueDriftMonitor
+    return ValueDriftMonitor.report()
 
 
 import threading
