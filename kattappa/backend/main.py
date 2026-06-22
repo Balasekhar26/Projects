@@ -535,10 +535,48 @@ class ProposalCreateRequest(BaseModel):
     expected_gain: float
     complexity: int
     confidence: int
+    affected_modules: list[str] = []
+    parent_proposal_id: str | None = None
+    research_cost: float = 10.0
+
+
+class ProposalReviewRequest(BaseModel):
+    approved: bool
+    review_time_seconds: float
+
+
+class ProposalRecordRunRequest(BaseModel):
+    stage: str
+    success: bool
+    metrics: dict[str, Any] | None = None
+    research_cost: float = 10.0
+    predicted_gain: float | None = None
+    actual_sandbox_gain: float | None = None
+    actual_production_gain: float | None = None
 
 
 class ProposalNegativeKnowledgeRequest(BaseModel):
     title: str
+    reason: str
+
+
+class SandboxExperimentRunRequest(BaseModel):
+    expected_risk: float = 0.1
+    actual_gain: float = 5.0
+    mock_failure: bool = False
+
+
+class DeploymentAssessRequest(BaseModel):
+    benchmark_scores: dict[str, float]
+    baseline_scores: dict[str, float]
+
+
+class CanaryStepRequest(BaseModel):
+    simulated_anomaly: str | None = None
+    simulated_held_out_regression: bool = False
+
+
+class RollbackRequest(BaseModel):
     reason: str
 
 
@@ -1041,6 +1079,9 @@ def proposal_create(request: ProposalCreateRequest) -> dict[str, object]:
         expected_gain=request.expected_gain,
         complexity=request.complexity,
         confidence=request.confidence,
+        affected_modules=request.affected_modules,
+        parent_proposal_id=request.parent_proposal_id,
+        research_cost=request.research_cost,
     )
 
 
@@ -1051,8 +1092,9 @@ def proposal_list() -> dict[str, object]:
 
 
 @app.post("/proposal/approve/{proposal_id}")
-def proposal_approve(proposal_id: str, status: str = "sandbox_approved") -> dict[str, object]:
-    from backend.core.proposal_engine import ProposalEngine, ProposalStatus
+def proposal_approve(proposal_id: str, status: str = "approved_gate_1") -> dict[str, object]:
+    from backend.core.proposal_engine import ProposalEngine
+    from backend.core.proposal_governance import ProposalStatus
     try:
         new_status = ProposalStatus(status)
     except ValueError as exc:
@@ -1061,6 +1103,8 @@ def proposal_approve(proposal_id: str, status: str = "sandbox_approved") -> dict
         return ProposalEngine.transition_status(proposal_id, new_status)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/proposal/negative-knowledge")
@@ -1068,6 +1112,291 @@ def proposal_negative_knowledge(request: ProposalNegativeKnowledgeRequest) -> di
     from backend.core.proposal_engine import ProposalEngine
     entry = ProposalEngine.register_negative_knowledge(request.title, request.reason)
     return {"entry": entry}
+
+
+@app.get("/proposal/budget")
+def proposal_budget() -> dict[str, object]:
+    from backend.core.proposal_governance import ProposalBudgetManager, TrackRecordStore
+    from backend.core.proposal_engine import ProposalEngine
+    limit = ProposalBudgetManager.get_budget_limit()
+    import time
+    now = time.time()
+    day_ago = now - 86400
+    created_today = sum(1 for p in ProposalEngine.list_proposals() if p.get("created_at", 0.0) >= day_ago)
+    pqs = TrackRecordStore.get_pqs()
+    roi = TrackRecordStore.get_pipeline_roi()
+    burden = TrackRecordStore.get_human_burden_score()
+    return {
+        "daily_limit": limit,
+        "created_today": created_today,
+        "pqs": round(pqs, 4),
+        "pipeline_roi": round(roi, 4),
+        "human_burden": burden,
+    }
+
+
+@app.post("/proposal/review/{proposal_id}")
+def proposal_review(proposal_id: str, gate: str, request: ProposalReviewRequest) -> dict[str, object]:
+    from backend.core.proposal_governance import TrackRecordStore, ProposalStatus
+    from backend.core.proposal_engine import ProposalEngine
+    if gate not in ("gate_1", "gate_2"):
+        raise HTTPException(status_code=400, detail="Gate must be 'gate_1' or 'gate_2'")
+        
+    TrackRecordStore.record_human_review(
+        proposal_id=proposal_id,
+        gate=gate,
+        approved=request.approved,
+        review_time_seconds=request.review_time_seconds,
+    )
+    
+    new_status = ProposalStatus.APPROVED_GATE_1 if gate == "gate_1" else ProposalStatus.APPROVED_GATE_2
+    if not request.approved:
+        new_status = ProposalStatus.REJECTED
+        
+    try:
+        updated = ProposalEngine.transition_status(proposal_id, new_status)
+        return {"status": "success", "proposal": updated}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/proposal/record-result/{proposal_id}")
+def proposal_record_result(proposal_id: str, request: ProposalRecordRunRequest) -> dict[str, object]:
+    from backend.core.proposal_governance import TrackRecordStore, ProposalStatus
+    from backend.core.proposal_engine import ProposalEngine
+    if request.stage not in ("sandbox", "benchmark", "production", "canary"):
+        raise HTTPException(status_code=400, detail="Stage must be 'sandbox', 'benchmark', 'production', or 'canary'")
+        
+    TrackRecordStore.record_run(
+        proposal_id=proposal_id,
+        stage=request.stage,
+        success=request.success,
+        metrics=request.metrics,
+        research_cost=request.research_cost,
+        predicted_gain=request.predicted_gain,
+        actual_sandbox_gain=request.actual_sandbox_gain,
+        actual_production_gain=request.actual_production_gain,
+    )
+    
+    status_map = {
+        "sandbox": ProposalStatus.LAB_TESTING,
+        "benchmark": ProposalStatus.BENCHMARKING,
+        "canary": ProposalStatus.CANARY,
+        "production": ProposalStatus.DEPLOYED,
+    }
+    
+    target_status = status_map[request.stage]
+    if not request.success:
+        target_status = ProposalStatus.REJECTED
+
+    try:
+        updated = ProposalEngine.transition_status(proposal_id, target_status)
+        return {"status": "success", "proposal": updated}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/proposal/track-records")
+def proposal_track_records() -> dict[str, object]:
+    from backend.core.proposal_governance import TrackRecordStore
+    return {
+        "records": TrackRecordStore.get_track_records(),
+        "pqs": round(TrackRecordStore.get_pqs(), 4),
+        "pipeline_roi": round(TrackRecordStore.get_pipeline_roi(), 4),
+        "pipeline_pvs": TrackRecordStore.get_pipeline_pvs(),
+        "pipeline_iy": TrackRecordStore.get_improvement_yield(),
+        "pipeline_prr": TrackRecordStore.get_prr(),
+        "pipeline_nkhr": TrackRecordStore.get_nkhr(),
+        "pipeline_rf": TrackRecordStore.get_rf(),
+        "gra": TrackRecordStore.get_gra_score(),
+        "human_burden": TrackRecordStore.get_human_burden_score(),
+    }
+
+
+@app.post("/improvements/register/{proposal_id}")
+def improvements_register(proposal_id: str) -> dict[str, object]:
+    from backend.core.proposal_governance import ImprovementRegistry
+    try:
+        record = ImprovementRegistry.register_or_update(proposal_id)
+        return {"status": "success", "record": record}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/improvements")
+def improvements_list(
+    status: str | None = None,
+    from_time: float | None = None,
+    to_time: float | None = None,
+    proposal_id: str | None = None,
+    limit: int | None = None,
+) -> Any:
+    # Check if this is a query for the original memory-based improvements
+    if limit is not None and proposal_id is None and from_time is None and to_time is None:
+        return {"items": memory.list_improvements(status=status, limit=limit)}
+
+    from backend.core.proposal_governance import ImprovementRegistry
+    try:
+        return ImprovementRegistry.get_improvements(
+            status=status,
+            from_time=from_time,
+            to_time=to_time,
+            proposal_id=proposal_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/improvements/stats")
+def improvements_stats() -> dict[str, Any]:
+    from backend.core.proposal_governance import ImprovementRegistry
+    try:
+        return ImprovementRegistry.get_stats()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/improvements/{improvement_id}")
+def improvements_detail(improvement_id: str) -> list[dict[str, Any]]:
+    from backend.core.proposal_governance import ImprovementRegistry
+    try:
+        details = ImprovementRegistry.get_improvement_details(improvement_id)
+        if not details:
+            raise HTTPException(status_code=404, detail="Improvement not found")
+        return details
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/sandbox/run-experiment/{proposal_id}")
+def sandbox_run_experiment(proposal_id: str, request: SandboxExperimentRunRequest) -> dict[str, object]:
+    from backend.core.proposal_engine import ProposalEngine
+    from backend.core.proposal_governance import ProposalStatus
+    from backend.core.sandbox_lab import (
+        ExperimentRiskClassifier,
+        ExperimentPackage,
+        ReplayEngine,
+        SafetyAuditor,
+        ResultPackager,
+        RiskLevel,
+    )
+    import time
+
+    # 1. Load proposal
+    proposals = ProposalEngine.list_proposals()
+    target_proposal = None
+    for p in proposals:
+        if p.get("id") == proposal_id:
+            target_proposal = p
+            break
+            
+    if not target_proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+        
+    title = target_proposal.get("title", "")
+    proposal_text = target_proposal.get("proposal", "")
+    affected_modules = target_proposal.get("affected_modules", [])
+    expected_gain = target_proposal.get("expected_gain", 5.0)
+
+    # 2. Classify risk
+    risk_class = ExperimentRiskClassifier.classify(title, proposal_text, affected_modules)
+    if risk_class == RiskLevel.R4:
+        try:
+            ProposalEngine.transition_status(proposal_id, ProposalStatus.REJECTED)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=400,
+            detail="Experiment violates Protected Core boundary. Risk level R4 (Forbidden)."
+        )
+
+    # 3. Build Experiment Package
+    package = ExperimentPackage(
+        proposal_id=proposal_id,
+        parent_proposal_id=target_proposal.get("parent_proposal_id"),
+        risk_class=risk_class,
+        expected_gain=expected_gain,
+        expected_risk=request.expected_risk,
+        benchmark_targets=["latency", "accuracy"],
+        rollback_targets=["router"],
+        created_at=time.time(),
+    )
+
+    # 4. Replay traces
+    def trace_processor(trace):
+        if request.mock_failure:
+            # Simulate a write attempt to trigger safety violation
+            import builtins
+            builtins.open("test.txt", "w").close()
+        return {"success": True}
+
+    replay_results = ReplayEngine.replay_traces(trace_processor)
+
+    # 5. Audit safety
+    safety_success, safety_message = SafetyAuditor.audit_execution(proposal_text, replay_results)
+
+    # 6. Result packaging
+    report = ResultPackager.package_report(
+        package=package,
+        replay_results=replay_results,
+        safety_success=safety_success,
+        safety_message=safety_message,
+        actual_gain=request.actual_gain,
+    )
+
+    # 7. Lifecycle transitions
+    target_status = ProposalStatus.LAB_TESTING
+    if not safety_success or report.get("recommendation") == "FAIL":
+        target_status = ProposalStatus.REJECTED
+
+    try:
+        ProposalEngine.transition_status(proposal_id, target_status)
+    except Exception:
+        pass
+
+    return report
+
+
+@app.get("/sandbox/experiments")
+def sandbox_list_experiments() -> dict[str, object]:
+    from backend.core.sandbox_lab import ArtifactStore
+    return {"experiments": ArtifactStore.load_experiments()}
+
+
+@app.get("/sandbox/prs")
+def sandbox_prs_score() -> dict[str, object]:
+    from backend.core.sandbox_lab import ResultPackager
+    return {"prs": ResultPackager.get_overall_prs()}
+
+
+@app.post("/deployment/assess/{proposal_id}")
+def deployment_assess(proposal_id: str, request: DeploymentAssessRequest) -> dict[str, object]:
+    from backend.core.deployment_advisor import DeploymentAdvisor
+    return DeploymentAdvisor.assess_deployment(proposal_id, request.benchmark_scores, request.baseline_scores)
+
+
+@app.post("/deployment/canary/step/{proposal_id}")
+def deployment_canary_step(proposal_id: str, request: CanaryStepRequest) -> dict[str, object]:
+    from backend.core.deployment_advisor import CanaryReleaseCoordinator
+    return CanaryReleaseCoordinator.advance_canary(
+        proposal_id,
+        request.simulated_anomaly,
+        request.simulated_held_out_regression
+    )
+
+
+@app.post("/deployment/rollback/{proposal_id}")
+def deployment_rollback(proposal_id: str, request: RollbackRequest) -> dict[str, object]:
+    from backend.core.deployment_advisor import AutomaticRollbackEngine
+    return AutomaticRollbackEngine.rollback(proposal_id, request.reason)
 
 
 @app.get("/goals")
@@ -2818,9 +3147,6 @@ def continue_approval(approval_id: str) -> dict[str, object]:
     return continue_approved_work(approval_id)
 
 
-@app.get("/improvements")
-def improvements(status: str | None = None, limit: int = 25) -> dict[str, object]:
-    return {"items": memory.list_improvements(status=status, limit=limit)}
 
 
 @app.post("/improvements")

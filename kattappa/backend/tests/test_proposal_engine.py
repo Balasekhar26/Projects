@@ -163,12 +163,12 @@ def test_api_proposal_endpoints(temp_proposal_db):
 
     # 2. Register negative knowledge
     neg_payload = {
-        "title": "Add global index",
-        "reason": "Index causes write locks"
+        "title": "Add remote cargo crate",
+        "reason": "Unstable library version"
     }
     response = client.post("/proposal/negative-knowledge", json=neg_payload)
     assert response.status_code == 200
-    assert response.json()["entry"]["title"] == "Add global index"
+    assert response.json()["entry"]["title"] == "Add remote cargo crate"
 
     # 3. Create proposal
     prop_payload = {
