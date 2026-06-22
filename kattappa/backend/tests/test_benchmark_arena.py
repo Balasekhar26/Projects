@@ -216,6 +216,14 @@ def test_version_comparison():
     assert res["regression_triggered"] is True
     assert any("Regression" in r for r in res["reasons"])
 
+    # OCI drop but category scores satisfy floors and do not regress -> approved should be True
+    current_low_oci = {
+        "oci": 0.80, # OCI dropped
+        "category_scores": {"security": 0.96, "planning": 0.88, "calibration": 0.85, "memory": 0.85, "coding": 0.82}
+    }
+    res = BenchmarkArena.compare_versions(current_low_oci, previous)
+    assert res["approved"] is True  # OCI drop is ignored for approval decision
+
 
 def test_run_suite_and_firewall(temp_history_db):
     items = [
@@ -228,6 +236,10 @@ def test_run_suite_and_firewall(temp_history_db):
     assert report_pub["is_held_out"] is False
     assert len(report_pub["items_evaluated"]) == 2
     assert report_pub["category_scores"]["memory"] == 1.0
+    # Audit Check 5: Confidence Intervals present
+    assert "category_stats" in report_pub
+    assert "ci95" in report_pub["category_stats"]["memory"]
+    assert report_pub["category_stats"]["memory"]["mean"] == 1.0
 
     # Private split: check prompts/details are masked
     report_held = BenchmarkArena.run_suite("suite_v1", items, is_held_out=True)
