@@ -580,6 +580,12 @@ class RollbackRequest(BaseModel):
     reason: str
 
 
+class ResearchAnalyzeRequest(BaseModel):
+    title: str = "Untitled"
+    content: str
+    source_type: str = "paper"
+
+
 class GoalCreateRequest(BaseModel):
     title: str
     parent_id: str | None = None
@@ -1397,6 +1403,29 @@ def deployment_canary_step(proposal_id: str, request: CanaryStepRequest) -> dict
 def deployment_rollback(proposal_id: str, request: RollbackRequest) -> dict[str, object]:
     from backend.core.deployment_advisor import AutomaticRollbackEngine
     return AutomaticRollbackEngine.rollback(proposal_id, request.reason)
+
+
+@app.post("/research/analyze")
+def research_analyze(request: ResearchAnalyzeRequest) -> dict[str, object]:
+    from backend.core.research_agent import ResearchAgent
+    try:
+        result = ResearchAgent.analyze_material(
+            title=request.title,
+            content=request.content,
+            source_type=request.source_type,
+        )
+        return {"status": "success", "result": result}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/research/results")
+def research_results() -> list[dict[str, Any]]:
+    from backend.core.research_agent import ResearchAgent
+    try:
+        return ResearchAgent.list_results()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/goals")
