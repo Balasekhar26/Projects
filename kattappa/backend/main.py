@@ -492,6 +492,35 @@ class MetaCognitionModeRequest(BaseModel):
     is_code_change: bool = False
 
 
+class BenchmarkItemRequest(BaseModel):
+    id: str
+    category: str
+    prompt: str
+    actual: str = ""
+    expected: str = ""
+    constraints: list[str] = []
+    expected_tools: list[str] = []
+    logs: list[str] = []
+
+
+class BenchmarkRunRequest(BaseModel):
+    suite_id: str
+    items: list[BenchmarkItemRequest]
+    is_held_out: bool = False
+    chat_history: list[dict[str, object]] | None = None
+    memory_queries: list[str] | None = None
+    violations: list[dict[str, object]] | None = None
+    latencies: list[float] | None = None
+    predictions: list[float] | None = None
+    outcomes: list[int] | None = None
+
+
+class BenchmarkCompareRequest(BaseModel):
+    current_run: dict[str, object]
+    previous_run: dict[str, object] | None = None
+    floors: dict[str, float] | None = None
+
+
 class GoalCreateRequest(BaseModel):
     title: str
     parent_id: str | None = None
@@ -937,6 +966,39 @@ def meta_cognition_mode(request: MetaCognitionModeRequest) -> dict[str, object]:
         is_production=request.is_production,
         is_code_change=request.is_code_change,
     )
+
+
+@app.post("/benchmark/run")
+def benchmark_run(request: BenchmarkRunRequest) -> dict[str, object]:
+    from backend.core.benchmark_arena import BenchmarkArena
+    items_dicts = [item.model_dump() for item in request.items]
+    return BenchmarkArena.run_suite(
+        suite_id=request.suite_id,
+        items=items_dicts,
+        is_held_out=request.is_held_out,
+        chat_history=request.chat_history,
+        memory_queries=request.memory_queries,
+        violations=request.violations,
+        latencies=request.latencies,
+        predictions=request.predictions,
+        outcomes=request.outcomes,
+    )
+
+
+@app.post("/benchmark/compare")
+def benchmark_compare(request: BenchmarkCompareRequest) -> dict[str, object]:
+    from backend.core.benchmark_arena import BenchmarkArena
+    return BenchmarkArena.compare_versions(
+        current_run=request.current_run,
+        previous_run=request.previous_run,
+        floors=request.floors,
+    )
+
+
+@app.get("/benchmark/history")
+def benchmark_history() -> dict[str, object]:
+    from backend.core.benchmark_arena import BenchmarkArena
+    return {"history": BenchmarkArena.load_history()}
 
 
 @app.get("/goals")
