@@ -586,6 +586,12 @@ class ResearchAnalyzeRequest(BaseModel):
     source_type: str = "paper"
 
 
+class SandboxExperimentRunV2Request(BaseModel):
+    baseline_benchmarks: dict[str, float] | None = None
+    mock_regression: bool = False
+    mock_crash: bool = False
+
+
 class GoalCreateRequest(BaseModel):
     title: str
     parent_id: str | None = None
@@ -1426,6 +1432,24 @@ def research_results() -> list[dict[str, Any]]:
     from backend.core.research_agent import ResearchAgent
     try:
         return ResearchAgent.list_results()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/sandbox/run-experiment-v2/{proposal_id}")
+def sandbox_run_experiment_v2(
+    proposal_id: str,
+    request: SandboxExperimentRunV2Request
+) -> dict[str, object]:
+    from backend.core.experiment_sandbox import ExperimentManager
+    try:
+        report = ExperimentManager.execute_experiment(
+            proposal_id=proposal_id,
+            baseline_benchmarks=request.baseline_benchmarks,
+            mock_regression=request.mock_regression,
+            mock_crash=request.mock_crash,
+        )
+        return {"status": "success", "report": report}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
