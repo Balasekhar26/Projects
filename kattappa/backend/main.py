@@ -1415,6 +1415,8 @@ def research_analyze(request: ResearchAnalyzeRequest) -> dict[str, object]:
             source_type=request.source_type,
         )
         return {"status": "success", "result": result}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
