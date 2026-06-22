@@ -443,6 +443,113 @@ class MemoryLinkRequest(BaseModel):
     weight: float = 1.0
 
 
+class RouterRouteRequest(BaseModel):
+    prompt: str
+    mode: str = "BALANCED"
+
+
+class ConsensusDecideRequest(BaseModel):
+    outputs: list[dict[str, object]] = []
+    context: dict[str, object] | None = None
+
+
+class ValidatorRunRequest(BaseModel):
+    payload: dict[str, object] = {}
+    validators: list[str] | None = None
+
+
+class PolicyGateRequest(BaseModel):
+    action: str
+    consensus_approved: bool = True
+    consensus_requires_human: bool = False
+
+
+class ReliabilityRecordRequest(BaseModel):
+    agent: str
+    success: bool
+
+
+class GoalCreateRequest(BaseModel):
+    title: str
+    parent_id: str | None = None
+    depends_on: list[str] = []
+
+
+class ReflectionProposeRequest(BaseModel):
+    problem: str
+    cause: str = ""
+    improvement: str = ""
+    category: str = "reasoning"
+    evidence_source: str = "reasoning"
+    confidence: int = 50
+
+
+class CapabilityRegisterRequest(BaseModel):
+    name: str
+    kind: str = "skill"
+    available: bool = True
+    depends_on: list[str] = []
+    alternatives: list[str] = []
+    risk: str = ""
+
+
+class CapabilityAssessRequest(BaseModel):
+    goal: str
+    required: list[str] = []
+
+
+class TrustAssessRequest(BaseModel):
+    statement: str
+    evidence: list[dict[str, object]] = []
+
+
+class SkillAddRequest(BaseModel):
+    name: str
+    description: str = ""
+    inputs: list[str] = []
+    steps: list[str] = []
+    outputs: list[str] = []
+    tags: list[str] = []
+
+
+class SkillLibResultRequest(BaseModel):
+    success: bool
+
+
+class WorldEntityRequest(BaseModel):
+    name: str
+    type: str = "other"
+    status: str = ""
+    attributes: dict[str, object] = {}
+
+
+class WorldRelationRequest(BaseModel):
+    src: str
+    dst: str
+    relation: str = "related"
+
+
+class SimulateRequest(BaseModel):
+    scenario: dict[str, object] = {}
+    trials: int = 1000
+    seed: int = 42
+
+
+class DistillRequest(BaseModel):
+    observations: list[str] = []
+    min_cluster: int = 3
+    principle_hints: dict[str, str] = {}
+
+
+class ValueScoreRequest(BaseModel):
+    signals: dict[str, object] = {}
+
+
+class ValueRankRequest(BaseModel):
+    plans: list[dict[str, object]] = []
+    profile: str = "default"
+
+
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -694,6 +801,285 @@ def human_memory_wisdom(limit: int = 20) -> dict[str, object]:
     return {"items": MEMORY.wisdom(limit=limit)}
 
 
+@app.get("/agents")
+def list_agents() -> dict[str, object]:
+    from backend.core.agent_registry import DEFAULT_REGISTRY
+    return DEFAULT_REGISTRY.to_dict()
+
+
+@app.get("/agents/{name}")
+def get_agent(name: str) -> dict[str, object]:
+    from backend.core.agent_registry import DEFAULT_REGISTRY
+    agent = DEFAULT_REGISTRY.get(name)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"No agent named {name!r}")
+    return agent.to_dict()
+
+
+@app.post("/router/route")
+def router_route(request: RouterRouteRequest) -> dict[str, object]:
+    from backend.core.agent_router import DEFAULT_ROUTER
+    try:
+        return DEFAULT_ROUTER.route(request.prompt, mode=request.mode).to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/consensus/decide")
+def consensus_decide(request: ConsensusDecideRequest) -> dict[str, object]:
+    from backend.core.consensus_engine import decide_from_dicts
+    return decide_from_dicts(request.outputs, request.context).to_dict()
+
+
+@app.get("/validators")
+def list_validators() -> dict[str, object]:
+    from backend.core.validators import DEFAULT_VALIDATORS
+    return {"validators": [{"name": v.name, "veto": v.veto} for v in DEFAULT_VALIDATORS.values()]}
+
+
+@app.post("/validators/run")
+def validators_run(request: ValidatorRunRequest) -> dict[str, object]:
+    from backend.core.validators import run_validators
+    return run_validators(request.payload, request.validators).to_dict()
+
+
+@app.get("/policy")
+def list_policies() -> dict[str, object]:
+    from backend.core.execution_policy import DEFAULT_POLICY_ENGINE
+    return DEFAULT_POLICY_ENGINE.to_dict()
+
+
+@app.post("/policy/gate")
+def policy_gate(request: PolicyGateRequest) -> dict[str, object]:
+    from backend.core.execution_policy import DEFAULT_POLICY_ENGINE
+    return DEFAULT_POLICY_ENGINE.gate(
+        request.action,
+        consensus_approved=request.consensus_approved,
+        consensus_requires_human=request.consensus_requires_human,
+    ).to_dict()
+
+
+@app.get("/reliability")
+def reliability_stats() -> dict[str, object]:
+    from backend.core.reliability_monitor import ReliabilityMonitor
+    return ReliabilityMonitor.stats()
+
+
+@app.post("/reliability/record")
+def reliability_record(request: ReliabilityRecordRequest) -> dict[str, object]:
+    from backend.core.reliability_monitor import ReliabilityMonitor
+    return ReliabilityMonitor.record_outcome(request.agent, request.success)
+
+
+@app.get("/goals")
+def goals_status() -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    return GoalManager.status()
+
+
+@app.get("/goals/list")
+def goals_list() -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    return {"items": GoalManager.list_goals()}
+
+
+@app.post("/goals")
+def goals_add(request: GoalCreateRequest) -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    try:
+        return {"item": GoalManager.add_goal(request.title, request.parent_id, request.depends_on)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/goals/{goal_id}/{action}")
+def goals_transition(goal_id: str, action: str) -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    handlers = {"start": GoalManager.start, "complete": GoalManager.complete, "abandon": GoalManager.abandon}
+    handler = handlers.get(action)
+    if handler is None:
+        raise HTTPException(status_code=400, detail=f"Unknown action {action!r}")
+    try:
+        return {"item": handler(goal_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/reflection")
+def reflection_status(status: str | None = None) -> dict[str, object]:
+    from backend.core.reflection_engine import ReflectionEngine
+    if status:
+        return {"items": ReflectionEngine.list_reflections(status=status)}
+    return ReflectionEngine.status()
+
+
+@app.post("/reflection/propose")
+def reflection_propose(request: ReflectionProposeRequest) -> dict[str, object]:
+    from backend.core.reflection_engine import ReflectionEngine
+    try:
+        return ReflectionEngine.reflect(
+            request.problem, request.cause, request.improvement,
+            category=request.category, evidence_source=request.evidence_source,
+            confidence=request.confidence,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/reflection/{reflection_id}/{action}")
+def reflection_decide(reflection_id: str, action: str) -> dict[str, object]:
+    from backend.core.reflection_engine import ReflectionEngine
+    handlers = {"accept": ReflectionEngine.accept, "reject": ReflectionEngine.reject}
+    handler = handlers.get(action)
+    if handler is None:
+        raise HTTPException(status_code=400, detail=f"Unknown action {action!r}")
+    try:
+        return handler(reflection_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/capabilities")
+def capabilities_status() -> dict[str, object]:
+    from backend.core.capability_graph import CapabilityGraph
+    return {"status": CapabilityGraph.status(), "items": CapabilityGraph.list_capabilities()}
+
+
+@app.post("/capabilities")
+def capabilities_register(request: CapabilityRegisterRequest) -> dict[str, object]:
+    from backend.core.capability_graph import CapabilityGraph
+    try:
+         return {"item": CapabilityGraph.register(
+            request.name, request.kind, available=request.available,
+            depends_on=request.depends_on, alternatives=request.alternatives, risk=request.risk,
+         )}
+    except ValueError as exc:
+         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/capabilities/assess")
+def capabilities_assess(request: CapabilityAssessRequest) -> dict[str, object]:
+    from backend.core.capability_graph import CapabilityGraph
+    return CapabilityGraph.assess(request.goal, request.required)
+
+
+@app.post("/trust/assess")
+def trust_assess(request: TrustAssessRequest) -> dict[str, object]:
+    from backend.core.trust_evidence import assess_from_dicts
+    return assess_from_dicts(request.statement, request.evidence).to_dict()
+
+
+@app.get("/skills")
+def skills_status() -> dict[str, object]:
+    from backend.core.skill_library import SkillLibrary
+    return {"status": SkillLibrary.status(), "items": SkillLibrary.list_skills()}
+
+
+@app.get("/skills/search")
+def skills_search(q: str) -> dict[str, object]:
+    from backend.core.skill_library import SkillLibrary
+    return {"items": SkillLibrary.search(q)}
+
+
+@app.post("/skills")
+def skills_add(request: SkillAddRequest) -> dict[str, object]:
+    from backend.core.skill_library import SkillLibrary
+    try:
+        return {"item": SkillLibrary.add_skill(
+            request.name, request.description, inputs=request.inputs,
+            steps=request.steps, outputs=request.outputs, tags=request.tags,
+        )}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/skills/{name}/result")
+def skills_result(name: str, request: SkillLibResultRequest) -> dict[str, object]:
+    from backend.core.skill_library import SkillLibrary
+    try:
+        return SkillLibrary.record_result(name, request.success)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/world")
+def world_status() -> dict[str, object]:
+    from backend.core.world_model import WorldModel
+    return WorldModel.status()
+
+
+@app.post("/world/entity")
+def world_add_entity(request: WorldEntityRequest) -> dict[str, object]:
+    from backend.core.world_model import WorldModel
+    try:
+        return {"item": WorldModel.add_entity(
+            request.name, request.type, status=request.status, attributes=request.attributes)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/world/relation")
+def world_add_relation(request: WorldRelationRequest) -> dict[str, object]:
+    from backend.core.world_model import WorldModel
+    try:
+        return {"item": WorldModel.add_relation(request.src, request.dst, request.relation)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/world/impact/{name}")
+def world_impact(name: str) -> dict[str, object]:
+    from backend.core.world_model import WorldModel
+    try:
+        return WorldModel.impact_of(name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/simulate")
+def simulate(request: SimulateRequest) -> dict[str, object]:
+    from backend.core.simulation_engine import SimulationEngine
+    return SimulationEngine.simulate_dict(
+        request.scenario, trials=request.trials, seed=request.seed).to_dict()
+
+
+@app.post("/distill")
+def distill(request: DistillRequest) -> dict[str, object]:
+    from backend.core.knowledge_distillation import KnowledgeDistiller
+    return KnowledgeDistiller.distill(
+        request.observations, min_cluster=request.min_cluster,
+        principle_hints=request.principle_hints).to_dict()
+
+
+@app.get("/value/profiles")
+def value_profiles() -> dict[str, object]:
+    from backend.core.value_engine import PROFILES
+    return {"profiles": {p.value: w for p, w in PROFILES.items()}}
+
+
+@app.post("/value/score")
+def value_score(request: ValueScoreRequest) -> dict[str, object]:
+    from backend.core.value_engine import PlanSignals, ValueEngine
+    return ValueEngine.score_plan(PlanSignals.from_dict(request.signals))
+
+
+@app.post("/value/rank")
+def value_rank(request: ValueRankRequest) -> dict[str, object]:
+    from backend.core.value_engine import PlanSignals, ValueEngine, ValueProfile
+    plans = [PlanSignals.from_dict(p) for p in request.plans]
+    try:
+        profile = ValueProfile.coerce(request.profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ValueEngine.rank(plans, profile).to_dict()
+
+
+@app.get("/value/drift")
+def value_drift() -> dict[str, object]:
+    from backend.core.value_engine import ValueDriftMonitor
+    return ValueDriftMonitor.report()
 import threading
 
 @app.on_event("startup")

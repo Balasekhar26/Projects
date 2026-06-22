@@ -759,7 +759,6 @@ class RecallEngine:
             return []
         now = time.time()
         hits: list[RecallHit] = []
-
         # Use SQLite FTS5 for fast candidate selection
         clean_tokens = [re.sub(r'[^a-zA-Z0-9]', '', t) for t in q_tokens]
         clean_tokens = [t for t in clean_tokens if t]
