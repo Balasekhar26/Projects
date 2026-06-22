@@ -1014,13 +1014,44 @@ def skills_add(payload: dict[str, Any]) -> dict[str, object]:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/skills/{name}/result")
-def skills_result(name: str, request: SkillLibResultRequest) -> dict[str, object]:
-    from backend.core.skill_library import SkillLibrary
+@app.post("/skills/{identifier}/result")
+def record_skill_result_combined(
+    identifier: str, payload: dict[str, Any]
+) -> dict[str, object]:
     try:
-        return SkillLibrary.record_result(name, request.success)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        item = memory.get_skill(identifier)
+    except Exception:
+        item = None
+
+    if item is not None:
+        try:
+            from backend.main import SkillResultRequest
+            request = SkillResultRequest(**payload)
+            updated_item = memory.record_skill_result(
+                identifier, success=request.success, reflection=request.reflection
+            )
+            if updated_item is None:
+                raise HTTPException(status_code=404, detail="Skill not found")
+            memory.create_reflection(
+                task=f"Skill result: {updated_item['name']}",
+                outcome="success" if request.success else "failure",
+                lesson=request.reflection or "No reflection supplied.",
+                skill_id=identifier,
+            )
+            return {"item": updated_item}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        try:
+            from backend.main import SkillLibResultRequest
+            request = SkillLibResultRequest(**payload)
+            from backend.core.skill_library import SkillLibrary
+            return SkillLibrary.record_result(identifier, request.success)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 
 
 @app.get("/world")
@@ -2653,22 +2684,7 @@ def update_skill_trust(
     return {"item": item}
 
 
-@app.post("/skills/{skill_id}/result")
-def record_skill_result(
-    skill_id: str, request: SkillResultRequest
-) -> dict[str, object]:
-    item = memory.record_skill_result(
-        skill_id, success=request.success, reflection=request.reflection
-    )
-    if item is None:
-        raise HTTPException(status_code=404, detail="Skill not found")
-    memory.create_reflection(
-        task=f"Skill result: {item['name']}",
-        outcome="success" if request.success else "failure",
-        lesson=request.reflection or "No reflection supplied.",
-        skill_id=skill_id,
-    )
-    return {"item": item}
+
 
 
 @app.get("/reflections")
