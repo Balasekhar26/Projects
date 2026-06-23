@@ -141,6 +141,34 @@ class MemoryRequest(BaseModel):
     category: str = "general"
 
 
+class ActionMemoryRecordRequest(BaseModel):
+    action_id: str | None = None
+    agent: str
+    action: str
+    reason: str = ""
+    expected_outcome: str = ""
+    actual_outcome: str = ""
+    outcome: str | None = None
+    success: bool | None = None
+    failure: bool | None = None
+    duration_ms: int = Field(default=0, ge=0)
+    confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    rollback_executed: bool = False
+    timestamp: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class ActionMemoryUpdateRequest(BaseModel):
+    actual_outcome: str | None = None
+    outcome: str | None = None
+    success: bool | None = None
+    failure: bool | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+    confidence_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    rollback_executed: bool | None = None
+    tags: list[str] | None = None
+
+
 
 class LongTaskRequest(BaseModel):
     title: str
@@ -698,7 +726,7 @@ def get_sage_status() -> dict[str, object]:
     profile = SageUserModel.get_profile()
     concepts = SageKnowledgeGraph.get_all_concepts(limit=100)
     success_rates = AetherMetaLearning.get_success_rates()
-    
+
     aether_metrics = {
         "memory_layers": {
             "sensory": "Active (ready)",
@@ -1153,18 +1181,18 @@ def proposal_review(proposal_id: str, gate: str, request: ProposalReviewRequest)
     from backend.core.proposal_engine import ProposalEngine
     if gate not in ("gate_1", "gate_2"):
         raise HTTPException(status_code=400, detail="Gate must be 'gate_1' or 'gate_2'")
-        
+
     TrackRecordStore.record_human_review(
         proposal_id=proposal_id,
         gate=gate,
         approved=request.approved,
         review_time_seconds=request.review_time_seconds,
     )
-    
+
     new_status = ProposalStatus.APPROVED_GATE_1 if gate == "gate_1" else ProposalStatus.APPROVED_GATE_2
     if not request.approved:
         new_status = ProposalStatus.REJECTED
-        
+
     try:
         updated = ProposalEngine.transition_status(proposal_id, new_status)
         return {"status": "success", "proposal": updated}
@@ -1180,7 +1208,7 @@ def proposal_record_result(proposal_id: str, request: ProposalRecordRunRequest) 
     from backend.core.proposal_engine import ProposalEngine
     if request.stage not in ("sandbox", "benchmark", "production", "canary"):
         raise HTTPException(status_code=400, detail="Stage must be 'sandbox', 'benchmark', 'production', or 'canary'")
-        
+
     TrackRecordStore.record_run(
         proposal_id=proposal_id,
         stage=request.stage,
@@ -1191,14 +1219,14 @@ def proposal_record_result(proposal_id: str, request: ProposalRecordRunRequest) 
         actual_sandbox_gain=request.actual_sandbox_gain,
         actual_production_gain=request.actual_production_gain,
     )
-    
+
     status_map = {
         "sandbox": ProposalStatus.LAB_TESTING,
         "benchmark": ProposalStatus.BENCHMARKING,
         "canary": ProposalStatus.CANARY,
         "production": ProposalStatus.DEPLOYED,
     }
-    
+
     target_status = status_map[request.stage]
     if not request.success:
         target_status = ProposalStatus.REJECTED
@@ -1309,10 +1337,10 @@ def sandbox_run_experiment(proposal_id: str, request: SandboxExperimentRunReques
         if p.get("id") == proposal_id:
             target_proposal = p
             break
-            
+
     if not target_proposal:
         raise HTTPException(status_code=404, detail="Proposal not found")
-        
+
     title = target_proposal.get("title", "")
     proposal_text = target_proposal.get("proposal", "")
     affected_modules = target_proposal.get("affected_modules", [])
@@ -1710,14 +1738,14 @@ def start_startup_tasks():
     from backend.core.cluster_runtime import internet_hub_worker_poll_loop
     thread = threading.Thread(target=internet_hub_worker_poll_loop, daemon=True)
     thread.start()
-    
+
     # Start Step 9.0 Daily Research Loop
     try:
         from backend.core.research_scheduler import ResearchScheduler
         ResearchScheduler.start()
     except Exception:
         pass
-    
+
     # Run Experiment Sandbox startup orphan cleanup scan
     try:
         from backend.core.experiment_sandbox import ExperimentManager
@@ -1926,15 +1954,15 @@ def system_platform_support() -> dict[str, object]:
 def system_adaptive_profile() -> dict[str, object]:
     from backend.core.adaptive_runtime import HardwareProfiler, PerformanceProfile, AdaptiveContext
     from backend.core.config import load_config
-    
+
     hw = HardwareProfiler.get_profile()
     profile = PerformanceProfile.resolve_profile(hw)
     limits = AdaptiveContext.get_limits(profile)
     cfg = load_config()
-    
+
     from backend.core.rbil import MetricsTracker
     rbil_stats = MetricsTracker.load()
-    
+
     return {
         "hardware_profile": profile,
         "context_budget": limits["max_context_tokens"],
@@ -2415,14 +2443,14 @@ def _trigger_voice_response(state: dict[str, Any]) -> None:
 
 def handle_fast_path(message: str) -> dict[str, Any] | None:
     text = message.strip().lower()
-    
+
     # Simple clean up of punctuation to improve matches
     import re
     clean_text = re.sub(r"[?!.,]", "", text).strip()
-    
+
     response = None
     agent = "fast_path"
-    
+
     if clean_text in {"hi", "hello", "hey"}:
         response = "Hello! Kattappa AI OS is online and ready to assist you."
     elif clean_text == "status":
@@ -2468,7 +2496,7 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
             chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
             if not os.path.exists(chrome_path):
                 chrome_path = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
-            
+
             if os.path.exists(chrome_path):
                 subprocess.Popen([chrome_path])
                 response = "Opening Google Chrome..."
@@ -2481,14 +2509,14 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
         from backend.core.macros.browser_macros import execute_speedtest
         response = execute_speedtest()
         agent = "macro_browser_speedtest"
-            
+
     if response is None:
         return None
-        
+
     session = memory.get_or_create_primary_chat_session()
     clean_message = _strip_operator_prefix(message)
     user_message = memory.add_chat_message(session["id"], "user", clean_message)
-    
+
     state = {
         "user_input": message,
         "memory_query": clean_message,
@@ -2504,7 +2532,7 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
         "operator_plan": None,
         "related_messages": [],
     }
-    
+
     assistant_message = memory.add_chat_message(
         session["id"],
         "assistant",
@@ -2513,7 +2541,7 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
         risk="low",
         metadata=json.dumps({"approval_id": None, "related_message_ids": []})
     )
-    
+
     return {
         "response": response,
         "state": state,
@@ -2651,7 +2679,7 @@ def chat(request: ChatRequest) -> dict[str, object]:
         t0 = time.perf_counter()
         result_text = ask_model(clean_message, role=role)
         duration = time.perf_counter() - t0
-        
+
         MetricsTracker.record_hit("rule", time_saved=1.5, tokens_saved=200)
 
         assistant_message = memory.add_chat_message(
@@ -2701,7 +2729,7 @@ def chat(request: ChatRequest) -> dict[str, object]:
     MetricsTracker.record_escalation()
 
     user_message = memory.add_chat_message(session["id"], "user", clean_message)
-    
+
     # Start prefetching memory background task
     from backend.core.adaptive_runtime import MemoryPrefetcher
     MemoryPrefetcher.prefetch(user_message["id"], clean_message, session["id"])
@@ -2720,12 +2748,12 @@ def chat(request: ChatRequest) -> dict[str, object]:
         risk=str(state.get("risk_level") or ""),
         metadata=_chat_state_metadata(state),
     )
-    
+
     # Update Semantic Response Cache — only cache responses that did NOT require approval
     # so risky commands are always re-evaluated by the safety gate on the next call.
     if not state.get("approval_required"):
         SemanticResponseCache.set(clean_message, state.get("result") or "", state.get("selected_agent") or "general")
-    
+
     # Run dynamic history compression
     from backend.core.adaptive_runtime import MemoryCompressionEngine
     MemoryCompressionEngine.compress_history(session["id"])
@@ -2747,7 +2775,7 @@ async def chat_socket(websocket: WebSocket) -> None:
     await websocket.send_json({"type": "system", "content": "Kattappa AI OS connected."})
     while True:
         raw_msg = await websocket.receive_text()
-        
+
         try:
             data = json.loads(raw_msg)
             if isinstance(data, dict):
@@ -2764,7 +2792,7 @@ async def chat_socket(websocket: WebSocket) -> None:
                 user_message = raw_msg
         except Exception:
             user_message = raw_msg
-        
+
         # Check fast path first
         fast_payload = handle_fast_path(user_message)
         if fast_payload:
@@ -2958,7 +2986,7 @@ async def chat_socket(websocket: WebSocket) -> None:
             t0 = time.perf_counter()
             result_text = ask_model(clean_message, role=role)
             duration = time.perf_counter() - t0
-            
+
             MetricsTracker.record_hit("rule", time_saved=1.5, tokens_saved=200)
 
             assistant_message = memory.add_chat_message(
@@ -3019,7 +3047,7 @@ async def chat_socket(websocket: WebSocket) -> None:
         MetricsTracker.record_escalation()
 
         stored_user_message = memory.add_chat_message(session["id"], "user", clean_message)
-        
+
         # Start prefetching memory background task
         from backend.core.adaptive_runtime import MemoryPrefetcher
         MemoryPrefetcher.prefetch(stored_user_message["id"], clean_message, session["id"])
@@ -3041,11 +3069,11 @@ async def chat_socket(websocket: WebSocket) -> None:
             risk=str(state.get("risk_level") or ""),
             metadata=_chat_state_metadata(state),
         )
-        
+
         # Update Semantic Response Cache — only cache non-approval responses
         if not state.get("approval_required"):
             SemanticResponseCache.set(clean_message, state.get("result") or "", state.get("selected_agent") or "general")
-        
+
         # Run dialogue history compression
         from backend.core.adaptive_runtime import MemoryCompressionEngine
         MemoryCompressionEngine.compress_history(session["id"])
@@ -3073,6 +3101,177 @@ async def chat_socket(websocket: WebSocket) -> None:
                 "assistant_message": assistant_message,
             }
         )
+
+
+def _resolve_action_success(success: bool | None, failure: bool | None) -> bool:
+    if success is None and failure is None:
+        raise HTTPException(status_code=400, detail="success or failure is required")
+    resolved = bool(success) if success is not None else not bool(failure)
+    if failure is not None and bool(failure) != (not resolved):
+        raise HTTPException(
+            status_code=400,
+            detail="failure must be the inverse of success",
+        )
+    return resolved
+
+
+def _action_records_payload(records: list[Any]) -> list[dict[str, object]]:
+    return [record.to_dict() for record in records]
+
+
+@app.get("/action-memory/status")
+def action_memory_status() -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    agent_stats = ActionMemory.get_all_agent_statistics()
+    return {
+        "status": "ready",
+        "storage": "sqlite",
+        "database": "action_memory.db",
+        "total_actions": ActionMemory.count_total(),
+        "agents": {agent: stats.to_dict() for agent, stats in agent_stats.items()},
+    }
+
+
+@app.post("/action-memory/actions")
+def action_memory_record(request: ActionMemoryRecordRequest) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    success = _resolve_action_success(request.success, request.failure)
+    try:
+        action_id = ActionMemory.record(
+            action_id=request.action_id,
+            agent=request.agent,
+            action=request.action,
+            reason=request.reason,
+            expected_outcome=request.expected_outcome,
+            actual_outcome=request.actual_outcome or request.outcome or "",
+            success=success,
+            duration_ms=request.duration_ms,
+            confidence_score=request.confidence_score,
+            rollback_executed=request.rollback_executed,
+            timestamp=request.timestamp,
+            tags=request.tags,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = ActionMemory.get_action(action_id)
+    return {"item": item.to_dict() if item else {"action_id": action_id}}
+
+
+@app.get("/action-memory/actions/recent")
+def action_memory_recent(limit: int = 100) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    return {"items": _action_records_payload(ActionMemory.get_recent_actions(limit=limit))}
+
+
+@app.get("/action-memory/actions/successful")
+def action_memory_successful(
+    action_type: str | None = None,
+    agent: str | None = None,
+    limit: int = 100,
+) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    return {
+        "items": _action_records_payload(
+            ActionMemory.get_successful_actions(
+                action_type=action_type,
+                agent=agent,
+                limit=limit,
+            )
+        )
+    }
+
+
+@app.get("/action-memory/actions/failed")
+def action_memory_failed(
+    action_type: str | None = None,
+    agent: str | None = None,
+    limit: int = 100,
+) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    return {
+        "items": _action_records_payload(
+            ActionMemory.get_failed_actions(
+                action_type=action_type,
+                agent=agent,
+                limit=limit,
+            )
+        )
+    }
+
+
+@app.get("/action-memory/actions/similar")
+def action_memory_similar(
+    action: str,
+    agent: str | None = None,
+    limit: int = 50,
+) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    records = ActionMemory.find_similar_actions(action=action, agent=agent, limit=limit)
+    total = len(records)
+    successes = sum(1 for record in records if record.success)
+    rollbacks = sum(1 for record in records if record.rollback_executed)
+    durations = [record.duration_ms for record in records]
+    return {
+        "action": action,
+        "agent": agent,
+        "total_actions": total,
+        "success_count": successes,
+        "failure_count": total - successes,
+        "success_rate": round(successes / total, 4) if total else 0.0,
+        "avg_duration_ms": round(sum(durations) / total, 1) if total else 0.0,
+        "rollback_rate": round(rollbacks / total, 4) if total else 0.0,
+        "items": _action_records_payload(records),
+    }
+
+
+@app.get("/action-memory/agents/{agent}/statistics")
+def action_memory_agent_statistics(agent: str) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    return {"item": ActionMemory.get_agent_statistics(agent).to_dict()}
+
+
+@app.patch("/action-memory/actions/{action_id}")
+def action_memory_update(
+    action_id: str, request: ActionMemoryUpdateRequest
+) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    success = None
+    if request.success is not None or request.failure is not None:
+        success = _resolve_action_success(request.success, request.failure)
+    try:
+        updated = ActionMemory.update_outcome(
+            action_id,
+            actual_outcome=request.actual_outcome or request.outcome,
+            success=success,
+            rollback_executed=request.rollback_executed,
+            confidence_score=request.confidence_score,
+            duration_ms=request.duration_ms,
+            tags=request.tags,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Action memory record not found")
+    item = ActionMemory.get_action(action_id)
+    return {"item": item.to_dict() if item else None}
+
+
+@app.get("/action-memory/actions/{action_id}")
+def action_memory_get(action_id: str) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    item = ActionMemory.get_action(action_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Action memory record not found")
+    return {"item": item.to_dict()}
 
 
 @app.post("/memory")
@@ -3817,5 +4016,3 @@ def stop_shutdown_tasks():
         ResearchScheduler.stop()
     except Exception:
         pass
-
-

@@ -17,7 +17,7 @@ from backend.core.execution_policy import DEFAULT_POLICY_ENGINE, PolicyOutcome
 
 class ActionBroker:
     AUDIT_LOG_PATH = "backend/data/action_broker_audit.log"
-    
+
     # Action Broker credentials store (Isolated from agents)
     _GIT_CREDENTIALS = {
         "GIT_AUTHOR_NAME": "Kattappa Action Broker",
@@ -59,7 +59,7 @@ class ActionBroker:
         # 1. Evaluate Capability Registry and Policies
         decision = DEFAULT_POLICY_ENGINE.evaluate(action, agent_name=agent_name)
         policy_result = decision.outcome.value
-        
+
         if decision.outcome is PolicyOutcome.BLOCKED:
             cls.log_audit_trail(agent_name, action, policy_result, "blocked", f"Security Error: Action '{action}' is strictly prohibited. Reason: {decision.reason}")
             return {
@@ -100,13 +100,13 @@ class ActionBroker:
         if action.startswith("DESKTOP_"):
             from backend.tools.desktop_tools import is_protected_directory
             from backend.core.safety import is_protected_path
-            
+
             input_text = state.get("user_input", "")
             param_vals = [str(v) for v in params.values()]
-            
+
             has_protected_dir = is_protected_directory(input_text) or any(is_protected_directory(val) for val in param_vals)
             has_protected_path = is_protected_path(input_text) or any(is_protected_path(val) for val in param_vals)
-            
+
             if has_protected_dir or has_protected_path:
                 cls.log_audit_trail(agent_name, action, policy_result, "blocked", "Error: Desktop protected directory or path blocked")
                 return {
@@ -156,7 +156,7 @@ class ActionBroker:
                 risk_level = "MEDIUM"
 
         approval_state = "auto_approved"
-        
+
         if risk_level == "HIGH":
             if not state.get("approved"):
                 cls.log_audit_trail(agent_name, action, policy_result, "pending_first_approval", "Requires step 1 of double confirmation")
@@ -197,7 +197,12 @@ class ActionBroker:
                     "error": err_msg
                 }
 
-        # 6. Execute validated and approved action
+        # 6. DVE Pre-Execution: Capture state snapshot S0
+        from backend.core.verification_engine import VerificationEngine
+        _dve_s0 = VerificationEngine.take_state_snapshot(action, params)
+        _action_started_at = time.perf_counter()
+
+        # 7. Execute validated and approved action
         execution_result = ""
         try:
             if action == "PATCH_CODE":
@@ -321,17 +326,17 @@ class ActionBroker:
             elif action == "COLLECT_METRICS":
                 from backend.agents.monitoring import MonitoringAgent
                 execution_result = MonitoringAgent.collect_metrics(agent_name)
-            
+
             # Browser Tool Routing
             elif action.startswith("BROWSER_"):
                 from backend.tools.browser_tools import read_url, search_web_basic, map_links, fill_form, download_file
-                
+
                 # Budget Limit Checks
                 visited = state.setdefault("browser_pages_visited", [])
                 tabs_depth = state.setdefault("browser_tabs_depth", {})
                 downloads_count = state.setdefault("browser_downloads_count", 0)
                 start_time = state.setdefault("browser_start_time", time.time())
-                
+
                 if time.time() - start_time > 600:
                     execution_result = {"success": False, "error": "Error: Crawl budget exceeded. Max runtime of 10 minutes reached."}
                 elif url and tabs_depth.setdefault(url, 0) > 3:
@@ -515,18 +520,52 @@ class ActionBroker:
                         "trust_score": 85,
                         "provenance": "UNTRUSTED_DATA"
                     }
-            
+
             else:
                 # Default auto action
                 execution_result = {"success": True, "message": f"Auto action '{action}' completed."}
-                
+
             # Record resource usage
             from backend.core.resource_governor import ResourceGovernor
             ResourceGovernor.record_execution_usage(agent_name, action, params, execution_result)
-            
+
             cls.log_audit_trail(agent_name, action, policy_result, approval_state, str(execution_result))
-            return {"success": True, "result": execution_result}
-            
+
+            # DVE Post-Execution: Capture state snapshot S1 and run outcome verification
+            _dve_s1 = VerificationEngine.take_state_snapshot(action, params)
+            _dve_result = VerificationEngine.post_execute_action(
+                agent=agent_name,
+                action=action,
+                params=params,
+                res=execution_result,
+                s0=_dve_s0,
+                s1=_dve_s1,
+                state=state
+            )
+            _duration_ms = int((time.perf_counter() - _action_started_at) * 1000)
+            _action_memory_id = None
+            try:
+                from backend.core.action_memory import record_from_broker
+                _action_memory_id = record_from_broker(
+                    agent_name=agent_name,
+                    action=action,
+                    params=params,
+                    execution_result=execution_result,
+                    dve_result=_dve_result,
+                    duration_ms=_duration_ms,
+                    state=state,
+                )
+            except Exception:
+                _action_memory_id = None
+            # Attach DVE metadata to response (non-blocking - broker always returns success
+            # at this point; recovery actions are advisory unless caller inspects them)
+            return {
+                "success": True,
+                "result": execution_result,
+                "verification": _dve_result,
+                "action_memory_id": _action_memory_id,
+            }
+
         except Exception as e:
             action_upper = action.upper()
             if action_upper in ("RUN_SHELL", "DEPLOY", "PATCH_CODE"):
@@ -543,6 +582,22 @@ class ActionBroker:
                     pass
             err_msg = f"Execution Error: {e}"
             cls.log_audit_trail(agent_name, action, policy_result, approval_state, err_msg)
+            try:
+                from backend.core.action_memory import ActionMemory
+                ActionMemory.record(
+                    agent=agent_name,
+                    action=action,
+                    reason=(params.get("reason") or state.get("user_input", ""))[:500],
+                    expected_outcome=(params.get("expected_outcome") or "")[:500],
+                    actual_outcome=err_msg[:500],
+                    success=False,
+                    duration_ms=int((time.perf_counter() - _action_started_at) * 1000),
+                    confidence_score=0.0,
+                    rollback_executed=False,
+                    tags=[agent_name.lower(), action.lower().replace("_", "-"), "failed", "broker-exception"],
+                )
+            except Exception:
+                pass
             return {"success": False, "error": err_msg}
 
     @classmethod
@@ -554,12 +609,12 @@ class ActionBroker:
         except Exception:
             parent = os.path.dirname(os.path.abspath(path_str))
             target_abs = os.path.join(os.path.realpath(parent), os.path.basename(path_str))
-        
+
         if os.path.isabs(path_str) and not target_abs.startswith(ws_root):
             return False
         if ".." in path_str and not target_abs.startswith(ws_root):
             return False
-            
+
         return target_abs.startswith(ws_root)
 
     @classmethod
@@ -568,22 +623,22 @@ class ActionBroker:
         try:
             old_tree = ast.parse(old_content)
             new_tree = ast.parse(new_content)
-            
+
             old_asserts = sum(1 for node in ast.walk(old_tree) if isinstance(node, ast.Assert))
             new_asserts = sum(1 for node in ast.walk(new_tree) if isinstance(node, ast.Assert))
-            
+
             if new_asserts < old_asserts:
                 return f"assertion count decreased from {old_asserts} to {new_asserts}"
-                
+
             old_skips = sum(
-                1 for node in ast.walk(old_tree) 
+                1 for node in ast.walk(old_tree)
                 if isinstance(node, ast.Attribute) and node.attr in ("skip", "skipif")
             )
             new_skips = sum(
-                1 for node in ast.walk(new_tree) 
+                1 for node in ast.walk(new_tree)
                 if isinstance(node, ast.Attribute) and node.attr in ("skip", "skipif")
             )
-            
+
             if new_skips > old_skips:
                 return f"skip decorators increased from {old_skips} to {new_skips}"
         except Exception:
@@ -598,13 +653,13 @@ class ActionBroker:
             "PYTHONPATH": os.environ.get("PYTHONPATH", "."),
             "KATTAPPA_ENV": "test",
         }
-        
+
         if platform.system().lower() == "darwin":
             sandbox_profile = "(version 1)\n(allow default)\n(deny network*)"
             sandbox_cmd = ["sandbox-exec", "-p", sandbox_profile] + cmd
         else:
             sandbox_cmd = cmd
-            
+
         return subprocess.run(
             sandbox_cmd,
             env=safe_env,
@@ -623,11 +678,11 @@ class ActionBroker:
             for f in files:
                 if f.endswith(".py"):
                     py_files.append(os.path.join(root, f))
-                    
+
         security_observations = []
         complexity_report = {}
         dependency_map = []
-        
+
         req_file = os.path.join(workspace_dir, "requirements.txt")
         if os.path.exists(req_file):
             try:
@@ -637,12 +692,12 @@ class ActionBroker:
                             dependency_map.append(line.strip())
             except Exception:
                 pass
-                
+
         for py_file in py_files:
             try:
                 with open(py_file, "r", encoding="utf-8") as f:
                     content = f.read()
-                    
+
                 tree = ast.parse(content)
                 funcs = sum(1 for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
                 classes = sum(1 for node in ast.walk(tree) if isinstance(node, ast.ClassDef))
@@ -651,7 +706,7 @@ class ActionBroker:
                     "classes": classes,
                     "lines": len(content.splitlines())
                 }
-                
+
                 if "eval(" in content:
                     security_observations.append(f"Unsafe function 'eval' used in {os.path.relpath(py_file, workspace_dir)}")
                 if "subprocess.run" in content and "shell=True" in content:
@@ -662,7 +717,7 @@ class ActionBroker:
                         security_observations.append(f"Potential hardcoded secret/credential in {os.path.relpath(py_file, workspace_dir)}")
             except Exception:
                 pass
-                
+
         return {
             "architecture_summary": f"Python repository with {len(py_files)} Python files.",
             "dependency_map": dependency_map,
@@ -679,7 +734,7 @@ class ActionBroker:
         else:
             if os.path.exists(target_file):
                 os.remove(target_file)
-        
+
         if test_file_path:
             if test_existed_before:
                 subprocess.run(["git", "restore", test_file_path], env=cls._GIT_CREDENTIALS)
@@ -705,7 +760,7 @@ class ActionBroker:
             diff_bundle = diff_res.stdout
         except Exception:
             pass
-            
+
         rollback_sha = "N/A"
         try:
             sha_res = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
@@ -750,10 +805,10 @@ class ActionBroker:
         log_dir = os.path.dirname(cls.AUDIT_LOG_PATH)
         if log_dir and not os.path.exists(log_dir):
             os.makedirs(log_dir, exist_ok=True)
-            
+
         from backend.core.capability_registry import ACTION_CAPABILITY_MAP
         capability = ACTION_CAPABILITY_MAP.get(action.upper(), "UNKNOWN")
-        
+
         entry = {
             "timestamp": time.time(),
             "agent": agent,
@@ -779,10 +834,10 @@ class ActionBroker:
         target_file = params.get("target")
         code_content = params.get("code")
         test_code = params.get("test_code")
-        
+
         if not target_file or not code_content:
             return {"success": False, "error": "Missing target file or code content parameters."}
-            
+
         file_existed_before = os.path.exists(target_file)
         old_content = ""
         if file_existed_before:
@@ -829,7 +884,7 @@ class ActionBroker:
         # Sandbox run & retry loop
         retry_count = 0
         success = False
-        
+
         while retry_count < 3:
             state["coder_test_cycles_count"] = state.get("coder_test_cycles_count", 0) + 1
             if state["coder_test_cycles_count"] > 5:
@@ -852,7 +907,7 @@ class ActionBroker:
                 subprocess.run(["git", "commit", "-m", f"Action Broker: patch success in {target_file}"], env=cls._GIT_CREDENTIALS)
             except Exception:
                 pass
-                
+
             pkg = cls.assemble_review_package(
                 agent_name, target_file, test_file_path, True,
                 risk_score=risk_level, approval_status=approval_state
