@@ -299,6 +299,129 @@ interface CommandCenterData {
   cross_learning: CrossLearningFinding[];
 }
 
+interface AgentReliabilityInfo {
+  agent: string;
+  total_actions: number;
+  success_rate: number;
+  rollback_rate: number;
+}
+
+interface CalibrationData {
+  prediction_accuracy: number;
+  success_brier: number;
+  rollback_brier: number;
+  duration_mae_ms: number;
+  total_predictions: number;
+  workflow_success_rate: number;
+  workflow_total: number;
+  workflow_successes: number;
+  rollback_frequency: number;
+  total_workflow_rollbacks: number;
+  agent_reliability: AgentReliabilityInfo[];
+  active_policies_count: number;
+  policy_actions_blocked: number;
+  policy_actions_deferred: number;
+  timestamp: number;
+}
+
+// --- Goal System Interfaces (Step 8.1) -----------------------
+interface GoalMilestone {
+  milestone_id: string;
+  goal_id: string;
+  title: string;
+  description: string;
+  status: 'PROPOSED' | 'APPROVED' | 'ACTIVE' | 'BLOCKED' | 'COMPLETED' | 'FAILED' | 'ARCHIVED' | 'CANCELLED' | 'PENDING';
+  weight: number;
+  progress: number;
+  created_at: number;
+  completed_at: number | null;
+  expected_duration_sec: number | null;
+  success_probability: number | null;
+  rollback_risk: number | null;
+}
+
+interface GoalV1 {
+  goal_id: string;
+  title: string;
+  description: string;
+  priority: string;
+  status: string;
+  created_at: number;
+  target_date: string | null;
+  progress: number;
+  success_criteria: string[];
+  owner: string | null;
+  metadata: Record<string, any>;
+  importance: number;
+  urgency: number;
+  strategic_alignment: number;
+  resource_cost: number;
+  priority_score: number;
+  milestones: GoalMilestone[];
+  dependencies: string[];
+}
+
+interface GoalReflectionMetrics {
+  goal_completion_rate: number;
+  goal_block_rate: number;
+  goal_average_duration: number;
+  goal_prediction_accuracy: number;
+  goal_rollback_frequency: number;
+  total_goals: number;
+  completed_goals: number;
+}
+
+interface Project {
+  project_id: string;
+  name: string;
+  description: string;
+  status: string;
+  completion_percent: number;
+  success_rate: number;
+  risk_score: number;
+  resource_cost: number;
+  predicted_finish: number | null;
+  actual_finish: number | null;
+  created_at: number;
+  metadata: Record<string, any>;
+  goals: {
+    goal_id: string;
+    title: string;
+    status: string;
+    progress: number;
+    priority_score: number;
+  }[];
+  dependencies: string[];
+  events: {
+    event_type: string;
+    payload: Record<string, any>;
+    timestamp: number;
+  }[];
+  decisions: {
+    decision_id: string;
+    title: string;
+    description: string;
+    rationale: string;
+    status: string;
+    timestamp: number;
+  }[];
+  failures: {
+    failure_id: string;
+    component: string;
+    error_message: string;
+    resolved: boolean;
+    timestamp: number;
+  }[];
+  rollbacks: {
+    rollback_id: string;
+    milestone_id: string | null;
+    action_id: string | null;
+    reason: string;
+    timestamp: number;
+  }[];
+  goals_tree?: GoalV1[];
+}
+
 // --- Icons (Emoji representation for high compatibility and speed) -----
 const ICONS: Record<string, string> = {
   safety_governance: '🛡️',
@@ -310,6 +433,8 @@ const ICONS: Record<string, string> = {
   research: '🔬',
   eroi: '📈',
   trust: '🏷️',
+  calibration: '🎛️',
+  goals: '🎯',
 };
 
 const API_BASE = ''; // Proxy or same-origin in production
@@ -317,6 +442,44 @@ const API_BASE = ''; // Proxy or same-origin in production
 export default function App() {
   const [executive, setExecutive] = useState<ExecutiveData | null>(null);
   const [proposals, setProposals] = useState<ProposalsPanelData | null>(null);
+  const [goals, setGoals] = useState<GoalV1[]>([]);
+  const [goalReflection, setGoalReflection] = useState<GoalReflectionMetrics | null>(null);
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [newGoalTitle, setNewGoalTitle] = useState('');
+  const [newGoalDesc, setNewGoalDesc] = useState('');
+  const [newGoalPriority, setNewGoalPriority] = useState('MEDIUM');
+  const [newGoalTargetDate, setNewGoalTargetDate] = useState('');
+  const [newGoalCriteria, setNewGoalCriteria] = useState('');
+  const [newGoalOwner, setNewGoalOwner] = useState('');
+  const [newGoalDeps, setNewGoalDeps] = useState<string[]>([]);
+  const [newGoalImportance, setNewGoalImportance] = useState(5.0);
+  const [newGoalUrgency, setNewGoalUrgency] = useState(5.0);
+  const [newGoalAlignment, setNewGoalAlignment] = useState(5.0);
+  const [newGoalCost, setNewGoalCost] = useState(2.0);
+  const [creatingGoal, setCreatingGoal] = useState(false);
+  const [goalError, setGoalError] = useState<string | null>(null);
+  const [milestonesToAdd, setMilestonesToAdd] = useState<{ title: string; weight: number }[]>([
+    { title: '', weight: 1.0 }
+  ]);
+
+  // --- Project System States (Step 8.2) ---
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectHierarchy, setProjectHierarchy] = useState<Project | null>(null);
+  const [projectSimulation, setProjectSimulation] = useState<any | null>(null);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectDesc, setNewProjectDesc] = useState('');
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [goalToLink, setGoalToLink] = useState('');
+  const [linkingGoal, setLinkingGoal] = useState(false);
+  const [depProjId, setDepProjId] = useState('');
+  const [addingDep, setAddingDep] = useState(false);
+  const [decisionTitle, setDecisionTitle] = useState('');
+  const [decisionDesc, setDecisionDesc] = useState('');
+  const [decisionRationale, setDecisionRationale] = useState('');
+  const [addingDecision, setAddingDecision] = useState(false);
+
   const [experiments, setExperiments] = useState<ExperimentsPanelData | null>(null);
   const [benchmarks, setBenchmarks] = useState<BenchmarksPanelData | null>(null);
   const [research, setResearch] = useState<ResearchPanelData | null>(null);
@@ -331,6 +494,7 @@ export default function App() {
   const [creatingMission, setCreatingMission] = useState(false);
   const [creationError, setCreationError] = useState<string | null>(null);
   const [commandCenter, setCommandCenter] = useState<CommandCenterData | null>(null);
+  const [calibration, setCalibration] = useState<CalibrationData | null>(null);
   const [recovering, setRecovering] = useState(false);
 
   const [triggeringLoop, setTriggeringLoop] = useState(false);
@@ -350,7 +514,7 @@ export default function App() {
 
   const fetchData = async () => {
     try {
-      const [execRes, propRes, expRes, benchRes, resRes, eroiRes, trustRes, burnRes, loopRes, societyRes, brainRes, centerRes] = await Promise.all([
+      const [execRes, propRes, expRes, benchRes, resRes, eroiRes, trustRes, burnRes, loopRes, societyRes, brainRes, centerRes, calRes] = await Promise.all([
         fetch(`${API_BASE}/dashboard/executive`),
         fetch(`${API_BASE}/dashboard/proposals`),
         fetch(`${API_BASE}/dashboard/experiments`),
@@ -363,9 +527,10 @@ export default function App() {
         fetch(`${API_BASE}/dashboard/agent-society/debates`),
         fetch(`${API_BASE}/dashboard/executive-brain/missions`),
         fetch(`${API_BASE}/dashboard/executive-brain/persistent-missions`),
+        fetch(`${API_BASE}/dashboard/executive-calibration`),
       ]);
 
-      const [execData, propData, expData, benchData, resData, eroiData, trustData, burnData, loopData, societyData, brainData, centerData] = await Promise.all([
+      const [execData, propData, expData, benchData, resData, eroiData, trustData, burnData, loopData, societyData, brainData, centerData, calData] = await Promise.all([
         execRes.json(),
         propRes.json(),
         expRes.json(),
@@ -378,6 +543,7 @@ export default function App() {
         societyRes.json(),
         brainRes.json(),
         centerRes.json(),
+        calRes.json(),
       ]);
 
       if (
@@ -392,7 +558,8 @@ export default function App() {
         loopData.status === 'ok' &&
         societyData.status === 'ok' &&
         brainData.status === 'ok' &&
-        centerData.status === 'ok'
+        centerData.status === 'ok' &&
+        calData.status === 'ok'
       ) {
         setExecutive(execData.data);
         setProposals(propData.data);
@@ -406,7 +573,40 @@ export default function App() {
         setSociety(societyData.data);
         setExecutiveBrain(brainData.data);
         setCommandCenter(centerData.data);
+        setCalibration(calData.data);
         setError(null);
+
+        // Fetch Goals V1 and Goal Reflection telemetry
+        try {
+          const goalsRes = await fetch(`${API_BASE}/goals/list`);
+          const goalsData = await goalsRes.json();
+          if (goalsData && goalsData.items) {
+            setGoals(goalsData.items);
+          }
+        } catch (e) {
+          console.error("Failed to fetch goals:", e);
+        }
+
+        try {
+          const reflectionRes = await fetch(`${API_BASE}/dashboard/goals/reflection`);
+          const reflectionData = await reflectionRes.json();
+          if (reflectionData && reflectionData.status === 'ok') {
+            setGoalReflection(reflectionData.data);
+          }
+        } catch (e) {
+          console.error("Failed to fetch goal reflection metrics:", e);
+        }
+
+        // Fetch Projects V2
+        try {
+          const projRes = await fetch(`${API_BASE}/projects`);
+          const projData = await projRes.json();
+          if (projData && projData.items) {
+            setProjects(projData.items);
+          }
+        } catch (e) {
+          console.error("Failed to fetch projects:", e);
+        }
       } else {
         setError('One or more backend API calls returned an error status.');
       }
@@ -416,6 +616,252 @@ export default function App() {
       setLoading(false);
       setLastRefreshed(new Date());
       setTimeToNext(refreshInterval / 1000);
+    }
+  };
+
+  // Selected Goal History Tracking
+  const [selectedGoalHistory, setSelectedGoalHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (selectedGoalId) {
+      const fetchHistory = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/goals/${selectedGoalId}/history`);
+          const data = await res.json();
+          if (data && data.items) {
+            setSelectedGoalHistory(data.items);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      };
+      fetchHistory();
+    } else {
+      setSelectedGoalHistory([]);
+    }
+  }, [selectedGoalId, goals]);
+
+  // --- Project System Operations (Step 8.2) ---
+  useEffect(() => {
+    if (selectedProjectId) {
+      const fetchProjectDetails = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/projects/${selectedProjectId}`);
+          const data = await res.json();
+          if (data && data.item) {
+            setProjectHierarchy(data.item);
+          }
+
+          const simRes = await fetch(`${API_BASE}/projects/${selectedProjectId}/simulation`);
+          const simData = await simRes.json();
+          if (simData && simData.report) {
+            setProjectSimulation(simData.report);
+          } else {
+            setProjectSimulation(null);
+          }
+        } catch (e) {
+          console.error("Failed to fetch project details:", e);
+        }
+      };
+      fetchProjectDetails();
+    } else {
+      setProjectHierarchy(null);
+      setProjectSimulation(null);
+    }
+  }, [selectedProjectId, projects]);
+
+  const handleCreateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProjectName.trim()) return;
+    setCreatingProject(true);
+    setProjectError(null);
+    try {
+      const res = await fetch(`${API_BASE}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newProjectName,
+          description: newProjectDesc || undefined
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.item) {
+        setNewProjectName('');
+        setNewProjectDesc('');
+        setProjectError(null);
+        fetchData();
+        setSelectedProjectId(data.item.project_id);
+      } else {
+        setProjectError(data.detail || 'Failed to create project.');
+      }
+    } catch (err: any) {
+      setProjectError(err.message || 'Failed to create project.');
+    } finally {
+      setCreatingProject(false);
+    }
+  };
+
+  const handleLinkGoalToProject = async (goalId: string, projectId: string) => {
+    if (!goalId || !projectId) return;
+    setLinkingGoal(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${projectId}/goals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goal_id: goalId })
+      });
+      if (res.ok) {
+        setGoalToLink('');
+        fetchData();
+      }
+    } catch (err) {
+      console.error("Failed to link goal to project:", err);
+    } finally {
+      setLinkingGoal(false);
+    }
+  };
+
+  const handleAddProjectDependency = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProjectId || !depProjId) return;
+    setAddingDep(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${selectedProjectId}/dependencies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ depends_on_project_id: depProjId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setDepProjId('');
+        fetchData();
+      } else {
+        alert(data.detail || "Cycle/Dependency error");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAddingDep(false);
+    }
+  };
+
+  const handleLogProjectDecision = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProjectId || !decisionTitle.trim()) return;
+    setAddingDecision(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${selectedProjectId}/decisions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: decisionTitle,
+          description: decisionDesc || undefined,
+          rationale: decisionRationale || undefined
+        })
+      });
+      if (res.ok) {
+        setDecisionTitle('');
+        setDecisionDesc('');
+        setDecisionRationale('');
+        fetchData();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAddingDecision(false);
+    }
+  };
+
+  // Goal Action Handlers
+  const handleCreateGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGoalTitle.trim()) return;
+    setCreatingGoal(true);
+    setGoalError(null);
+    try {
+      const res = await fetch(`${API_BASE}/goals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newGoalTitle,
+          description: newGoalDesc || undefined,
+          priority: newGoalPriority,
+          target_date: newGoalTargetDate || undefined,
+          success_criteria: newGoalCriteria ? newGoalCriteria.split(',').map((c: string) => c.trim()) : [],
+          owner: newGoalOwner || undefined,
+          depends_on: newGoalDeps,
+          importance: newGoalImportance,
+          urgency: newGoalUrgency,
+          strategic_alignment: newGoalAlignment,
+          resource_cost: newGoalCost,
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.item) {
+        setNewGoalTitle('');
+        setNewGoalDesc('');
+        setNewGoalTargetDate('');
+        setNewGoalCriteria('');
+        setNewGoalOwner('');
+        setNewGoalDeps([]);
+        setNewGoalImportance(5.0);
+        setNewGoalUrgency(5.0);
+        setNewGoalAlignment(5.0);
+        setNewGoalCost(2.0);
+        setGoalError(null);
+        fetchData();
+      } else {
+        setGoalError(data.detail || 'Failed to create goal.');
+      }
+    } catch (err: any) {
+      setGoalError(err.message || 'Failed to create goal.');
+    } finally {
+      setCreatingGoal(false);
+    }
+  };
+
+  const handleApproveGoal = async (goalId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/goals/${goalId}/approve`, { method: 'POST' });
+      if (res.ok) fetchData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleStartGoal = async (goalId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/goals/${goalId}/start`, { method: 'POST' });
+      if (res.ok) fetchData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAbandonGoal = async (goalId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/goals/${goalId}/abandon`, { method: 'POST' });
+      if (res.ok) fetchData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSetMilestones = async (goalId: string) => {
+    const valid = milestonesToAdd.filter(m => m.title.trim());
+    if (valid.length === 0) return;
+    try {
+      const res = await fetch(`${API_BASE}/goals/${goalId}/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ milestones: valid })
+      });
+      if (res.ok) {
+        setMilestonesToAdd([{ title: '', weight: 1.0 }]);
+        fetchData();
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -777,6 +1223,1237 @@ export default function App() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* EXECUTIVE CALIBRATION COCKPIT */}
+      <div className="section-label">Executive Self-Awareness & Cockpit Calibration</div>
+      {calibration && (
+        <div className="panel" style={{
+          background: 'linear-gradient(135deg, rgba(16, 22, 36, 0.9) 0%, rgba(10, 15, 28, 0.95) 100%)',
+          border: '1px solid rgba(79, 142, 247, 0.15)',
+          boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+            <span style={{ fontSize: '20px' }}>{ICONS.calibration}</span>
+            <h2 style={{ fontSize: '15px', fontWeight: 600, color: '#fff', letterSpacing: '-0.2px' }}>
+              Cognitive Self-Measurement & Prediction Calibration
+            </h2>
+            <span className="protected-tag" style={{ background: 'rgba(79, 142, 247, 0.1)', border: '1px solid rgba(79, 142, 247, 0.3)', color: 'var(--accent-blue)', marginLeft: 'auto' }}>
+              SELF-MEASURING ACTIVE
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+            {/* Calibration & Workflow metrics */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                {/* Prediction Accuracy Card */}
+                <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>Prediction Calibration (Accuracy)</div>
+                  <div style={{ fontSize: '28px', fontWeight: 'bold', fontFamily: 'JetBrains Mono, monospace', color: 'var(--accent-blue)', marginTop: '6px' }}>
+                    {(calibration.prediction_accuracy * 100).toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Brier Score: {calibration.success_brier.toFixed(4)} (perfect = 0.0)
+                  </div>
+                </div>
+
+                {/* Workflow Success Rate Card */}
+                <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>Workflow Success Rate</div>
+                  <div style={{ fontSize: '28px', fontWeight: 'bold', fontFamily: 'JetBrains Mono, monospace', color: 'var(--ok)', marginTop: '6px' }}>
+                    {(calibration.workflow_success_rate * 100).toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Runs: {calibration.workflow_successes} / {calibration.workflow_total} total
+                  </div>
+                </div>
+
+                {/* Rollback Frequency Card */}
+                <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>Rollback Frequency</div>
+                  <div style={{ fontSize: '28px', fontWeight: 'bold', fontFamily: 'JetBrains Mono, monospace', color: calibration.rollback_frequency > 0.15 ? 'var(--critical)' : 'var(--text-primary)', marginTop: '6px' }}>
+                    {(calibration.rollback_frequency * 100).toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Total rollbacks: {calibration.total_workflow_rollbacks}
+                  </div>
+                </div>
+
+                {/* Prediction Calibration Error Card */}
+                <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>Prediction Latency Divergence</div>
+                  <div style={{ fontSize: '28px', fontWeight: 'bold', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)', marginTop: '6px' }}>
+                    ± {(calibration.duration_mae_ms / 1000).toFixed(2)}s
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Mean duration prediction error (MAE)
+                  </div>
+                </div>
+              </div>
+
+              {/* Policy effectiveness details */}
+              <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: '#fff', letterSpacing: '0.5px' }}>Policy Enforcement & Governance Impact</h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Active Strategy Policies</span>
+                  <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{calibration.active_policies_count}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>System Actions Blocked</span>
+                  <span style={{ fontWeight: 600, color: 'var(--critical)', fontFamily: 'monospace' }}>{calibration.policy_actions_blocked}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>System Actions Deferred (Cooldowns)</span>
+                  <span style={{ fontWeight: 600, color: 'var(--warn)', fontFamily: 'monospace' }}>{calibration.policy_actions_deferred}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Agent Reliability Section */}
+            <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: '#fff', letterSpacing: '0.5px' }}>Agent Society Reliability Breakdown</h4>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Updated dynamically</span>
+              </div>
+
+              {calibration.agent_reliability && calibration.agent_reliability.length > 0 ? (
+                <table className="data-table" style={{ fontSize: '12px' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: '6px 8px' }}>Agent</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center' }}>Total Actions</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center' }}>Success Rate</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center' }}>Rollback Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calibration.agent_reliability.map((agentInfo) => (
+                      <tr key={agentInfo.agent}>
+                        <td style={{ fontWeight: 500, color: '#fff', textTransform: 'capitalize', padding: '8px' }}>
+                          {agentInfo.agent}
+                        </td>
+                        <td style={{ textAlign: 'center', fontFamily: 'monospace', padding: '8px' }}>
+                          {agentInfo.total_actions}
+                        </td>
+                        <td style={{ textAlign: 'center', fontWeight: 'bold', fontFamily: 'monospace', color: agentInfo.success_rate >= 0.8 ? 'var(--ok)' : agentInfo.success_rate >= 0.6 ? 'var(--warn)' : 'var(--critical)', padding: '8px' }}>
+                          {(agentInfo.success_rate * 100).toFixed(1)}%
+                        </td>
+                        <td style={{ textAlign: 'center', fontFamily: 'monospace', padding: '8px', color: agentInfo.rollback_rate > 0.1 ? 'var(--critical)' : 'var(--text-secondary)' }}>
+                          {(agentInfo.rollback_rate * 100).toFixed(1)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '12px', fontStyle: 'italic' }}>
+                  No agent executions recorded yet
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXECUTIVE MISSION & PROJECT COCKPIT (STEP 8.2) */}
+      <div className="section-label">📂 Executive Mission & Project Cockpit</div>
+      <div className="panel" style={{
+        background: 'linear-gradient(135deg, rgba(17, 24, 39, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
+        border: '1px solid rgba(59, 130, 246, 0.15)',
+        boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.4)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '24px',
+        marginBottom: '20px',
+        padding: '24px'
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '28px' }}>📂</span>
+            <div>
+              <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#fff', margin: 0 }}>Executive Mission & Project Cockpit</h2>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Organizing OS operations in hierarchical missions. Projects orchestrate Goals, Milestones, Tasks, and Actions.
+              </p>
+            </div>
+          </div>
+          
+          {/* Project selector dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Active Mission:</span>
+            <select
+              value={selectedProjectId || ''}
+              onChange={(e) => setSelectedProjectId(e.target.value || null)}
+              style={{
+                padding: '8px 12px',
+                background: '#0f172a',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                color: '#fff',
+                fontSize: '13px',
+                cursor: 'pointer',
+                minWidth: '200px'
+              }}
+            >
+              <option value="">-- Select a Project / Mission --</option>
+              {projects.map((p) => (
+                <option key={p.project_id} value={p.project_id}>
+                  {p.name} ({(p.completion_percent * 100).toFixed(0)}%)
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Top-level statistics row */}
+        {projectHierarchy && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Status</div>
+              <div style={{ fontSize: '16px', fontWeight: 600, color: '#fff', marginTop: '4px', textTransform: 'capitalize' }}>{projectHierarchy.status}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Completion</div>
+              <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-blue)', marginTop: '4px' }}>{(projectHierarchy.completion_percent * 100).toFixed(1)}%</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Est. Success Rate</div>
+              <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ok)', marginTop: '4px' }}>{(projectHierarchy.success_rate * 100).toFixed(1)}%</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Rollback Risk Score</div>
+              <div style={{ fontSize: '20px', fontWeight: 700, color: projectHierarchy.risk_score > 0.25 ? 'var(--critical)' : 'var(--text-primary)', marginTop: '4px' }}>{(projectHierarchy.risk_score * 100).toFixed(1)}%</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Predicted Finish</div>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginTop: '6px' }}>
+                {projectHierarchy.predicted_finish ? new Date(projectHierarchy.predicted_finish * 1000).toLocaleDateString() : 'N/A'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'start' }}>
+          {/* LEFT COLUMN: Controls and Management */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Create Project Card */}
+            <div className="card" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+              <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: '#fff', marginBottom: '12px' }}>Initialize Mission / Project</h3>
+              <form onSubmit={handleCreateProject} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <input
+                  type="text"
+                  placeholder="Project Name (e.g. Kattappa OS)"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  style={{
+                    padding: '8px 12px',
+                    background: '#0b0f19',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-xs)',
+                    color: '#fff',
+                    fontSize: '12px'
+                  }}
+                />
+                <textarea
+                  placeholder="Project Description..."
+                  value={newProjectDesc}
+                  onChange={(e) => setNewProjectDesc(e.target.value)}
+                  style={{
+                    padding: '8px 12px',
+                    background: '#0b0f19',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-xs)',
+                    color: '#fff',
+                    fontSize: '12px',
+                    minHeight: '60px',
+                    resize: 'vertical'
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={creatingProject || !newProjectName.trim()}
+                  style={{
+                    padding: '8px',
+                    background: 'var(--accent-blue)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-xs)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                >
+                  {creatingProject ? 'Creating...' : '🚀 Create Mission'}
+                </button>
+                {projectError && <div style={{ color: 'var(--critical)', fontSize: '11px', marginTop: '4px' }}>{projectError}</div>}
+              </form>
+            </div>
+
+            {projectHierarchy && (
+              <>
+                {/* Associate Goals Card */}
+                <div className="card" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: '#fff', marginBottom: '12px' }}>Link Goal to Project</h3>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <select
+                      value={goalToLink}
+                      onChange={(e) => setGoalToLink(e.target.value)}
+                      style={{
+                        flex: 1,
+                        padding: '8px',
+                        background: '#0b0f19',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-xs)',
+                        color: '#fff',
+                        fontSize: '12px'
+                      }}
+                    >
+                      <option value="">-- Choose Goal to Link --</option>
+                      {goals
+                        .filter(g => !projectHierarchy.goals.some(pg => pg.goal_id === g.goal_id))
+                        .map(g => (
+                          <option key={g.goal_id} value={g.goal_id}>
+                            {g.title}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      onClick={() => handleLinkGoalToProject(goalToLink, projectHierarchy.project_id)}
+                      disabled={linkingGoal || !goalToLink}
+                      style={{
+                        padding: '8px 16px',
+                        background: 'var(--accent-purple)',
+                        border: 'none',
+                        borderRadius: 'var(--radius-xs)',
+                        color: '#fff',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {linkingGoal ? 'Linking...' : '🔗 Link'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Project Dependencies Card */}
+                <div className="card" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: '#fff', marginBottom: '12px' }}>Add Project Dependency</h3>
+                  <form onSubmit={handleAddProjectDependency} style={{ display: 'flex', gap: '10px' }}>
+                    <select
+                      value={depProjId}
+                      onChange={(e) => setDepProjId(e.target.value)}
+                      style={{
+                        flex: 1,
+                        padding: '8px',
+                        background: '#0b0f19',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-xs)',
+                        color: '#fff',
+                        fontSize: '12px'
+                      }}
+                    >
+                      <option value="">-- Select Dependency Project --</option>
+                      {projects
+                        .filter(p => p.project_id !== projectHierarchy.project_id && !projectHierarchy.dependencies.includes(p.project_id))
+                        .map(p => (
+                          <option key={p.project_id} value={p.project_id}>
+                            {p.name}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="submit"
+                      disabled={addingDep || !depProjId}
+                      style={{
+                        padding: '8px 16px',
+                        background: 'var(--accent-blue)',
+                        border: 'none',
+                        borderRadius: 'var(--radius-xs)',
+                        color: '#fff',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {addingDep ? 'Adding...' : '⚡ Add Dep'}
+                    </button>
+                  </form>
+                  {projectHierarchy.dependencies.length > 0 && (
+                    <div style={{ marginTop: '12px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Depends on:</span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                        {projectHierarchy.dependencies.map(depId => {
+                          const depProj = projects.find(p => p.project_id === depId);
+                          return (
+                            <span key={depId} style={{ fontSize: '11px', padding: '3px 8px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '12px', color: 'var(--accent-blue)' }}>
+                              {depProj ? depProj.name : depId}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Log Decision Card */}
+                <div className="card" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: '#fff', marginBottom: '12px' }}>Log Executive Decision</h3>
+                  <form onSubmit={handleLogProjectDecision} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <input
+                      type="text"
+                      placeholder="Decision Title"
+                      value={decisionTitle}
+                      onChange={(e) => setDecisionTitle(e.target.value)}
+                      style={{
+                        padding: '8px',
+                        background: '#0b0f19',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-xs)',
+                        color: '#fff',
+                        fontSize: '12px'
+                      }}
+                    />
+                    <textarea
+                      placeholder="Rationale / Details..."
+                      value={decisionRationale}
+                      onChange={(e) => setDecisionRationale(e.target.value)}
+                      style={{
+                        padding: '8px',
+                        background: '#0b0f19',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-xs)',
+                        color: '#fff',
+                        fontSize: '12px',
+                        minHeight: '50px',
+                        resize: 'vertical'
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      disabled={addingDecision || !decisionTitle.trim()}
+                      style={{
+                        padding: '8px',
+                        background: 'var(--ok)',
+                        border: 'none',
+                        borderRadius: 'var(--radius-xs)',
+                        color: '#fff',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {addingDecision ? 'Saving...' : '💾 Log Decision'}
+                    </button>
+                  </form>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* RIGHT COLUMN: Project Simulation & Dependency Cascade Warning logs */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {projectHierarchy ? (
+              <>
+                {/* Simulation & Blocker Report */}
+                <div className="card" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', padding: '20px', borderRadius: 'var(--radius-sm)' }}>
+                  <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: '#fff', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🔮</span> Monte-Carlo Simulation & Projections
+                  </h3>
+                  {projectSimulation ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', padding: '12px' }}>
+                          <div style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Finish Probability</div>
+                          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--ok)', marginTop: '4px' }}>{(projectSimulation.completion_probability * 100).toFixed(0)}%</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', padding: '12px' }}>
+                          <div style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Predicted End Date</div>
+                          <div style={{ fontSize: '18px', fontWeight: 600, color: '#fff', marginTop: '8px' }}>{projectSimulation.predicted_finish_date}</div>
+                        </div>
+                      </div>
+
+                      {/* Critical Path Display */}
+                      <div>
+                        <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '6px' }}>Critical Path Sequence</div>
+                        {projectSimulation.critical_path && projectSimulation.critical_path.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {projectSimulation.critical_path.map((pathName: string, idx: number) => (
+                              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                                <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>#{idx + 1}</span>
+                                <span style={{ color: '#fff' }}>{pathName}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '12px', fontStyle: 'italic', color: 'var(--text-muted)' }}>No critical path calculated</span>
+                        )}
+                      </div>
+
+                      {/* Resource Demand */}
+                      <div>
+                        <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>Resource Agent Workload Demand</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {Object.entries(projectSimulation.resource_demand || {}).map(([agent, timeVal]: [string, any]) => (
+                            <div key={agent} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px' }}>
+                              <span style={{ width: '80px', textTransform: 'capitalize', color: 'var(--text-secondary)' }}>{agent} agent:</span>
+                              <div style={{ flex: 1, height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', background: agent === 'coder' ? 'var(--accent-blue)' : 'var(--accent-purple)', width: `${Math.min(100, (timeVal / 3600) * 10)}%` }}></div>
+                              </div>
+                              <span style={{ width: '60px', textAlign: 'right', fontFamily: 'monospace' }}>{(timeVal / 60).toFixed(1)} min</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Blockers */}
+                      {projectSimulation.likely_blockers && projectSimulation.likely_blockers.length > 0 && (
+                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+                          <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--critical)', fontWeight: 600, marginBottom: '6px' }}>Potential Blockers Identified</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {projectSimulation.likely_blockers.map((b: any, idx: number) => (
+                              <div key={idx} style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                ⚠️ <span style={{ color: '#fff', fontWeight: 500 }}>{b.title}</span> (Success prob: {(b.success_probability * 100).toFixed(0)}%, Rollback risk: {(b.rollback_risk * 100).toFixed(0)}%)
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '12px', fontStyle: 'italic', color: 'var(--text-muted)' }}>Running Monte Carlo projection simulation...</div>
+                  )}
+                </div>
+
+                {/* Project Event Trail Ledger */}
+                <div className="card" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: '#fff', marginBottom: '12px' }}>Project Mission Ledger & Decisions</h3>
+                  
+                  {/* Decisions Tab list */}
+                  {projectHierarchy.decisions.length > 0 && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>Executive Decisions ({projectHierarchy.decisions.length})</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '150px', overflowY: 'auto' }}>
+                        {projectHierarchy.decisions.map(d => (
+                          <div key={d.decision_id} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', padding: '8px', borderRadius: 'var(--radius-xs)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600, color: '#fff' }}>
+                              <span>{d.title}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--ok)' }}>{d.status}</span>
+                            </div>
+                            {d.description && <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>{d.description}</div>}
+                            {d.rationale && <div style={{ fontSize: '11px', fontStyle: 'italic', color: 'var(--text-muted)', marginTop: '2px' }}>Rationale: {d.rationale}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Failures & Rollbacks */}
+                  {(projectHierarchy.failures.length > 0 || projectHierarchy.rollbacks.length > 0) && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--critical)', fontWeight: 600, marginBottom: '8px' }}>System Exceptions & Rollbacks</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '150px', overflowY: 'auto' }}>
+                        {projectHierarchy.failures.map(f => (
+                          <div key={f.failure_id} style={{ borderLeft: '3px solid var(--critical)', background: 'rgba(239, 68, 68, 0.04)', padding: '6px 10px', fontSize: '11px' }}>
+                            <div style={{ fontWeight: 600, color: '#fff' }}>Failure: {f.component}</div>
+                            <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>{f.error_message}</div>
+                          </div>
+                        ))}
+                        {projectHierarchy.rollbacks.map(r => (
+                          <div key={r.rollback_id} style={{ borderLeft: '3px solid var(--warn)', background: 'rgba(245, 158, 11, 0.04)', padding: '6px 10px', fontSize: '11px' }}>
+                            <div style={{ fontWeight: 600, color: '#fff' }}>Rollback Executed</div>
+                            <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>Reason: {r.reason}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* General Event Timeline */}
+                  <div>
+                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>Mission Event Timeline</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {projectHierarchy.events.map((e, idx) => (
+                        <div key={idx} style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '4px' }}>
+                          <span style={{ color: 'var(--text-primary)' }}>{e.event_type}</span>
+                          <span style={{ color: 'var(--text-muted)' }}>{new Date(e.timestamp * 1000).toLocaleTimeString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)', padding: '40px', color: 'var(--text-muted)', fontSize: '13px', fontStyle: 'italic' }}>
+                Select a Project / Mission to view projections and ledger events.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* BOTTOM FULL-WIDTH: Cascade Hierarchy Tree View */}
+        {projectHierarchy && projectHierarchy.goals_tree && projectHierarchy.goals_tree.length > 0 && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
+            <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: '#fff', marginBottom: '14px' }}>
+              🌳 Cascade Hierarchy Tree: Project → Goal → Milestone → Task → Action
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {projectHierarchy.goals_tree.map(goal => (
+                <div key={goal.goal_id} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  {/* Goal Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '16px' }}>🎯</span>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: '#fff' }}>{goal.title}</span>
+                      <span style={{ fontSize: '10px', padding: '2px 6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: 'var(--text-secondary)' }}>Goal V1</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-blue)' }}>{(goal.progress * 100).toFixed(0)}% Done</span>
+                      <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', background: goal.status === 'ACTIVE' ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.05)', color: goal.status === 'ACTIVE' ? 'var(--ok)' : 'var(--text-secondary)' }}>
+                        {goal.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Milestones list */}
+                  {goal.milestones && goal.milestones.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginLeft: '24px', borderLeft: '1px dashed rgba(255,255,255,0.1)', paddingLeft: '16px' }}>
+                      {goal.milestones.map(m => (
+                        <div key={m.milestone_id} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 'var(--radius-xs)', padding: '12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>🏁</span>
+                              <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{m.title}</span>
+                            </div>
+                            <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-secondary)' }}>{(m.progress * 100).toFixed(0)}%</span>
+                          </div>
+
+                          {/* Tasks list */}
+                          {(m as any).tasks && (m as any).tasks.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginLeft: '16px', marginTop: '8px' }}>
+                              {(m as any).tasks.map((t: any) => (
+                                <div key={t.task_id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', padding: '10px', borderRadius: '4px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span>📋</span>
+                                      <span style={{ fontWeight: 600, color: '#fff' }}>{t.title}</span>
+                                    </div>
+                                    <span style={{ color: 'var(--accent-blue)' }}>{(t.progress * 100).toFixed(0)}%</span>
+                                  </div>
+                                  {t.assigned_agent && (
+                                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                      Assigned: <span style={{ color: 'var(--text-secondary)' }}>{t.assigned_agent}</span>
+                                    </div>
+                                  )}
+
+                                  {/* Actions list */}
+                                  {t.actions && t.actions.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px' }}>
+                                      {t.actions.map((act: any) => (
+                                        <div key={act.action_id} style={{ fontSize: '10px', display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                                          <span>⚡ {act.action_type}</span>
+                                          <span style={{ color: act.status === 'COMPLETED' ? 'var(--ok)' : 'var(--text-muted)' }}>{act.status}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', marginLeft: '16px' }}>No tasks assigned under milestone</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', marginLeft: '24px' }}>No milestones declared for goal</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* COGNITIVE GOALS SYSTEM PANEL (STEP 8.1) */}
+      <div className="section-label">Cognitive Goal Management & Operations</div>
+      <div className="panel" style={{
+        background: 'linear-gradient(135deg, rgba(13, 17, 30, 0.9) 0%, rgba(9, 11, 23, 0.95) 100%)',
+        border: '1px solid rgba(139, 92, 246, 0.15)',
+        boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.4)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '20px',
+        marginBottom: '20px',
+        padding: '24px'
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '24px' }}>{ICONS.goals}</span>
+            <div>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#fff', margin: 0 }}>Cognitive Goal & Milestones OS</h2>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Centering operating system loops around hierarchical goals, milestone simulation, and derived progress logic
+              </p>
+            </div>
+          </div>
+          <span className="protected-tag" style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#a78bfa' }}>
+            GOAL MANAGER ACTIVE
+          </span>
+        </div>
+
+        {/* Telemetry Dashboard Stats */}
+        {goalReflection && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px' }}>
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Completion Rate</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', marginTop: '6px', fontFamily: 'monospace' }}>
+                {(goalReflection.goal_completion_rate * 100).toFixed(1)}%
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                {goalReflection.completed_goals} / {goalReflection.total_goals} goals done
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Stalled / Block Rate</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: goalReflection.goal_block_rate > 0.25 ? 'var(--critical)' : 'var(--ok)', marginTop: '6px', fontFamily: 'monospace' }}>
+                {(goalReflection.goal_block_rate * 100).toFixed(1)}%
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Blocked milestones ratio
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Prediction Accuracy</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', marginTop: '6px', fontFamily: 'monospace' }}>
+                {(goalReflection.goal_prediction_accuracy * 100).toFixed(1)}%
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Brier score calibration
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Avg Goal Duration</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', marginTop: '6px', fontFamily: 'monospace' }}>
+                {(goalReflection.goal_average_duration / 60).toFixed(1)}m
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Average active execution time
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Rollback Frequency</div>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: goalReflection.goal_rollback_frequency > 0.3 ? 'var(--critical)' : '#fff', marginTop: '6px', fontFamily: 'monospace' }}>
+                {(goalReflection.goal_rollback_frequency * 100).toFixed(1)}%
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Rollbacks per milestone
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Warning Alert for POL-104 */}
+        {goalReflection && goalReflection.goal_rollback_frequency > 0.3 && (
+          <div style={{
+            background: 'rgba(239,68,68,0.1)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '12px 16px',
+            fontSize: '13px',
+            color: 'var(--critical)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}>
+            <span>⚠️</span>
+            <div>
+              <strong style={{ fontWeight: 600 }}>Policy Trigger active (POL-104):</strong> Rollback rate exceeds 30%. Mandatory simulation reviews will be required prior to deploying any backend actions.
+            </div>
+          </div>
+        )}
+
+        {/* Split View: Left side list/creation, Right side details */}
+        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+          
+          {/* Left panel: List & Create form */}
+          <div style={{ flex: '1 1 450px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            
+            {/* Create Goal Card */}
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+              <h3 style={{ fontSize: '13px', color: '#fff', fontWeight: 600, marginBottom: '12px' }}>🎯 Initialize Structured V1 Goal</h3>
+              <form onSubmit={handleCreateGoal} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ flex: 2 }}>
+                    <input
+                      type="text"
+                      placeholder="Goal Title (e.g. Become RF Test Engineer)"
+                      value={newGoalTitle}
+                      onChange={(e) => setNewGoalTitle(e.target.value)}
+                      required
+                      style={{ width: '100%', padding: '8px 12px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <select
+                      id="goal-priority-select"
+                      title="Goal Priority"
+                      aria-label="Goal Priority"
+                      value={newGoalPriority}
+                      onChange={(e) => setNewGoalPriority(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px', height: '34px' }}
+                    >
+                      <option value="LOW">LOW</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                      <option value="HIGH">HIGH</option>
+                      <option value="CRITICAL">CRITICAL</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <textarea
+                    placeholder="Description of success criteria and expectations..."
+                    value={newGoalDesc}
+                    onChange={(e) => setNewGoalDesc(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px', minHeight: '50px', resize: 'vertical' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      type="text"
+                      placeholder="Target Date (YYYY-MM-DD)"
+                      value={newGoalTargetDate}
+                      onChange={(e) => setNewGoalTargetDate(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      type="text"
+                      placeholder="Owner (e.g. ExecutiveAgent)"
+                      value={newGoalOwner}
+                      onChange={(e) => setNewGoalOwner(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px' }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Success Criteria (comma-separated, e.g. Pass RF test, Setup Spectrum Analyzer)"
+                    value={newGoalCriteria}
+                    onChange={(e) => setNewGoalCriteria(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px' }}
+                  />
+                </div>
+
+                {/* Optional Dependencies */}
+                {goals.length > 0 && (
+                  <div>
+                    <label style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Goal Dependencies</label>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '80px', overflowY: 'auto', background: '#0e131f', padding: '6px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                      {goals.map(g => (
+                        <label key={g.goal_id} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#fff', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={newGoalDeps.includes(g.goal_id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setNewGoalDeps([...newGoalDeps, g.goal_id]);
+                              } else {
+                                setNewGoalDeps(newGoalDeps.filter(id => id !== g.goal_id));
+                              }
+                            }}
+                          />
+                          {g.title}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Priority Score parameters */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                  <div>
+                    <label htmlFor="goal-importance-input" style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Importance (1-10): {newGoalImportance}</label>
+                    <input
+                      id="goal-importance-input"
+                      title="Importance (1-10)"
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={newGoalImportance}
+                      onChange={(e) => setNewGoalImportance(parseInt(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="goal-urgency-input" style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Urgency (1-10): {newGoalUrgency}</label>
+                    <input
+                      id="goal-urgency-input"
+                      title="Urgency (1-10)"
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={newGoalUrgency}
+                      onChange={(e) => setNewGoalUrgency(parseInt(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="goal-alignment-input" style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Strategic Alignment (1-10): {newGoalAlignment}</label>
+                    <input
+                      id="goal-alignment-input"
+                      title="Strategic Alignment (1-10)"
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={newGoalAlignment}
+                      onChange={(e) => setNewGoalAlignment(parseInt(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="goal-cost-input" style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Resource Cost (1-10): {newGoalCost}</label>
+                    <input
+                      id="goal-cost-input"
+                      title="Resource Cost (1-10)"
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={newGoalCost}
+                      onChange={(e) => setNewGoalCost(parseInt(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={creatingGoal}
+                  style={{
+                    padding: '10px',
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-xs)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    fontSize: '12px',
+                    cursor: creatingGoal ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 4px 12px rgba(139, 92, 246, 0.25)',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {creatingGoal ? 'Creating Goal...' : '🎯 Create Goal (Proposed)'}
+                </button>
+              </form>
+              {goalError && (
+                <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--critical)' }}>⚠️ {goalError}</div>
+              )}
+            </div>
+
+            {/* Goals List Card */}
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', flex: 1, maxHeight: '400px', overflowY: 'auto' }}>
+              <h3 style={{ fontSize: '12px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px', letterSpacing: '0.5px' }}>
+                System Goals Pipeline
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {goals.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', padding: '20px', fontStyle: 'italic' }}>
+                    No goals declared in the system database.
+                  </div>
+                ) : (
+                  goals.map(g => {
+                    const isSelected = selectedGoalId === g.goal_id;
+                    const statusColor = g.status === 'COMPLETED' ? 'var(--ok)' : g.status === 'ACTIVE' ? 'var(--accent-blue)' : g.status === 'BLOCKED' ? 'var(--critical)' : 'var(--warn)';
+                    return (
+                      <div
+                        key={g.goal_id}
+                        onClick={() => setSelectedGoalId(g.goal_id)}
+                        style={{
+                          background: isSelected ? 'rgba(139, 92, 246, 0.1)' : 'rgba(255,255,255,0.01)',
+                          border: `1px solid ${isSelected ? 'rgba(139, 92, 246, 0.4)' : 'var(--border)'}`,
+                          borderRadius: 'var(--radius-xs)',
+                          padding: '12px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          position: 'relative'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <span style={{ fontWeight: '600', color: '#fff', fontSize: '13px' }}>{g.title}</span>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <span style={{
+                              fontSize: '9px',
+                              padding: '2px 6px',
+                              borderRadius: '3px',
+                              background: 'rgba(139, 92, 246, 0.15)',
+                              color: '#a78bfa',
+                              border: '1px solid rgba(139, 92, 246, 0.3)',
+                              fontWeight: 'bold'
+                            }}>
+                              Score: {g.priority_score !== undefined ? g.priority_score : '1.0'}
+                            </span>
+                            <span style={{
+                              fontSize: '9px',
+                              padding: '2px 6px',
+                              borderRadius: '3px',
+                              background: `${statusColor}1A`,
+                              color: statusColor,
+                              border: `1px solid ${statusColor}33`,
+                              fontWeight: 'bold'
+                            }}>
+                              {g.status}
+                            </span>
+                          </div>
+                        </div>
+                        <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', margin: '4px 0 8px 0' }}>
+                          {g.description || 'No description provided.'}
+                        </p>
+                        {/* Progress bar */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ flex: 1, height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden' }}>
+                            <div style={{ width: `${g.progress * 100}%`, height: '100%', background: 'linear-gradient(90deg, #a78bfa, #8b5cf6)', borderRadius: '2px' }}></div>
+                          </div>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#fff', minWidth: '32px', textAlign: 'right' }}>
+                            {(g.progress * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right panel: Details & Milestones */}
+          <div style={{ flex: '1 1 500px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', minHeight: '500px' }}>
+            {selectedGoalId && goals.find(g => g.goal_id === selectedGoalId) ? (() => {
+              const goal = goals.find(g => g.goal_id === selectedGoalId)!;
+              return (
+                <>
+                  {/* Goal Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: '#fff' }}>{goal.title}</h3>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>Goal ID: {goal.goal_id}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {goal.status === 'PROPOSED' && (
+                        <button
+                          onClick={() => handleApproveGoal(goal.goal_id)}
+                          style={{ padding: '6px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid var(--ok)', borderRadius: '4px', color: 'var(--ok)', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          ✓ Approve Goal
+                        </button>
+                      )}
+                      {(goal.status === 'APPROVED' || goal.status === 'BLOCKED') && (
+                        <button
+                          onClick={() => handleStartGoal(goal.goal_id)}
+                          style={{ padding: '6px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid var(--accent-blue)', borderRadius: '4px', color: 'var(--accent-blue)', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          ⚡ Start Execution
+                        </button>
+                      )}
+                      {goal.status !== 'COMPLETED' && goal.status !== 'CANCELLED' && (
+                        <button
+                          onClick={() => handleAbandonGoal(goal.goal_id)}
+                          style={{ padding: '6px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid var(--critical)', borderRadius: '4px', color: 'var(--critical)', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          ✕ Abandon
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Metadata fields */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                    <div>
+                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Priority</span>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: goal.priority === 'CRITICAL' ? 'var(--critical)' : '#fff', marginTop: '2px' }}>{goal.priority}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Target Date</span>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', marginTop: '2px' }}>{goal.target_date || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Owner</span>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', marginTop: '2px' }}>{goal.owner || 'System'}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Dependencies</span>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#fff', marginTop: '2px' }}>
+                        {goal.dependencies && goal.dependencies.length > 0 ? goal.dependencies.join(', ') : 'None'}
+                      </div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Priority Score</span>
+                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#a78bfa', marginTop: '2px' }}>{goal.priority_score !== undefined ? goal.priority_score : '1.00'}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Metrics (I/U/A/C)</span>
+                      <div style={{ fontSize: '11px', color: 'var(--text-primary)', marginTop: '2px' }}>
+                        {goal.importance || 5} / {goal.urgency || 5} / {goal.strategic_alignment || 5} / {goal.resource_cost || 2}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Success Criteria List */}
+                  {goal.success_criteria && goal.success_criteria.length > 0 && (
+                    <div>
+                      <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '6px' }}>Success Criteria</h4>
+                      <ul style={{ paddingLeft: '16px', margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {goal.success_criteria.map((c, i) => (
+                          <li key={i} style={{ fontSize: '12px', color: 'var(--text-primary)' }}>{c}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Milestones Hierarchy Section */}
+                  <div>
+                    <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>Milestone Execution Tree</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {goal.milestones && goal.milestones.length > 0 ? (
+                        goal.milestones.map((m) => {
+                          const mStatusColor = m.status === 'COMPLETED' ? 'var(--ok)' : m.status === 'ACTIVE' ? 'var(--accent-blue)' : m.status === 'BLOCKED' ? 'var(--critical)' : 'var(--text-muted)';
+                          return (
+                            <div key={m.milestone_id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '4px', padding: '12px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 600, color: '#fff', fontSize: '12px' }}>{m.title}</span>
+                                <span style={{ fontSize: '9px', padding: '1px 6px', borderRadius: '3px', background: `${mStatusColor}1A`, color: mStatusColor, border: `1px solid ${mStatusColor}33`, fontWeight: 'bold' }}>
+                                  {m.status}
+                                </span>
+                              </div>
+                              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', margin: '4px 0' }}>{m.description}</p>
+                              
+                              {/* Simulation prediction data */}
+                              {(m.success_probability !== null || m.rollback_risk !== null || m.expected_duration_sec !== null) && (
+                                <div style={{ display: 'flex', gap: '12px', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '6px', fontSize: '10px' }}>
+                                  {m.success_probability !== null && (
+                                    <div>
+                                      <span style={{ color: 'var(--text-muted)' }}>Success Prob: </span>
+                                      <span style={{ color: m.success_probability > 0.8 ? 'var(--ok)' : 'var(--warn)', fontWeight: 'bold' }}>{(m.success_probability * 100).toFixed(0)}%</span>
+                                    </div>
+                                  )}
+                                  {m.rollback_risk !== null && (
+                                    <div>
+                                      <span style={{ color: 'var(--text-muted)' }}>Rollback Risk: </span>
+                                      <span style={{ color: m.rollback_risk < 0.15 ? 'var(--ok)' : 'var(--critical)', fontWeight: 'bold' }}>{(m.rollback_risk * 100).toFixed(0)}%</span>
+                                    </div>
+                                  )}
+                                  {m.expected_duration_sec !== null && (
+                                    <div>
+                                      <span style={{ color: 'var(--text-muted)' }}>Expected Duration: </span>
+                                      <span style={{ color: '#fff', fontWeight: 'bold' }}>{(m.expected_duration_sec).toFixed(0)}s</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px dashed var(--border)', borderRadius: '4px', padding: '16px', textAlign: 'center' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>No milestones created for this goal yet.</span>
+                          
+                          {/* Batch Milestones Form */}
+                          <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <span style={{ fontSize: '10px', color: '#fff', fontWeight: 600 }}>Create Milestones Batch</span>
+                            {milestonesToAdd.map((m, idx) => (
+                              <div key={idx} style={{ display: 'flex', gap: '6px' }}>
+                                <input
+                                  type="text"
+                                  placeholder={`Milestone ${idx+1} Title`}
+                                  value={m.title}
+                                  onChange={(e) => {
+                                    const copy = [...milestonesToAdd];
+                                    copy[idx].title = e.target.value;
+                                    setMilestonesToAdd(copy);
+                                  }}
+                                  style={{ flex: 3, padding: '6px 10px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: '3px', color: '#fff', fontSize: '11px' }}
+                                />
+                                <input
+                                  type="number"
+                                  placeholder="Weight"
+                                  step="0.1"
+                                  value={m.weight}
+                                  onChange={(e) => {
+                                    const copy = [...milestonesToAdd];
+                                    copy[idx].weight = parseFloat(e.target.value) || 1.0;
+                                    setMilestonesToAdd(copy);
+                                  }}
+                                  style={{ flex: 1, padding: '6px 10px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: '3px', color: '#fff', fontSize: '11px' }}
+                                />
+                              </div>
+                            ))}
+                            <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                              <button
+                                type="button"
+                                onClick={() => setMilestonesToAdd([...milestonesToAdd, { title: '', weight: 1.0 }])}
+                                style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '3px', color: '#fff', fontSize: '10px', cursor: 'pointer' }}
+                              >
+                                + Add Row
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSetMilestones(goal.goal_id)}
+                                style={{ padding: '4px 12px', background: 'var(--accent-blue)', border: 'none', borderRadius: '3px', color: '#fff', fontSize: '10px', fontWeight: 600, cursor: 'pointer', marginLeft: 'auto' }}
+                              >
+                                ✓ Commit Milestones
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Append-only Event Ledger */}
+                  <div>
+                    <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>Append-only Event Log</h4>
+                    <div style={{ background: '#0e131f', borderRadius: '4px', border: '1px solid var(--border)', maxHeight: '180px', overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {selectedGoalHistory.length === 0 ? (
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center' }}>No events recorded.</div>
+                      ) : (
+                        selectedGoalHistory.map((h, i) => (
+                          <div key={i} style={{ fontSize: '11px', display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '4px' }}>
+                            <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>[{new Date(h.timestamp * 1000).toLocaleTimeString()}]</span>
+                            <span style={{ color: '#a78bfa', fontWeight: 'bold' }}>{h.event_type}</span>
+                            <span style={{ color: 'var(--text-primary)' }}>{JSON.stringify(h.payload)}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              );
+            })() : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '13px', fontStyle: 'italic', gap: '10px' }}>
+                <span>🎯</span>
+                Select a goal from the pipeline to view interactive milestones, success criteria, and simulation metrics
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* LOWER DATA DRILL-DOWN */}

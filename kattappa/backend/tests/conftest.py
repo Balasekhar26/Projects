@@ -80,6 +80,7 @@ except ImportError:
     pass
 
 # Create a temporary directory for the test run
+tempfile.tempdir = "/tmp"
 test_data_dir = tempfile.mkdtemp(prefix="kattappa_test_")
 os.environ["KATTAPPA_DATA_DIR"] = test_data_dir
 

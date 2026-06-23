@@ -132,7 +132,8 @@ def test_security_readonly_capabilities(clean_monitor_env, monkeypatch):
 
 def test_security_no_execution_functions(clean_monitor_env):
     # Programmatic audit of monitoring.py contents to ensure no mutating shell or file deletions
-    monitoring_path = Path("backend/agents/monitoring.py")
+    from backend.core.config import load_config
+    monitoring_path = load_config().backend_root / "agents" / "monitoring.py"
     content = monitoring_path.read_text(encoding="utf-8")
     
     # Ensure no process execution keywords or deletes exist in our agent methods

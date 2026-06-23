@@ -1053,3 +1053,223 @@ class LearningDashboard:
                 "recovery_queue": [],
                 "cross_learning": []
             }
+
+    @classmethod
+    def executive_calibration_panel(cls) -> dict[str, Any]:
+        """Aggregate Executive Self-Awareness & Prediction Calibration telemetry."""
+        import sqlite3
+        from backend.core.config import load_config, runtime_data_root
+        
+        config = load_config()
+        
+        # 1. Query Simulation Calibration Table
+        prediction_accuracy = 1.0
+        success_brier = 0.0
+        rollback_brier = 0.0
+        duration_mae = 0.0
+        total_predictions = 0
+        
+        try:
+            sim_conn = sqlite3.connect(str(config.sqlite_path))
+            sim_conn.row_factory = sqlite3.Row
+            rows = sim_conn.execute("SELECT * FROM hm_simulation_calibration_records").fetchall()
+            if rows:
+                total_predictions = len(rows)
+                success_se = sum((r["predicted_success"] - float(r["actual_success"])) ** 2 for r in rows)
+                rollback_se = sum((r["predicted_rollback"] - float(r["actual_rollback"])) ** 2 for r in rows)
+                duration_err = sum(abs(r["predicted_duration_ms"] - r["actual_duration_ms"]) for r in rows)
+                
+                success_brier = success_se / total_predictions
+                rollback_brier = rollback_se / total_predictions
+                duration_mae = duration_err / total_predictions
+                prediction_accuracy = max(0.0, min(1.0, 1.0 - success_brier))
+            sim_conn.close()
+        except Exception:
+            pass
+            
+        # 2. Query Workflow Memory Table
+        workflow_success_rate = 1.0
+        workflow_total = 0
+        workflow_successes = 0
+        rollback_frequency = 0.0
+        total_workflow_rollbacks = 0
+        
+        try:
+            wf_conn = sqlite3.connect(str(config.sqlite_path))
+            wf_conn.row_factory = sqlite3.Row
+            wf_runs = wf_conn.execute("SELECT * FROM hm_workflow_memory_runs").fetchall()
+            if wf_runs:
+                workflow_total = len(wf_runs)
+                workflow_successes = sum(1 for w in wf_runs if w["success"])
+                workflow_success_rate = workflow_successes / workflow_total
+                
+            wf_steps = wf_conn.execute("SELECT * FROM hm_workflow_memory_steps").fetchall()
+            wf_rollbacks = set()
+            for s in wf_steps:
+                if s["rollback_executed"]:
+                    wf_rollbacks.add(s["workflow_id"])
+            total_workflow_rollbacks = len(wf_rollbacks)
+            if workflow_total > 0:
+                rollback_frequency = total_workflow_rollbacks / workflow_total
+            wf_conn.close()
+        except Exception:
+            pass
+            
+        # 3. Query Agent Reliability from ActionMemory DB
+        agent_stats = []
+        act_db_path = runtime_data_root() / "backend" / "data" / "action_memory.db"
+        if act_db_path.exists():
+            try:
+                act_conn = sqlite3.connect(str(act_db_path))
+                act_conn.row_factory = sqlite3.Row
+                rows = act_conn.execute(
+                    """
+                    SELECT agent, COUNT(*) as total, SUM(success) as successes, SUM(rollback_executed) as rollbacks
+                    FROM action_history GROUP BY agent
+                    """
+                ).fetchall()
+                for r in rows:
+                    tot = r["total"] or 0
+                    suc = r["successes"] or 0
+                    rol = r["rollbacks"] or 0
+                    agent_stats.append({
+                        "agent": r["agent"],
+                        "total_actions": tot,
+                        "success_rate": round(suc / tot, 4) if tot > 0 else 0.0,
+                        "rollback_rate": round(rol / tot, 4) if tot > 0 else 0.0
+                    })
+                act_conn.close()
+            except Exception:
+                pass
+                
+        # 4. Policy Effectiveness (active policies and blocked actions)
+        from backend.core.simulation_engine import SimulationEngine
+        active_policies = []
+        try:
+            active_policies = SimulationEngine._load_active_policies()
+        except Exception:
+            pass
+            
+        policy_actions_blocked = 0
+        policy_actions_deferred = 0
+        if act_db_path.exists():
+            try:
+                act_conn = sqlite3.connect(str(act_db_path))
+                act_conn.row_factory = sqlite3.Row
+                blocked_row = act_conn.execute(
+                    "SELECT COUNT(*) FROM action_history WHERE actual_outcome LIKE '%block%' OR actual_outcome LIKE '%deny%'"
+                ).fetchone()
+                policy_actions_blocked = blocked_row[0] if blocked_row else 0
+                
+                deferred_row = act_conn.execute(
+                    "SELECT COUNT(*) FROM action_history WHERE actual_outcome LIKE '%defer%' OR actual_outcome LIKE '%cooldown%'"
+                ).fetchone()
+                policy_actions_deferred = deferred_row[0] if deferred_row else 0
+                act_conn.close()
+            except Exception:
+                pass
+                
+        return {
+            "prediction_accuracy": round(prediction_accuracy, 4),
+            "success_brier": round(success_brier, 4),
+            "rollback_brier": round(rollback_brier, 4),
+            "duration_mae_ms": round(duration_mae, 1),
+            "total_predictions": total_predictions,
+            
+            "workflow_success_rate": round(workflow_success_rate, 4),
+            "workflow_total": workflow_total,
+            "workflow_successes": workflow_successes,
+            "rollback_frequency": round(rollback_frequency, 4),
+            "total_workflow_rollbacks": total_workflow_rollbacks,
+            
+            "agent_reliability": agent_stats,
+            
+            "active_policies_count": len(active_policies),
+            "policy_actions_blocked": policy_actions_blocked,
+            "policy_actions_deferred": policy_actions_deferred,
+            "timestamp": time.time()
+        }
+
+    @classmethod
+    def goal_calibration_panel(cls) -> dict[str, Any]:
+        """Aggregate Goal Reflection Metrics & Cockpit Goal Telemetry (Step 8.1)."""
+        import sqlite3
+        from backend.core.config import load_config
+        
+        config = load_config()
+        db_path = config.sqlite_path.parent / "goal_memory.db"
+        
+        goal_completion_rate = 1.0
+        goal_block_rate = 0.0
+        goal_average_duration = 0.0
+        goal_prediction_accuracy = 1.0
+        goal_rollback_frequency = 0.0
+        
+        total_goals = 0
+        completed_goals = 0
+        total_milestones = 0
+        blocked_milestones = 0
+        completed_milestones = 0
+        
+        if db_path.exists():
+            try:
+                conn = sqlite3.connect(str(db_path))
+                conn.row_factory = sqlite3.Row
+                
+                # 1. Goals Stats
+                goals = conn.execute("SELECT * FROM goals").fetchall()
+                total_goals = len(goals)
+                completed_goals = sum(1 for g in goals if g["status"] == "COMPLETED")
+                if total_goals > 0:
+                    goal_completion_rate = completed_goals / total_goals
+                    
+                # 2. Milestones Stats
+                milestones = conn.execute("SELECT * FROM milestones").fetchall()
+                total_milestones = len(milestones)
+                blocked_milestones = sum(1 for m in milestones if m["status"] == "BLOCKED")
+                completed_milestones = sum(1 for m in milestones if m["status"] == "COMPLETED")
+                if total_milestones > 0:
+                    goal_block_rate = blocked_milestones / total_milestones
+                
+                # 3. Average Goal Duration
+                goal_durations = []
+                for g in goals:
+                    if g["status"] == "COMPLETED":
+                        m_times = conn.execute(
+                            "SELECT MIN(created_at) as start, MAX(completed_at) as end FROM milestones WHERE goal_id = ? AND completed_at IS NOT NULL",
+                            (g["goal_id"],)
+                        ).fetchone()
+                        if m_times and m_times["start"] and m_times["end"]:
+                            goal_durations.append(m_times["end"] - m_times["start"])
+                if goal_durations:
+                    goal_average_duration = sum(goal_durations) / len(goal_durations)
+                
+                # 4. Goal Prediction Accuracy (Brier score for milestone success predictions)
+                completed_m_with_pred = [m for m in milestones if m["status"] == "COMPLETED" and m["success_probability"] is not None]
+                if completed_m_with_pred:
+                    brier_sum = sum((m["success_probability"] - 1.0) ** 2 for m in completed_m_with_pred)
+                    brier_score = brier_sum / len(completed_m_with_pred)
+                    goal_prediction_accuracy = max(0.0, min(1.0, 1.0 - brier_score))
+                
+                # 5. Goal Rollback Frequency
+                completed_m = [m for m in milestones if m["status"] == "COMPLETED"]
+                if completed_m:
+                    rollbacks_count = sum(1 for m in completed_m if m["rollback_risk"] is not None and m["rollback_risk"] > 0.3)
+                    goal_rollback_frequency = rollbacks_count / len(completed_m)
+                    
+                conn.close()
+            except Exception:
+                pass
+                
+        return {
+            "goal_completion_rate": round(goal_completion_rate, 4),
+            "goal_block_rate": round(goal_block_rate, 4),
+            "goal_average_duration": round(goal_average_duration, 1),
+            "goal_prediction_accuracy": round(goal_prediction_accuracy, 4),
+            "goal_rollback_frequency": round(goal_rollback_frequency, 4),
+            "total_goals": total_goals,
+            "completed_goals": completed_goals,
+            "total_milestones": total_milestones,
+            "blocked_milestones": blocked_milestones,
+            "timestamp": time.time()
+        }

@@ -25,9 +25,18 @@ from backend.core.memory_governance import MemoryGovernance
 @pytest.fixture
 def clean_memory_env(monkeypatch):
     """Sets a temporary folder for memory data and resets the state."""
+    import psutil
     temp_dir = tempfile.mkdtemp(prefix="kattappa_memory_test_")
     monkeypatch.setattr("backend.core.config.runtime_data_root", lambda: Path(temp_dir))
     monkeypatch.setenv("KATTAPPA_ENV", "test")
+    
+    # Mock psutil to make tests deterministic under heavy host CPU/RAM load
+    monkeypatch.setattr(psutil, "cpu_percent", lambda interval=None: 10.0)
+    class MockVirtualMemory:
+        percent = 10.0
+        used = 100 * 1024 * 1024
+        available = 8 * 1024 * 1024 * 1024
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: MockVirtualMemory())
     
     # Reset systems
     HumanMemory.reset()

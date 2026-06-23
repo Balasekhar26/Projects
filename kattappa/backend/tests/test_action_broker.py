@@ -18,6 +18,8 @@ def mock_env(monkeypatch):
     monkeypatch.setattr("backend.core.config.runtime_data_root", lambda: Path(temp_dir))
     monkeypatch.setattr(ActionBroker, "AUDIT_LOG_PATH", os.path.join(temp_dir, "action_broker_audit.log"))
     monkeypatch.setenv("KATTAPPA_ENV", "test")
+    from backend.core.resource_governor import ResourceGovernor
+    monkeypatch.setattr(ResourceGovernor, "check_and_charge_resources", lambda agent, act, params: {"success": True})
     yield Path(temp_dir)
     shutil.rmtree(temp_dir, ignore_errors=True)
 

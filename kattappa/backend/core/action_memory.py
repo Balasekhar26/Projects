@@ -212,7 +212,11 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     }
     for column, definition in additions.items():
         if column not in columns:
-            conn.execute(f"ALTER TABLE action_history ADD COLUMN {column} {definition}")
+            try:
+                conn.execute(f"ALTER TABLE action_history ADD COLUMN {column} {definition}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
     if "failure" not in columns:
         conn.execute("UPDATE action_history SET failure = CASE WHEN success=1 THEN 0 ELSE 1 END")
     conn.commit()

@@ -19,9 +19,19 @@ from backend.core.state import AgentState
 @pytest.fixture
 def mock_env(monkeypatch):
     """Sets a temporary folder and sets the KATTAPPA_ENV to test."""
+    import psutil
     temp_dir = tempfile.mkdtemp(prefix="kattappa_coder_v3_")
     monkeypatch.setattr("backend.core.config.runtime_data_root", lambda: Path(temp_dir))
     monkeypatch.setenv("KATTAPPA_ENV", "test")
+    
+    # Mock psutil to make tests deterministic under heavy host CPU/RAM load
+    monkeypatch.setattr(psutil, "cpu_percent", lambda interval=None: 10.0)
+    class MockVirtualMemory:
+        percent = 10.0
+        used = 100 * 1024 * 1024
+        available = 8 * 1024 * 1024 * 1024
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: MockVirtualMemory())
+    
     yield Path(temp_dir)
     shutil.rmtree(temp_dir, ignore_errors=True)
 

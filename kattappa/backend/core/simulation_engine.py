@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import random
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -261,6 +262,92 @@ class SimulationEngine:
             policy_adjustments.extend(policies)
             reflection_signals.extend(signals)
 
+        from backend.core.workflow_memory import WorkflowMemory
+
+        # 1. Fetch recent workflow runs and goal matches to build historical context
+        all_runs = []
+        try:
+            recent_runs = WorkflowMemory.get_recent_workflow_runs(limit=100)
+            for r in recent_runs:
+                detailed = WorkflowMemory.get_workflow_run(r["workflow_id"])
+                if detailed:
+                    all_runs.append(detailed)
+        except Exception:
+            pass
+
+        if goal:
+            try:
+                goal_runs = WorkflowMemory.search_workflows_by_goal(goal, limit=50)
+                for r in goal_runs:
+                    if not any(x["workflow_id"] == r["workflow_id"] for x in all_runs):
+                        detailed = WorkflowMemory.get_workflow_run(r["workflow_id"])
+                        if detailed:
+                            all_runs.append(detailed)
+            except Exception:
+                pass
+
+        plan_steps_seq = [(s.agent, s.action) for s in steps]
+        plan_steps_set = set(plan_steps_seq)
+
+        matching_runs = []
+        for r in all_runs:
+            r_steps = r.get("steps") or []
+            r_seq = [(s["agent"], s["action"]) for s in r_steps]
+            r_set = set(r_seq)
+
+            intersection = plan_steps_set.intersection(r_set)
+            union = plan_steps_set.union(r_set)
+            jaccard = len(intersection) / len(union) if union else 0.0
+
+            goal_match = False
+            if goal and r.get("goal"):
+                goal_match = (
+                    goal.strip().lower() in r["goal"].strip().lower()
+                    or r["goal"].strip().lower() in goal.strip().lower()
+                )
+
+            if jaccard >= 0.4 or goal_match:
+                matching_runs.append({
+                    "run": r,
+                    "jaccard": jaccard,
+                    "goal_match": goal_match,
+                    "steps": r_steps,
+                    "success": r["success"],
+                    "duration_ms": r["total_duration_ms"]
+                })
+
+        empirical_successes = sum(1 for m in matching_runs if m["success"])
+        empirical_total = len(matching_runs)
+        empirical_success_rate = empirical_successes / empirical_total if empirical_total else 1.0
+
+        empirical_rollbacks = sum(1 for m in matching_runs if any(s.get("rollback_executed") for s in m["steps"]))
+        empirical_rollback_rate = empirical_rollbacks / empirical_total if empirical_total else 0.0
+
+        empirical_durations = [m["duration_ms"] for m in matching_runs if m["duration_ms"] > 0]
+        empirical_avg_duration = sum(empirical_durations) / len(empirical_durations) if empirical_durations else 0.0
+
+        # Find critical failure points (transitions/actions that commonly fail in matching runs)
+        empirical_step_failures: dict[tuple[str, str], list[bool]] = {}
+        for m in matching_runs:
+            for s in m["steps"]:
+                key = (s["agent"], s["action"])
+                empirical_step_failures.setdefault(key, []).append(s["success"])
+
+        critical_failure_points = []
+        for (agent, action), successes_list in empirical_step_failures.items():
+            total_attempts = len(successes_list)
+            failed_attempts = sum(1 for succ in successes_list if not succ)
+            if failed_attempts > 0:
+                failure_rate = failed_attempts / total_attempts
+                critical_failure_points.append({
+                    "agent": agent,
+                    "action": action,
+                    "failure_rate": round(failure_rate, 4),
+                    "failed_attempts": failed_attempts,
+                    "total_attempts": total_attempts,
+                })
+        critical_failure_points.sort(key=lambda x: x["failure_rate"], reverse=True)
+
         if not predictions:
             return PlanSimulationReport(
                 goal=goal,
@@ -287,6 +374,15 @@ class SimulationEngine:
             estimated_duration_ms += prediction.expected_duration_ms
 
         rollback_risk = _clamp(1.0 - rollback_safe_probability)
+
+        # Calibrate success, rollback, and duration using workflow-level empirical memory
+        if empirical_total > 0:
+            weight = min(0.75, empirical_total / 8.0)
+            success_probability = (1.0 - weight) * success_probability + weight * empirical_success_rate
+            rollback_risk = (1.0 - weight) * rollback_risk + weight * empirical_rollback_rate
+            if empirical_avg_duration > 0:
+                estimated_duration_ms = int((1.0 - weight) * estimated_duration_ms + weight * empirical_avg_duration)
+
         likely_failures = sorted(
             (
                 {
@@ -302,7 +398,24 @@ class SimulationEngine:
             key=lambda item: item["failure_probability"],
             reverse=True,
         )
+
+        # Merge empirical critical failure points from workflow memory
+        for cfp in critical_failure_points:
+            if not any(lf["agent"] == cfp["agent"] and lf["action"] == cfp["action"] for lf in likely_failures):
+                likely_failures.append({
+                    "step_id": "empirical_workflow_match",
+                    "agent": cfp["agent"],
+                    "action": cfp["action"],
+                    "failure_probability": cfp["failure_rate"],
+                    "reason": f"empirical workflow memory failure rate ({cfp['failed_attempts']}/{cfp['total_attempts']} runs)",
+                })
+        likely_failures.sort(key=lambda x: x["failure_probability"], reverse=True)
+
         recommendation = cls._plan_recommendation(success_probability, rollback_risk)
+
+        # Incorporate empirical runs count in source summary
+        source_summary = cls._source_summary(active_policies, reflection)
+        source_summary["empirical_workflow_runs_matched"] = empirical_total
 
         return PlanSimulationReport(
             goal=goal,
@@ -317,7 +430,7 @@ class SimulationEngine:
             policy_adjustments=policy_adjustments,
             reflection_signals=reflection_signals,
             recommendation=recommendation,
-            data_sources=cls._source_summary(active_policies, reflection),
+            data_sources=source_summary,
         )
 
     @classmethod
@@ -375,6 +488,18 @@ class SimulationEngine:
             success_probability += float(adjustment.get("success_delta", 0.0))
             rollback_risk += float(adjustment.get("rollback_delta", 0.0))
             adjustments.append(adjustment)
+
+        # Step 8.2 Simulation Calibration Adjustment
+        try:
+            from backend.core.simulation_calibration import SimulationCalibrator
+            success_factor = SimulationCalibrator.get_calibration_factor(step.agent, step.action)
+            duration_factor = SimulationCalibrator.get_duration_calibration_factor(step.agent, step.action)
+            rollback_factor = SimulationCalibrator.get_rollback_calibration_factor(step.agent, step.action)
+            success_probability *= success_factor
+            avg_duration_ms = int(avg_duration_ms * duration_factor)
+            rollback_risk *= rollback_factor
+        except Exception:
+            pass
 
         success_probability = _clamp(success_probability, 0.02, 0.99)
         rollback_risk = _clamp(rollback_risk, 0.0, 0.95)
@@ -628,4 +753,227 @@ class SimulationEngine:
             "strategy_policies_loaded": len(active_policies),
             "reflection_report_loaded": reflection is not None,
             "reflection_report_id": reflection.get("report_id") if isinstance(reflection, dict) else None,
+        }
+
+    @classmethod
+    def simulate_milestone(cls, goal_id: str, milestone_id: str) -> dict[str, Any]:
+        """Simulates execution of a specific milestone and persists simulation results in GoalMemory."""
+        from backend.core.goal_memory import GoalMemory
+        goal = GoalMemory.get_goal(goal_id)
+        if not goal:
+            raise KeyError(f"Goal '{goal_id}' not found.")
+
+        milestone = next((m for m in goal.get("milestones", []) if m["milestone_id"] == milestone_id), None)
+        if not milestone:
+            raise KeyError(f"Milestone '{milestone_id}' not found in goal '{goal_id}'.")
+
+        # Map milestone details to standard agents/actions
+        title_lower = milestone["title"].lower()
+        if "test" in title_lower or "validate" in title_lower or "verify" in title_lower:
+            agent = "coder"
+            action = "RUN_TESTS"
+        elif "code" in title_lower or "implement" in title_lower or "build" in title_lower or "develop" in title_lower:
+            agent = "coder"
+            action = "WRITE_FILE"
+        elif "search" in title_lower or "research" in title_lower or "find" in title_lower:
+            agent = "browser"
+            action = "SEARCH_WEB"
+        else:
+            agent = "browser"
+            action = "SEARCH_WEB"
+
+        plan_steps = [
+            {"step_id": milestone_id, "agent": agent, "action": action}
+        ]
+
+        report = cls.simulate_plan(
+            plan=plan_steps,
+            goal=milestone["title"],
+            workflow_id=f"wf_ms_{milestone_id}"
+        )
+
+        metrics = {
+            "success_probability": round(report.success_probability, 4),
+            "rollback_risk": round(report.rollback_risk, 4),
+            "expected_duration_sec": round(float(report.estimated_duration_ms) / 1000.0 if report.estimated_duration_ms > 0 else 600.0, 2),
+        }
+
+        # Update milestone record in GoalMemory
+        GoalMemory.update_milestone(
+            milestone_id=milestone_id,
+            expected_duration_sec=metrics["expected_duration_sec"],
+            success_probability=metrics["success_probability"],
+            rollback_risk=metrics["rollback_risk"]
+        )
+
+        return metrics
+
+    @classmethod
+    def simulate_project(cls, project_id: str) -> dict[str, Any]:
+        """Simulates the execution of a project using Monte Carlo trials and critical path tracing."""
+        from backend.core.project_manager_v2 import ProjectManagerV2
+        from backend.core.project_memory import ProjectMemory
+        from backend.core.goal_manager import GoalManager
+        from backend.core.goal_memory import GoalMemory
+
+        project = ProjectManagerV2.get_project_hierarchy(project_id)
+        if not project:
+            raise KeyError(f"Project '{project_id}' not found.")
+
+        goals = project.get("goals_tree", [])
+        if not goals:
+            return {
+                "completion_probability": 1.0,
+                "predicted_finish_date": time.strftime('%Y-%m-%d', time.localtime()),
+                "likely_blockers": [],
+                "critical_path": [],
+                "resource_demand": {}
+            }
+
+        # Step 1: Ensure all milestones are simulated
+        for goal in goals:
+            for m in goal.get("milestones", []):
+                if m.get("success_probability") is None:
+                    try:
+                        cls.simulate_milestone(goal["goal_id"], m["milestone_id"])
+                    except Exception:
+                        pass
+
+        # Reload project hierarchy to pick up simulated metrics
+        project = ProjectManagerV2.get_project_hierarchy(project_id)
+        goals = project.get("goals_tree", [])
+
+        # Step 2: Monte Carlo simulation (100 trials)
+        trials = 100
+        successful_trials = 0
+        import random
+        for _ in range(trials):
+            trial_failed = False
+            for goal in goals:
+                for m in goal.get("milestones", []):
+                    prob = m.get("success_probability")
+                    prob = float(prob) if prob is not None else 1.0
+                    if random.random() > prob:
+                        trial_failed = True
+                        break
+                if trial_failed:
+                    break
+            if not trial_failed:
+                successful_trials += 1
+
+        completion_probability = round(successful_trials / trials, 4)
+
+        # Step 3: Critical Path Analysis (DAG traversal)
+        goal_durations = {}
+        goal_milestones = {}
+        for goal in goals:
+            g_id = goal["goal_id"]
+            duration = sum(float(m.get("expected_duration_sec") or 600.0) for m in goal.get("milestones", []))
+            goal_durations[g_id] = duration
+            goal_milestones[g_id] = [m["title"] for m in goal.get("milestones", [])]
+
+        earliest_start = {}
+        earliest_finish = {}
+
+        resolved_order = []
+        visited = set()
+
+        def resolve(g_id):
+            if g_id in visited:
+                return
+            visited.add(g_id)
+            goal_item = next((g for g in goals if g["goal_id"] == g_id), None)
+            if goal_item:
+                for dep in goal_item.get("dependencies", []):
+                    resolve(dep)
+            resolved_order.append(g_id)
+
+        for goal in goals:
+            resolve(goal["goal_id"])
+
+        for g_id in resolved_order:
+            goal_item = next((g for g in goals if g["goal_id"] == g_id), None)
+            deps = goal_item.get("dependencies", []) if goal_item else []
+            start_time = max([earliest_finish.get(dep, 0.0) for dep in deps]) if deps else 0.0
+            earliest_start[g_id] = start_time
+            earliest_finish[g_id] = start_time + goal_durations.get(g_id, 0.0)
+
+        critical_path_duration = max(earliest_finish.values()) if earliest_finish else 0.0
+        predicted_finish_time = time.time() + critical_path_duration
+        predicted_finish_date = time.strftime('%Y-%m-%d', time.localtime(predicted_finish_time))
+
+        critical_path = []
+        if earliest_finish:
+            current_g = max(earliest_finish, key=earliest_finish.get)
+            while current_g:
+                critical_path.extend(goal_milestones.get(current_g, []))
+                goal_item = next((g for g in goals if g["goal_id"] == current_g), None)
+                deps = goal_item.get("dependencies", []) if goal_item else []
+                if deps:
+                    current_g = max(deps, key=lambda d: earliest_finish.get(d, 0.0))
+                else:
+                    current_g = None
+            critical_path.reverse()
+
+        likely_blockers = []
+        for goal in goals:
+            for m in goal.get("milestones", []):
+                prob = m.get("success_probability")
+                risk = m.get("rollback_risk")
+                if (prob is not None and prob < 0.7) or (risk is not None and risk > 0.3):
+                    likely_blockers.append({
+                        "milestone_id": m["milestone_id"],
+                        "title": m["title"],
+                        "success_probability": prob,
+                        "rollback_risk": risk
+                    })
+
+        resource_demand = {}
+        for goal in goals:
+            for m in goal.get("milestones", []):
+                title_lower = m["title"].lower()
+                if "test" in title_lower or "validate" in title_lower or "verify" in title_lower:
+                    agent = "coder"
+                elif "code" in title_lower or "implement" in title_lower or "build" in title_lower or "develop" in title_lower or "write" in title_lower or "create" in title_lower:
+                    agent = "coder"
+                elif "search" in title_lower or "research" in title_lower or "find" in title_lower:
+                    agent = "browser"
+                else:
+                    agent = "browser"
+                
+                dur = float(m.get("expected_duration_sec") or 600.0)
+                resource_demand[agent] = resource_demand.get(agent, 0.0) + dur
+
+        resource_demand = {k: round(v, 2) for k, v in resource_demand.items()}
+
+        all_milestones = [m for goal in goals for m in goal.get("milestones", [])]
+        avg_rollback = sum(float(m.get("rollback_risk") or 0.0) for m in all_milestones) / len(all_milestones) if all_milestones else 0.0
+
+        with ProjectMemory._lock:
+            conn = ProjectMemory._get_sqlite_conn()
+            try:
+                conn.execute(
+                    """
+                    UPDATE projects
+                    SET success_rate = ?, risk_score = ?, predicted_finish = ?
+                    WHERE project_id = ?
+                    """,
+                    (completion_probability, avg_rollback, predicted_finish_time, project_id)
+                )
+                ProjectMemory._log_event_conn(conn, project_id, "PROJECT_SIMULATED", {
+                    "completion_probability": completion_probability,
+                    "predicted_finish": predicted_finish_date
+                })
+                conn.commit()
+            except Exception:
+                conn.rollback()
+            finally:
+                conn.close()
+
+        return {
+            "completion_probability": completion_probability,
+            "predicted_finish_date": predicted_finish_date,
+            "likely_blockers": likely_blockers,
+            "critical_path": critical_path,
+            "resource_demand": resource_demand
         }

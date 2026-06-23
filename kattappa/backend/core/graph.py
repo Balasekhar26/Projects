@@ -18,6 +18,7 @@ from backend.agents.terminal import terminal_node
 from backend.agents.vision import vision_node
 from backend.agents.voice import voice_node
 from backend.agents.monitoring import monitoring_node
+from backend.agents.executive import executive_node
 from backend.core.logger import log_event
 from backend.core.state import AgentState
 
@@ -72,8 +73,10 @@ def build_graph():
     graph.add_node("self_improver", self_improver_node)
     graph.add_node("monitoring", monitoring_node)
     graph.add_node("evaluator", evaluator_node)
+    graph.add_node("executive", executive_node)
 
-    graph.set_entry_point("memory")
+    graph.set_entry_point("executive")
+    graph.add_edge("executive", "memory")
     graph.add_edge("memory", "planner")
     graph.add_edge("planner", "safety")
     graph.add_conditional_edges(

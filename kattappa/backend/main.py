@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 import json
 import time
+import sqlite3
+
+# SQLite instrumentation removed
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, WebSocket
@@ -553,6 +556,36 @@ class BenchmarkCompareRequest(BaseModel):
     floors: dict[str, float] | None = None
 
 
+class ToolBenchmarkRunRequest(BaseModel):
+    tool_name: str
+    tool_version: str
+    benchmark_suite: str
+    run_id: str
+    task_id: str
+    success: bool
+    duration_ms: int = Field(default=0, ge=0)
+    failure_type: str | None = None
+    rollback_required: bool = False
+    rollback_success: bool | None = None
+    simulation_decision: str = ""
+    human_decision: str = ""
+    simulation_prediction: dict[str, object] = Field(default_factory=dict)
+    execution_result: dict[str, object] = Field(default_factory=dict)
+    timestamp: str = ""
+    source: str = "api"
+
+
+class ToolBenchmarkEvaluateRequest(BaseModel):
+    tool_name: str
+    baseline_version: str
+    candidate_version: str
+    benchmark_suite: str
+    historical_runs: list[ToolBenchmarkRunRequest]
+    candidate_runs: list[ToolBenchmarkRunRequest] | None = None
+    min_runs: int = Field(default=1, ge=1)
+    persist: bool = False
+
+
 class ProposalObserveRequest(BaseModel):
     issue: str
     severity: str
@@ -626,8 +659,146 @@ class SandboxExperimentRunV2Request(BaseModel):
 
 class GoalCreateRequest(BaseModel):
     title: str
+    description: str | None = None
+    priority: str = "MEDIUM"
+    target_date: str | None = None
+    success_criteria: list[str] | None = None
+    owner: str | None = None
     parent_id: str | None = None
     depends_on: list[str] = []
+    importance: float = 5.0
+    urgency: float = 5.0
+    strategic_alignment: float = 5.0
+    resource_cost: float = 2.0
+    
+    # Human-Like additions:
+    owner_agent: str | None = None
+    horizon_type: str = "SHORT_TERM"
+    current_state: str = "IDEA"
+    importance_score: float = 50.0
+    urgency_score: float = 50.0
+    estimated_value: float = 50.0
+    confidence_score: float = 100.0
+    energy_required: str = "MEDIUM"
+    risk_profile: float = 10.0
+    attention_score: float = 1.0
+    decay_rate: float = 0.0
+    provenance: str = "STATED"
+    original_goal_text: str | None = None
+    definition_of_done: str | None = None
+    ttl: float | None = None
+
+
+class GoalUpdateRequest(BaseModel):
+    title: str
+    description: str | None = None
+
+
+class GoalCompleteRequest(BaseModel):
+    validator: str | None = None
+    user_confirmed: bool = False
+    evidence: dict[str, object] | None = None
+
+
+class ConflictDeclareRequest(BaseModel):
+    goal_a_id: str
+    goal_b_id: str
+    conflict_topology: str
+    severity_rating: float = 50.0
+
+
+class ConflictResolveRequest(BaseModel):
+    resolution_status: str = "MITIGATED"
+
+
+class ValueAlignmentRequest(BaseModel):
+    core_policy_constraint: str
+    alignment_status: str
+
+
+class MilestoneCreateRequest(BaseModel):
+    title: str
+    description: str | None = None
+    weight: float = 1.0
+    milestone_id: str | None = None
+
+
+class MilestonesBatchRequest(BaseModel):
+    milestones: list[MilestoneCreateRequest]
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    status: str = "PROPOSED"
+    metadata: dict[str, Any] | None = None
+
+
+class PPMProjectCreateRequest(BaseModel):
+    linked_goal_id: str
+    title: str | None = None
+    description: str | None = None
+    status: str = "PROPOSED"
+    target_finish_date: float | None = None
+    original_scope: str | None = None
+
+
+class PPMMilestoneCreateRequest(BaseModel):
+    project_id: str
+    title: str
+    weight: float = 1.0
+    deadline: float | None = None
+
+
+class PPMTaskCreateRequest(BaseModel):
+    milestone_id: str
+    title: str
+    description: str | None = None
+    assigned_agent: str | None = None
+    effort_score: int = 1
+    deadline: float | None = None
+
+
+class PPMBlockerAddRequest(BaseModel):
+    project_id: str
+    severity: str = "MEDIUM"
+    source: str
+
+
+class PPMResourceAllocateRequest(BaseModel):
+    project_id: str
+    resource_type: str
+    allocated: float
+
+
+class PPMResourceConsumeRequest(BaseModel):
+    project_id: str
+    resource_type: str
+    amount: float
+
+
+class PPMRevisionLogRequest(BaseModel):
+    author: str
+    summary: str
+
+
+class PPMCompleteRequest(BaseModel):
+    validator: str | None = None
+    user_confirmed: bool = False
+
+
+class ProjectGoalAddRequest(BaseModel):
+    goal_id: str
+
+
+class ProjectDependencyRequest(BaseModel):
+    depends_on_project_id: str
+
+
+class ProjectDecisionRequest(BaseModel):
+    title: str
+    description: str | None = None
+    rationale: str | None = None
 
 
 class ReflectionProposeRequest(BaseModel):
@@ -729,6 +900,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
 
 
 @app.get("/sage/status")
@@ -1109,6 +1283,32 @@ def benchmark_compare(request: BenchmarkCompareRequest) -> dict[str, object]:
 def benchmark_history() -> dict[str, object]:
     from backend.core.benchmark_arena import BenchmarkArena
     return {"history": BenchmarkArena.load_history()}
+
+
+@app.post("/benchmark/tools/evaluate")
+def tool_benchmark_evaluate(request: ToolBenchmarkEvaluateRequest) -> dict[str, object]:
+    from backend.core.benchmark_arena import BenchmarkArena
+
+    return BenchmarkArena.evaluate_tool_version(
+        tool_name=request.tool_name,
+        baseline_version=request.baseline_version,
+        candidate_version=request.candidate_version,
+        benchmark_suite=request.benchmark_suite,
+        historical_runs=[run.model_dump() for run in request.historical_runs],
+        candidate_runs=(
+            [run.model_dump() for run in request.candidate_runs]
+            if request.candidate_runs is not None else None
+        ),
+        min_runs=request.min_runs,
+        persist=request.persist,
+    )
+
+
+@app.get("/benchmark/tools/history")
+def tool_benchmark_history() -> dict[str, object]:
+    from backend.core.benchmark_arena import BenchmarkArena
+
+    return {"history": BenchmarkArena.load_tool_history()}
 
 
 @app.post("/proposal/observe")
@@ -1494,27 +1694,235 @@ def sandbox_run_experiment_v2(
 
 
 @app.get("/goals")
+@app.get("/api/goals")
 def goals_status() -> dict[str, object]:
     from backend.core.goal_manager import GoalManager
     return GoalManager.status()
 
 
 @app.get("/goals/list")
+@app.get("/api/goals/list")
 def goals_list() -> dict[str, object]:
     from backend.core.goal_manager import GoalManager
     return {"items": GoalManager.list_goals()}
 
 
 @app.post("/goals")
+@app.post("/api/goals")
 def goals_add(request: GoalCreateRequest) -> dict[str, object]:
     from backend.core.goal_manager import GoalManager
     try:
-        return {"item": GoalManager.add_goal(request.title, request.parent_id, request.depends_on)}
+        return {
+            "item": GoalManager.add_goal(
+                title=request.title,
+                description=request.description,
+                priority=request.priority,
+                parent_id=request.parent_id,
+                depends_on=request.depends_on,
+                target_date=request.target_date,
+                success_criteria=request.success_criteria,
+                owner=request.owner,
+                importance=request.importance,
+                urgency=request.urgency,
+                strategic_alignment=request.strategic_alignment,
+                resource_cost=request.resource_cost,
+                # Human-Like additions:
+                owner_agent=request.owner_agent,
+                horizon_type=request.horizon_type,
+                current_state=request.current_state,
+                importance_score=request.importance_score,
+                urgency_score=request.urgency_score,
+                estimated_value=request.estimated_value,
+                confidence_score=request.confidence_score,
+                energy_required=request.energy_required,
+                risk_profile=request.risk_profile,
+                attention_score=request.attention_score,
+                decay_rate=request.decay_rate,
+                provenance=request.provenance,
+                original_goal_text=request.original_goal_text,
+                definition_of_done=request.definition_of_done,
+                ttl=request.ttl,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/goals/{goal_id}/approve")
+@app.post("/api/goals/{goal_id}/approve")
+def goals_approve(goal_id: str) -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    try:
+        return {"item": GoalMemory.update_goal_status(goal_id, "APPROVED", "Approved by user/executive")}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/goals/{goal_id}/reaffirm")
+@app.post("/api/goals/{goal_id}/reaffirm")
+def goals_reaffirm(goal_id: str) -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    try:
+        return {"item": GoalManager.reaffirm(goal_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/goals/{goal_id}/conflicts")
+@app.get("/api/goals/{goal_id}/conflicts")
+def goals_list_conflicts(goal_id: str) -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    try:
+        return {"items": GoalMemory.get_conflicts(goal_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/goals/conflicts")
+@app.post("/api/goals/conflicts")
+def goals_declare_conflict(request: ConflictDeclareRequest) -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    try:
+        return {
+            "item": GoalMemory.add_conflict(
+                goal_a_id=request.goal_a_id,
+                goal_b_id=request.goal_b_id,
+                conflict_topology=request.conflict_topology,
+                severity_rating=request.severity_rating,
+            )
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/goals/conflicts/{conflict_id}/resolve")
+@app.post("/api/goals/conflicts/{conflict_id}/resolve")
+def goals_resolve_conflict(conflict_id: str, request: ConflictResolveRequest) -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    try:
+        GoalMemory.resolve_conflict(conflict_id, request.resolution_status)
+        return {"status": "success"}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/goals/{goal_id}/values")
+@app.get("/api/goals/{goal_id}/values")
+def goals_list_values(goal_id: str) -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    try:
+        return {"items": GoalMemory.get_values(goal_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/goals/{goal_id}/drift")
+@app.get("/api/goals/{goal_id}/drift")
+def goals_check_drift(goal_id: str) -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    try:
+        return GoalMemory.check_goal_drift(goal_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/goals/{goal_id}/milestones")
+@app.post("/api/goals/{goal_id}/milestones")
+def goals_set_milestones(goal_id: str, request: MilestonesBatchRequest) -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    try:
+        m_list = []
+        for m in request.milestones:
+            m_list.append({
+                "title": m.title,
+                "description": m.description,
+                "weight": m.weight,
+                "milestone_id": m.milestone_id,
+            })
+        GoalManager.add_milestones(goal_id, m_list)
+        return {"status": "success", "item": GoalManager.get(goal_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/goals/active")
+@app.get("/api/goals/active")
+def goals_active() -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    return {"items": GoalManager.list_goals(status="ACTIVE")}
+
+
+@app.get("/goals/metrics")
+@app.get("/api/goals/metrics")
+def goals_metrics() -> dict[str, object]:
+    from backend.core.learning_dashboard import LearningDashboard
+    try:
+        return {"status": "ok", "data": LearningDashboard.goal_calibration_panel()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/dashboard/goals/reflection")
+def dashboard_goals_reflection() -> dict[str, object]:
+    from backend.core.learning_dashboard import LearningDashboard
+    try:
+        return {"status": "ok", "data": LearningDashboard.goal_calibration_panel()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/goals/{goal_id}/history")
+@app.get("/api/goals/{goal_id}/history")
+def goals_history(goal_id: str) -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    try:
+        return {"items": GoalMemory.get_events(goal_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/goals/policies/absolute")
+@app.get("/api/goals/policies/absolute")
+def goals_absolute_policies() -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    return {"policies": GoalMemory.ABSOLUTE_POLICIES}
+
+
+@app.post("/goals/{goal_id}/update")
+@app.post("/api/goals/{goal_id}/update")
+def goals_update(goal_id: str, request: GoalUpdateRequest) -> dict[str, object]:
+    from backend.core.goal_memory import GoalMemory
+    try:
+        return {"item": GoalMemory.update_goal_content(goal_id, request.title, request.description)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/goals/{goal_id}/complete")
+@app.post("/api/goals/{goal_id}/complete")
+def goals_complete(goal_id: str, request: GoalCompleteRequest = None) -> dict[str, object]:
+    from backend.core.goal_manager import GoalManager
+    try:
+        val = request.validator if request else None
+        conf = request.user_confirmed if request else False
+        ev = request.evidence if request else None
+        return {"item": GoalManager.complete(goal_id, evidence=ev, validator=val, user_confirmed=conf)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/goals/{goal_id}/{action}")
+@app.post("/api/goals/{goal_id}/{action}")
 def goals_transition(goal_id: str, action: str) -> dict[str, object]:
     from backend.core.goal_manager import GoalManager
     handlers = {"start": GoalManager.start, "complete": GoalManager.complete, "abandon": GoalManager.abandon}
@@ -1525,6 +1933,305 @@ def goals_transition(goal_id: str, action: str) -> dict[str, object]:
         return {"item": handler(goal_id)}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/projects")
+def ppm_projects_create(request: PPMProjectCreateRequest) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        return {
+            "item": PersonalProjectManager.create_project(
+                linked_goal_id=request.linked_goal_id,
+                title=request.title,
+                description=request.description,
+                status=request.status,
+                target_finish_date=request.target_finish_date,
+                original_scope=request.original_scope
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/milestones")
+def ppm_milestones_create(request: PPMMilestoneCreateRequest) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        return {
+            "item": PersonalProjectManager.create_milestone(
+                project_id=request.project_id,
+                title=request.title,
+                weight=request.weight,
+                deadline=request.deadline
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/tasks")
+def ppm_tasks_create(request: PPMTaskCreateRequest) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        return {
+            "item": PersonalProjectManager.create_task(
+                milestone_id=request.milestone_id,
+                title=request.title,
+                description=request.description,
+                assigned_agent=request.assigned_agent,
+                effort_score=request.effort_score,
+                deadline=request.deadline
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/blockers")
+def ppm_blockers_add(request: PPMBlockerAddRequest) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        return {
+            "item": PersonalProjectManager.add_blocker(
+                project_id=request.project_id,
+                severity=request.severity,
+                source=request.source
+            )
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/blockers/{blocker_id}/resolve")
+def ppm_blockers_resolve(blocker_id: str) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        PersonalProjectManager.resolve_blocker(blocker_id)
+        return {"status": "success"}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/resources")
+def ppm_resources_allocate(request: PPMResourceAllocateRequest) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        return {
+            "item": PersonalProjectManager.allocate_resource(
+                project_id=request.project_id,
+                resource_type=request.resource_type,
+                allocated=request.allocated
+            )
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/resources/consume")
+def ppm_resources_consume(request: PPMResourceConsumeRequest) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        return {
+            "item": PersonalProjectManager.consume_resource(
+                project_id=request.project_id,
+                resource_type=request.resource_type,
+                amount=request.amount
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/projects/{project_id}/revisions")
+def ppm_projects_revision(project_id: str, request: PPMRevisionLogRequest) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        PersonalProjectManager.log_revision(project_id, request.author, request.summary)
+        return {"status": "success"}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/ppm/projects/{project_id}/complete")
+def ppm_projects_complete(project_id: str, request: PPMCompleteRequest) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        return {
+            "item": PersonalProjectManager.complete_project(
+                project_id=project_id,
+                validator=request.validator,
+                user_confirmed=request.user_confirmed
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/ppm/projects/{project_id}")
+def ppm_projects_get(project_id: str) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        proj = PersonalProjectManager.get_project(project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {"item": proj}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/ppm/projects/{project_id}/report")
+def ppm_projects_report(project_id: str) -> dict[str, object]:
+    from backend.core.personal_project_manager import PersonalProjectManager
+    try:
+        return {"report": PersonalProjectManager.reflect_on_project(project_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/projects")
+@app.get("/api/projects")
+def projects_list() -> dict[str, object]:
+    from backend.core.project_manager_v2 import ProjectManagerV2
+    return {"items": ProjectManagerV2.list_projects()}
+
+
+@app.post("/projects")
+@app.post("/api/projects")
+def projects_create(request: ProjectCreateRequest) -> dict[str, object]:
+    from backend.core.project_manager_v2 import ProjectManagerV2
+    try:
+        return {
+            "item": ProjectManagerV2.create_project(
+                name=request.name,
+                description=request.description,
+                status=request.status,
+                metadata=request.metadata,
+            )
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/projects/ecosystem")
+def get_project_ecosystem() -> dict[str, object]:
+    return project_ecosystem()
+
+
+@app.get("/projects/improvement-agents")
+def get_project_improvement_agents() -> dict[str, object]:
+    return project_improvement_agents()
+
+
+@app.post("/projects/improvement-agents/observe")
+def observe_project_improvement_agents_endpoint(
+    request: ProjectImprovementObserveRequest,
+) -> dict[str, object]:
+    return observe_project_improvement_agents(run_status=request.run_status)
+
+
+@app.post("/projects/improvement-agents/check-shared")
+def check_shared_project_improvements() -> dict[str, object]:
+    return check_git_shared_improvements()
+
+
+@app.get("/projects/{project_id}")
+@app.get("/api/projects/{project_id}")
+def projects_get_hierarchy(project_id: str) -> dict[str, object]:
+    from backend.core.project_manager_v2 import ProjectManagerV2
+    try:
+        proj = ProjectManagerV2.get_project_hierarchy(project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+        return {"item": proj}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/projects/{project_id}/simulation")
+@app.get("/api/projects/{project_id}/simulation")
+def projects_simulate(project_id: str) -> dict[str, object]:
+    from backend.core.simulation_engine import SimulationEngine
+    try:
+        return {"report": SimulationEngine.simulate_project(project_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/projects/{project_id}/goals")
+@app.post("/api/projects/{project_id}/goals")
+def projects_add_goal(project_id: str, request: ProjectGoalAddRequest) -> dict[str, object]:
+    from backend.core.project_manager_v2 import ProjectManagerV2
+    try:
+        ProjectManagerV2.add_goal_to_project(request.goal_id, project_id)
+        return {"status": "success", "item": ProjectManagerV2.get_project(project_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/projects/{project_id}/decisions")
+@app.post("/api/projects/{project_id}/decisions")
+def projects_add_decision(project_id: str, request: ProjectDecisionRequest) -> dict[str, object]:
+    from backend.core.project_manager_v2 import ProjectManagerV2
+    try:
+        ProjectManagerV2.log_project_decision(project_id, request.title, request.description, request.rationale)
+        return {"status": "success", "item": ProjectManagerV2.get_project(project_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/projects/{project_id}/dependencies")
+@app.post("/api/projects/{project_id}/dependencies")
+def projects_add_dependency(project_id: str, request: ProjectDependencyRequest) -> dict[str, object]:
+    from backend.core.project_manager_v2 import ProjectManagerV2
+    try:
+        ProjectManagerV2.add_project_dependency(project_id, request.depends_on_project_id)
+        return {"status": "success", "item": ProjectManagerV2.get_project(project_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/projects/{project_id}/logs")
+@app.get("/api/projects/{project_id}/logs")
+def projects_get_logs(project_id: str) -> dict[str, object]:
+    from backend.core.project_manager_v2 import ProjectManagerV2
+    try:
+        proj = ProjectManagerV2.get_project(project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+        return {
+            "events": proj.get("events", []),
+            "decisions": proj.get("decisions", []),
+            "failures": proj.get("failures", []),
+            "rollbacks": proj.get("rollbacks", [])
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/projects/{project_id}/transition/{status}")
+@app.post("/api/projects/{project_id}/transition/{status}")
+def projects_transition_status(project_id: str, status: str) -> dict[str, object]:
+    from backend.core.project_manager_v2 import ProjectManagerV2
+    try:
+        return {"item": ProjectManagerV2.update_project_status(project_id, status)}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 
 
 @app.get("/reflection")
@@ -2372,27 +3079,6 @@ def project_index(limit: int = 220) -> dict[str, object]:
 def project_index_search(q: str, limit: int = 30) -> dict[str, object]:
     return search_project_index(q, limit=limit)
 
-
-@app.get("/projects/ecosystem")
-def get_project_ecosystem() -> dict[str, object]:
-    return project_ecosystem()
-
-
-@app.get("/projects/improvement-agents")
-def get_project_improvement_agents() -> dict[str, object]:
-    return project_improvement_agents()
-
-
-@app.post("/projects/improvement-agents/observe")
-def observe_project_improvement_agents_endpoint(
-    request: ProjectImprovementObserveRequest,
-) -> dict[str, object]:
-    return observe_project_improvement_agents(run_status=request.run_status)
-
-
-@app.post("/projects/improvement-agents/check-shared")
-def check_shared_project_improvements() -> dict[str, object]:
-    return check_git_shared_improvements()
 
 
 def _cluster_delegated_chat_payload(message: str) -> dict[str, object] | None:
@@ -3806,6 +4492,15 @@ def dashboard_executive() -> dict[str, object]:
         return {"status": "error", "message": str(exc)}
 
 
+@app.get("/dashboard/executive-calibration")
+def dashboard_executive_calibration() -> dict[str, object]:
+    """Executive calibration panel for self-awareness metrics."""
+    try:
+        return {"status": "ok", "data": LearningDashboard.executive_calibration_panel()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
 @app.get("/dashboard/proposals")
 def dashboard_proposals() -> dict[str, object]:
     """Proposal funnel with status breakdown and workflow backlog."""
@@ -4050,6 +4745,700 @@ def dashboard_executive_brain_publish_cross_learning(payload: dict[str, str]) ->
         from backend.core.cross_mission_learning import CrossMissionLearning
         entry = CrossMissionLearning.publish_finding(mission_id, topic, details)
         return {"status": "ok", "data": entry}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Step 8: Cognitive Operating System (Cognitive OS) APIs
+# ---------------------------------------------------------------------------
+from backend.core.workflow_memory import WorkflowMemory
+from backend.core.simulation_calibration import SimulationCalibrator
+from backend.core.knowledge_graph import KnowledgeGraph
+from backend.core.skill_graph import SkillGraph
+from backend.core.curriculum_engine import CurriculumEngine
+from backend.core.project_manager import ProjectManager
+from backend.core.long_term_goal_engine import LongTermGoalEngine
+
+
+class WorkflowSaveRequest(BaseModel):
+    workflow_id: str
+    goal: str
+    status: str
+    success: bool
+    total_duration_ms: int
+    steps: list[dict[str, Any]]
+
+
+class CalibrationRecordRequest(BaseModel):
+    agent: str
+    action: str
+    predicted_success: float
+    actual_success: bool
+    predicted_duration_ms: int
+    actual_duration_ms: int
+    predicted_rollback: float
+    actual_rollback: bool
+
+
+class KGNodeRequest(BaseModel):
+    node_id: str
+    node_type: str
+    properties: dict[str, Any] = {}
+
+
+class KGEdgeRequest(BaseModel):
+    source_id: str
+    target_id: str
+    relation_type: str
+    properties: dict[str, Any] = {}
+
+
+class SkillRegisterRequest(BaseModel):
+    skill_id: str
+    name: str
+    description: str
+    tools: list[str]
+    agents: list[str]
+    prerequisites: list[str] = []
+
+
+class ChallengeAddRequest(BaseModel):
+    challenge_id: str
+    category: str
+    title: str
+    description: str
+    success_criteria: dict[str, Any] = {}
+
+
+class ProjectTaskRequest(BaseModel):
+    task_id: str
+    project_name: str
+    title: str
+    assigned_agent: str
+    dependencies: list[str] = []
+
+
+class BlackboardWriteRequest(BaseModel):
+    project_name: str
+    key: str
+    value: Any
+
+
+class LTGoalRegisterRequest(BaseModel):
+    goal_id: str
+    title: str
+    description: str
+    parent_id: str | None = None
+    preconditions: dict[str, Any] = {}
+    success_criteria: dict[str, Any] = {}
+
+
+@app.post("/cognitive/workflow/save")
+def cognitive_workflow_save(req: WorkflowSaveRequest) -> dict[str, object]:
+    try:
+        WorkflowMemory.save_workflow_run(
+            workflow_id=req.workflow_id,
+            goal=req.goal,
+            status=req.status,
+            success=req.success,
+            total_duration_ms=req.total_duration_ms,
+            steps=req.steps,
+        )
+        return {"status": "ok", "message": f"Workflow run '{req.workflow_id}' saved successfully."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/workflow/search")
+def cognitive_workflow_search(q: str, limit: int = 10) -> dict[str, object]:
+    try:
+        results = WorkflowMemory.search_workflows_by_goal(query=q, limit=limit)
+        return {"status": "ok", "items": results}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/workflow/recent")
+def cognitive_workflow_recent(limit: int = 50) -> dict[str, object]:
+    try:
+        results = WorkflowMemory.get_recent_workflow_runs(limit=limit)
+        return {"status": "ok", "items": results}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/calibration/record")
+def cognitive_calibration_record(req: CalibrationRecordRequest) -> dict[str, object]:
+    try:
+        SimulationCalibrator.record_prediction_outcome(
+            agent=req.agent,
+            action=req.action,
+            predicted_success=req.predicted_success,
+            actual_success=req.actual_success,
+            predicted_duration_ms=req.predicted_duration_ms,
+            actual_duration_ms=req.actual_duration_ms,
+            predicted_rollback=req.predicted_rollback,
+            actual_rollback=req.actual_rollback,
+        )
+        return {"status": "ok", "message": "Prediction outcome recorded successfully."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/calibration/recalibrate")
+def cognitive_calibration_recalibrate() -> dict[str, object]:
+    try:
+        report = SimulationCalibrator.recalibrate()
+        return {"status": "ok", "report": report}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/calibration/weights")
+def cognitive_calibration_weights() -> dict[str, object]:
+    try:
+        weights = SimulationCalibrator.get_all_weights()
+        return {"status": "ok", "weights": weights}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/knowledge-graph/node")
+def cognitive_kg_add_node(req: KGNodeRequest) -> dict[str, object]:
+    try:
+        KnowledgeGraph.add_node(node_id=req.node_id, node_type=req.node_type, properties=req.properties)
+        return {"status": "ok", "message": f"Node '{req.node_id}' added successfully."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/knowledge-graph/edge")
+def cognitive_kg_add_edge(req: KGEdgeRequest) -> dict[str, object]:
+    try:
+        KnowledgeGraph.add_edge(
+            source_id=req.source_id,
+            target_id=req.target_id,
+            relation_type=req.relation_type,
+            properties=req.properties,
+        )
+        return {"status": "ok", "message": "Directed edge created successfully."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/knowledge-graph/shortest-path")
+def cognitive_kg_shortest_path(source: str, target: str) -> dict[str, object]:
+    try:
+        path = KnowledgeGraph.find_shortest_path(source_id=source, target_id=target)
+        return {"status": "ok", "path": path}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/knowledge-graph/subgraph")
+def cognitive_kg_subgraph(nodes: str, depth: int = 1) -> dict[str, object]:
+    try:
+        node_ids = [n.strip() for n in nodes.split(",") if n.strip()]
+        subgraph = KnowledgeGraph.get_subgraph(node_ids=node_ids, depth=depth)
+        return {"status": "ok", "subgraph": subgraph}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/skill-graph/register")
+def cognitive_skill_register(req: SkillRegisterRequest) -> dict[str, object]:
+    try:
+        SkillGraph.register_skill(
+            skill_id=req.skill_id,
+            name=req.name,
+            description=req.description,
+            tools=req.tools,
+            agents=req.agents,
+            prerequisites=req.prerequisites,
+        )
+        return {"status": "ok", "message": f"Skill '{req.skill_id}' registered successfully."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/skill-graph/details/{skill_id}")
+def cognitive_skill_details(skill_id: str) -> dict[str, object]:
+    try:
+        details = SkillGraph.get_skill_details(skill_id=skill_id)
+        if not details:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found.")
+        return {"status": "ok", "details": details}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/skill-graph/dependencies/{skill_id}")
+def cognitive_skill_dependencies(skill_id: str) -> dict[str, object]:
+    try:
+        deps = SkillGraph.get_skill_dependencies(skill_id=skill_id)
+        return {"status": "ok", "dependencies": deps}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/curriculum/challenge")
+def cognitive_curriculum_challenge(req: ChallengeAddRequest) -> dict[str, object]:
+    try:
+        CurriculumEngine.add_challenge(
+            challenge_id=req.challenge_id,
+            category=req.category,
+            title=req.title,
+            description=req.description,
+            success_criteria=req.success_criteria,
+        )
+        return {"status": "ok", "message": f"Curriculum challenge '{req.challenge_id}' registered."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/curriculum/challenges")
+def cognitive_curriculum_challenges(category: str | None = None, status: str | None = None) -> dict[str, object]:
+    try:
+        challenges = CurriculumEngine.list_challenges(category=category, status=status)
+        return {"status": "ok", "challenges": challenges}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/curriculum/recommendations")
+def cognitive_curriculum_recommendations() -> dict[str, object]:
+    try:
+        recs = CurriculumEngine.get_recommended_challenges()
+        return {"status": "ok", "recommendations": recs}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/project-manager/task")
+def cognitive_project_task(req: ProjectTaskRequest) -> dict[str, object]:
+    try:
+        ProjectManager.create_project_task(
+            task_id=req.task_id,
+            project_name=req.project_name,
+            title=req.title,
+            assigned_agent=req.assigned_agent,
+            dependencies=req.dependencies,
+        )
+        return {"status": "ok", "message": f"Project task '{req.task_id}' created successfully."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/project-manager/tasks/{project_name}")
+def cognitive_project_tasks(project_name: str) -> dict[str, object]:
+    try:
+        tasks = ProjectManager.get_project_tasks(project_name=project_name)
+        return {"status": "ok", "tasks": tasks}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/project-manager/blackboard")
+def cognitive_project_blackboard_write(req: BlackboardWriteRequest) -> dict[str, object]:
+    try:
+        ProjectManager.write_to_blackboard(project_name=req.project_name, key=req.key, value=req.value)
+        return {"status": "ok", "message": "Project blackboard updated."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/cognitive/long-term-goals/register")
+def cognitive_lt_goal_register(req: LTGoalRegisterRequest) -> dict[str, object]:
+    try:
+        LongTermGoalEngine.register_goal(
+            goal_id=req.goal_id,
+            title=req.title,
+            description=req.description,
+            parent_id=req.parent_id,
+            preconditions=req.preconditions,
+            success_criteria=req.success_criteria,
+        )
+        return {"status": "ok", "message": f"Long-term goal '{req.goal_id}' registered successfully."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/cognitive/long-term-goals/hierarchy")
+def cognitive_lt_goal_hierarchy() -> dict[str, object]:
+    try:
+        tree = LongTermGoalEngine.get_goal_hierarchy()
+        return {"status": "ok", "hierarchy": tree}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Step 8.4 — Simulation Sandbox Endpoints
+# Firewall between planning and execution.
+# Rule 1: authorized is ALWAYS False in every response.
+# Rule 2: No GoalMemory write methods are called.
+# Rule 3: No ValueEngine constraint mutations.
+# ---------------------------------------------------------------------------
+
+from backend.core.simulation_sandbox import (
+    SimulationSandbox,
+    ResourceExhaustionForecast,
+    DependencyFailureModel,
+    SandboxConstitution,
+)
+from pydantic import BaseModel as _SBBaseModel
+from typing import List as _SBList, Optional as _SBOpt, Dict as _SBDict, Any as _SBAny
+
+
+class _SandboxEvaluateRequest(_SBBaseModel):
+    plan: _SBList[_SBDict[str, _SBAny]] = []
+    goal: str = ""
+    goal_id: _SBOpt[str] = None
+    workflow_id: str = ""
+    plan_title: str = ""
+    plan_description: str = ""
+
+
+class _SandboxProjectEvaluateRequest(_SBBaseModel):
+    plan: _SBList[_SBDict[str, _SBAny]] = []
+    goal_id: _SBOpt[str] = None
+    goal: str = ""
+    workflow_id: str = ""
+
+
+@app.get("/sandbox/constitution")
+def sandbox_constitution() -> dict[str, object]:
+    """Returns the three hardcoded safety rules (read-only introspection).
+
+    Rule 1: Sandbox cannot authorize execution.
+    Rule 2: Sandbox cannot create goals.
+    Rule 3: Sandbox cannot rewrite constraints.
+    """
+    return {"status": "ok", "constitution": SandboxConstitution.as_dict()}
+
+
+@app.post("/sandbox/evaluate")
+def sandbox_evaluate(req: _SandboxEvaluateRequest) -> dict[str, object]:
+    """Evaluate a plan through the Simulation Sandbox (no project required).
+
+    Returns scenario paths, alignment gate result, and Monte-Carlo simulation.
+    authorized is ALWAYS False in the response (Rule 1).
+    """
+    try:
+        report = SimulationSandbox.evaluate_plan(
+            plan_steps=req.plan,
+            goal=req.goal,
+            goal_id=req.goal_id,
+            workflow_id=req.workflow_id,
+            plan_title=req.plan_title,
+            plan_description=req.plan_description,
+        )
+        return {"status": "ok", **report.to_dict()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/sandbox/evaluate/project/{project_id}")
+def sandbox_evaluate_project(
+    project_id: str,
+    req: _SandboxProjectEvaluateRequest,
+) -> dict[str, object]:
+    """Full project evaluation through the Simulation Sandbox.
+
+    Runs all four engines:
+    - Resource Exhaustion Forecast
+    - Dependency Failure Propagation
+    - Alignment Gate (Goal + Value + Constraint)
+    - Monte-Carlo Plan Simulation
+
+    authorized is ALWAYS False in the response (Rule 1).
+    """
+    try:
+        report = SimulationSandbox.evaluate_project_plan(
+            project_id=project_id,
+            plan_steps=req.plan,
+            goal_id=req.goal_id,
+            goal=req.goal,
+            workflow_id=req.workflow_id,
+        )
+        return {"status": "ok", **report.to_dict()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/sandbox/resource-forecast/{project_id}")
+def sandbox_resource_forecast(project_id: str) -> dict[str, object]:
+    """Standalone resource exhaustion forecast for a PPM project.
+
+    Asks: Will token, compute, or attention budget run out before plan completion?
+    Read-only — never mutates PPM or GoalMemory state.
+    """
+    try:
+        forecast = ResourceExhaustionForecast.run(project_id)
+        return {"status": "ok", **forecast.to_dict()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/sandbox/dependency-propagation/{project_id}")
+def sandbox_dependency_propagation(project_id: str) -> dict[str, object]:
+    """Standalone dependency failure propagation for a PPM project.
+
+    Models: what if an upstream dependency slips N days, fails, or becomes blocked?
+    Read-only — never mutates PPM or GoalMemory state.
+    """
+    try:
+        report = DependencyFailureModel.propagate(project_id)
+        return {"status": "ok", **report.to_dict()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+# =============================================================================
+# Human Conversation Engine (HCE) — /hce/* endpoints
+# =============================================================================
+
+from backend.core.human_conversation_engine import (
+    HumanConversationEngine,
+    HCEConstitution,
+    HCEStore,
+    GovernanceStatus,
+    IntentStatus,
+    RelationshipState,
+    NarrativeContinuityEngine,
+)
+
+
+@app.get("/hce/constitution")
+def hce_constitution():
+    """Return the six HCE constitutional safety rules (read-only)."""
+    return {"status": "ok", "constitution": HCEConstitution.to_dict()}
+
+
+@app.post("/hce/relationship")
+def hce_create_relationship(payload: dict = Body(...)):
+    """Create or retrieve a relationship record for a user entity.
+
+    Body: { "user_entity_id": str, "display_name": str }
+    """
+    try:
+        user_entity_id = payload.get("user_entity_id", "").strip()
+        display_name = payload.get("display_name", "User").strip()
+        if not user_entity_id:
+            raise HTTPException(status_code=422, detail="user_entity_id is required")
+        record = HCEStore.create_relationship(user_entity_id, display_name)
+        return {"status": "ok", "relationship": record}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/hce/chapter")
+def hce_open_chapter(payload: dict = Body(...)):
+    """Open a new conversation chapter for an existing relationship.
+
+    Body: { "relationship_id": str, "relationship_state": str (optional) }
+    """
+    try:
+        relationship_id = payload.get("relationship_id", "").strip()
+        if not relationship_id:
+            raise HTTPException(status_code=422, detail="relationship_id is required")
+        state_str = payload.get("relationship_state", "BUILDING_MODE").upper()
+        try:
+            state = RelationshipState(state_str)
+        except ValueError:
+            state = RelationshipState.BUILDING_MODE
+        chapter = HCEStore.open_chapter(relationship_id, state)
+        return {"status": "ok", "chapter": chapter}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.put("/hce/chapter/{chapter_id}/close")
+def hce_close_chapter(chapter_id: str, payload: dict = Body(default={})):
+    """Close a chapter and write its summary narrative.
+
+    Body: { "summary_narrative": str (optional) }
+    """
+    try:
+        summary = payload.get("summary_narrative", "")
+        closed = HCEStore.close_chapter(chapter_id, summary)
+        if not closed:
+            raise HTTPException(status_code=404, detail="Chapter not found or already closed")
+        if summary:
+            chapter = HCEStore.get_chapter(chapter_id)
+            if chapter:
+                updated_arcs = NarrativeContinuityEngine.update_arcs_from_chapter(
+                    chapter["relationship_id"], chapter_id, summary
+                )
+                return {"status": "ok", "closed": True, "arcs_updated": updated_arcs}
+        return {"status": "ok", "closed": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/hce/process")
+def hce_process(payload: dict = Body(...)):
+    """Main HCE entry point: process a user message.
+
+    Body: { "user_message": str, "relationship_id": str, "chapter_id": str (optional) }
+    Returns HCEResponse. authorized_to_create_goals and authorized_to_write_memory are
+    always False (Rules 1 & 2).
+    """
+    try:
+        user_message = payload.get("user_message", "").strip()
+        relationship_id = payload.get("relationship_id", "").strip()
+        chapter_id = payload.get("chapter_id") or None
+        if not user_message:
+            raise HTTPException(status_code=422, detail="user_message is required")
+        if not relationship_id:
+            raise HTTPException(status_code=422, detail="relationship_id is required")
+        response = HumanConversationEngine.process(
+            user_message,
+            relationship_id=relationship_id,
+            chapter_id=chapter_id,
+        )
+        return {"status": "ok", **response.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/hce/relationship/{relationship_id}/context")
+def hce_get_context(relationship_id: str):
+    """Get the full relationship context snapshot (read-only)."""
+    try:
+        rel = HCEStore.get_relationship(relationship_id)
+        if not rel:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+        chapter = HCEStore.get_active_chapter(relationship_id)
+        metrics = HCEStore.get_metrics(relationship_id)
+        arcs = HCEStore.get_narrative_arcs(relationship_id)
+        return {
+            "status": "ok",
+            "relationship": rel,
+            "active_chapter": chapter,
+            "metrics": metrics,
+            "narrative_arcs": arcs,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/hce/relationship/{relationship_id}/health")
+def hce_relationship_health(relationship_id: str):
+    """Return conversation health metrics (retrieval-priority use only)."""
+    try:
+        metrics = HCEStore.get_metrics(relationship_id)
+        if not metrics:
+            raise HTTPException(status_code=404, detail="Relationship metrics not found")
+        return {"status": "ok", "health_metrics": metrics}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/hce/relationship/{relationship_id}/contradictions")
+def hce_get_contradictions(relationship_id: str, unresolved_only: bool = True):
+    """Return contradiction log for a relationship's user entity."""
+    try:
+        rel = HCEStore.get_relationship(relationship_id)
+        if not rel:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+        contradictions = HCEStore.get_contradictions(
+            rel["user_entity_id"], unresolved_only=unresolved_only
+        )
+        return {"status": "ok", "contradictions": contradictions}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/hce/relationship/{relationship_id}/narrative-arcs")
+def hce_get_narrative_arcs(relationship_id: str):
+    """Return all narrative arcs for a relationship."""
+    try:
+        arcs = HCEStore.get_narrative_arcs(relationship_id)
+        return {"status": "ok", "narrative_arcs": arcs}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/hce/memory-candidates")
+def hce_memory_candidates(governance_status: str = "PENDING"):
+    """List memory candidates by governance status (PENDING | COMMITTED | REJECTED)."""
+    try:
+        candidates = HCEStore.get_memory_candidates(governance_status=governance_status)
+        return {"status": "ok", "candidates": candidates, "count": len(candidates)}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/hce/memory-candidates/{candidate_id}/commit")
+def hce_commit_memory_candidate(candidate_id: str):
+    """Commit a PENDING memory candidate to the Memory Fabric (governance gate)."""
+    try:
+        committed = HumanConversationEngine.commit_memory_candidate(candidate_id)
+        if not committed:
+            raise HTTPException(status_code=404, detail="Candidate not found or already processed")
+        return {"status": "ok", "committed": True, "candidate_id": candidate_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/hce/memory-candidates/{candidate_id}/reject")
+def hce_reject_memory_candidate(candidate_id: str):
+    """Reject a PENDING memory candidate."""
+    try:
+        rejected = HumanConversationEngine.reject_memory_candidate(candidate_id)
+        if not rejected:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        return {"status": "ok", "rejected": True, "candidate_id": candidate_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/hce/proposed-intents")
+def hce_proposed_intents(status: str = "PENDING_USER_CONFIRMATION"):
+    """List proposed intents by status."""
+    try:
+        intents = HCEStore.get_proposed_intents(status=status)
+        return {"status": "ok", "intents": intents, "count": len(intents)}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/hce/proposed-intents/{proposal_id}/commit")
+def hce_commit_proposed_intent(proposal_id: str):
+    """Commit a proposed intent to the Goal System (Rule 1 gateway).
+
+    This is the ONLY path through which conversation can create a goal —
+    it requires explicit user confirmation (this API call).
+    authorized_to_create_goals is still False at the HCE layer; the Goal System owns creation.
+    """
+    try:
+        committed = HumanConversationEngine.commit_proposed_intent(proposal_id)
+        if not committed:
+            raise HTTPException(status_code=404, detail="Intent not found or already processed")
+        return {"status": "ok", "committed": True, "proposal_id": proposal_id,
+                "authorized_to_create_goals": False}
+    except HTTPException:
+        raise
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
 

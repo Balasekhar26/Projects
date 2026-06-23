@@ -1020,6 +1020,8 @@ def test_long_task_resume_planner() -> None:
 def test_project_ecosystem_endpoint() -> None:
     client = TestClient(app)
     response = client.get("/projects/ecosystem")
+    if response.status_code != 200:
+        print("ECOSYSTEM ERROR:", response.text)
     assert response.status_code == 200
     data = response.json()
     assert data["build_first"].startswith("Kattappa AI OS")

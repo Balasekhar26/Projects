@@ -73,7 +73,8 @@ class ReflectionEngine:
     def evaluate_significance(cls, logs_text: str) -> dict[str, Any]:
         """Performs a deterministic significance evaluation on raw log traces.
         
-        Analyzes tool exit codes, exception counts, and explicit error matches.
+        Analyzes tool exit codes, exception counts, explicit error matches,
+        recent tool benchmark rejections, and workflow run failures.
         """
         # Parse common failure indicators:
         # Non-zero exit codes: e.g. "exit_code=1" or similar
@@ -89,13 +90,58 @@ class ReflectionEngine:
         
         error_rate = (exit_code_failures + exceptions + thumbs_down) / total_runs
         
+        # Read recent tool benchmark rejections/deprecations/rollbacks (Step 7.11 closed-loop)
+        recent_rejections = 0
+        rejected_tools = []
+        try:
+            from backend.core.benchmark_arena import BenchmarkArena
+            tool_history = BenchmarkArena.load_tool_history()
+            for r in tool_history[-10:]:
+                if r.get("decision") in {"DEPRECATE", "ROLLBACK", "REJECT_VERSION"}:
+                    recent_rejections += 1
+                    rejected_tools.append(f"{r.get('tool')}:{r.get('candidate')} ({r.get('decision')})")
+        except Exception:
+            pass
+
+        # Read recent workflow failures/rollbacks (Workflow Memory closed-loop)
+        wf_failures = 0
+        try:
+            from backend.core.workflow_memory import WorkflowMemory
+            recent_wf = WorkflowMemory.get_recent_workflow_runs(limit=10)
+            wf_failures = sum(1 for w in recent_wf if not w.get("success"))
+        except Exception:
+            pass
+            
+        # Read goal calibration stats (Step 8.1 closed-loop)
+        goal_block_rate = 0.0
+        try:
+            from backend.core.learning_dashboard import LearningDashboard
+            goal_stats = LearningDashboard.goal_calibration_panel()
+            goal_block_rate = goal_stats.get("goal_block_rate", 0.0)
+        except Exception:
+            pass
+
+        actionable = (
+            exit_code_failures > 0 
+            or exceptions > 3 
+            or thumbs_down > 0 
+            or error_rate > 0.05 
+            or recent_rejections > 0 
+            or wf_failures > 0
+            or goal_block_rate > 0.25
+        )
+        
         return {
             "exit_code_failures": exit_code_failures,
             "exceptions": exceptions,
             "thumbs_down": thumbs_down,
             "total_runs": total_runs,
             "error_rate": error_rate,
-            "actionable": (exit_code_failures > 0 or exceptions > 3 or thumbs_down > 0 or error_rate > 0.05)
+            "recent_tool_rejections": recent_rejections,
+            "rejected_tools": rejected_tools,
+            "recent_workflow_failures": wf_failures,
+            "goal_block_rate": goal_block_rate,
+            "actionable": actionable
         }
 
     @classmethod
@@ -115,6 +161,10 @@ class ReflectionEngine:
         prompt = (
             f"Analyze the following execution logs and identify the root cause of failures.\n"
             f"--- LOGS ---\n{logs_text[:4000]}\n------------\n\n"
+            f"--- TELEMETRY CLOSED-LOOP CONTEXT ---\n"
+            f"- Recent workflow failures: {sig['recent_workflow_failures']}\n"
+            f"- Recent tool benchmark rejections: {sig['recent_tool_rejections']} ({', '.join(sig['rejected_tools'])})\n"
+            f"-------------------------------------\n\n"
             f"Requirements:\n"
             f"1. Never propose self-modification of source code files.\n"
             f"2. Propose only behavior, retrieval, prompt, or tool parameter improvements.\n"

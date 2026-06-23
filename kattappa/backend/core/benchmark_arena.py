@@ -16,8 +16,10 @@ import shutil
 import sqlite3
 import subprocess
 import time
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
+from statistics import mean, median
 from typing import Any, Sequence
 
 from backend.core.config import runtime_data_root
@@ -38,6 +40,153 @@ def _history_path() -> Path:
     return runtime_data_root() / "backend" / "data" / "benchmark_history.json"
 
 
+def _tool_history_path() -> Path:
+    return runtime_data_root() / "backend" / "data" / "tool_benchmark_history.json"
+
+
+class ToolBenchmarkDecision(str, Enum):
+    PROMOTE = "PROMOTE"
+    KEEP = "KEEP"
+    DEPRECATE = "DEPRECATE"
+    ROLLBACK = "ROLLBACK"
+
+    # Compatibility aliases
+    ACCEPT_VERSION = "PROMOTE"
+    REJECT_VERSION = "DEPRECATE"
+    NEEDS_MORE_RUNS = "KEEP"
+    REGRESSION_DETECTED = "DEPRECATE"
+    INSUFFICIENT_DATA = "KEEP"
+
+
+@dataclass(frozen=True)
+class ToolBenchmarkRun:
+    """One deterministic benchmark observation for a tool version."""
+
+    tool_name: str
+    tool_version: str
+    benchmark_suite: str
+    run_id: str
+    task_id: str
+    success: bool
+    duration_ms: int
+    failure_type: str | None = None
+    rollback_required: bool = False
+    rollback_success: bool | None = None
+    simulation_decision: str = ""
+    human_decision: str = ""
+    simulation_prediction: dict[str, Any] = field(default_factory=dict)
+    execution_result: dict[str, Any] = field(default_factory=dict)
+    timestamp: str = ""
+    source: str = "benchmark_arena"
+    resource_cost: float = 0.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ToolBenchmarkRun":
+        execution_result = data.get("execution_result") or {}
+        simulation_prediction = data.get("simulation_prediction") or {}
+        if not isinstance(execution_result, dict):
+            execution_result = {"raw": execution_result}
+        if not isinstance(simulation_prediction, dict):
+            simulation_prediction = {"raw": simulation_prediction}
+
+        success = data.get("success")
+        if success is None:
+            success = execution_result.get("success")
+        if success is None:
+            success = data.get("actual_success", False)
+
+        duration_ms = data.get("duration_ms")
+        if duration_ms is None:
+            duration_ms = data.get("actual_duration")
+        if duration_ms is None:
+            duration_ms = data.get("actual_duration_ms")
+        if duration_ms is None:
+            duration_ms = execution_result.get("duration_ms", 0)
+
+        rollback_required = data.get("rollback_required")
+        if rollback_required is None:
+            rollback_required = data.get("actual_rollback")
+        if rollback_required is None:
+            rollback_required = data.get("rollback_executed", False)
+
+        rollback_success = data.get("rollback_success")
+        if rollback_success is None:
+            rollback_success = data.get("rollback_succeeded")
+        if rollback_success is None:
+            rollback_success = execution_result.get("rollback_success")
+
+        resource_cost = data.get("resource_cost")
+        if resource_cost is None:
+            resource_cost = execution_result.get("resource_cost")
+        if resource_cost is None:
+            resource_cost = execution_result.get("cost", 0.0)
+
+        return cls(
+            tool_name=str(data.get("tool_name") or data.get("tool") or "").strip(),
+            tool_version=str(data.get("tool_version") or data.get("version") or "").strip(),
+            benchmark_suite=str(data.get("benchmark_suite") or data.get("suite_id") or "").strip(),
+            run_id=str(data.get("run_id") or data.get("action_id") or f"tool_run_{int(time.time() * 1000)}"),
+            task_id=str(data.get("task_id") or data.get("action") or data.get("task") or ""),
+            success=bool(success),
+            duration_ms=max(0, int(float(duration_ms or 0))),
+            failure_type=cls._clean_failure_type(data.get("failure_type") or data.get("failure_classification")),
+            rollback_required=bool(rollback_required),
+            rollback_success=None if rollback_success is None else bool(rollback_success),
+            simulation_decision=BenchmarkArena._normalise_decision(data.get("simulation_decision", "")),
+            human_decision=BenchmarkArena._normalise_decision(data.get("human_decision", "")),
+            simulation_prediction=simulation_prediction,
+            execution_result=execution_result,
+            timestamp=str(data.get("timestamp") or ""),
+            source=str(data.get("source") or "benchmark_arena"),
+            resource_cost=max(0.0, float(resource_cost or 0.0)),
+        )
+
+    @staticmethod
+    def _clean_failure_type(value: Any) -> str | None:
+        if value is None:
+            return None
+        clean = str(value).strip().lower()
+        return clean or None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ToolBenchmarkMetrics:
+    """Aggregated evidence used to accept or reject a tool version."""
+
+    tool_name: str
+    tool_version: str
+    benchmark_suite: str
+    total_runs: int
+    successful_runs: int
+    failed_runs: int
+    success_rate: float
+    failure_rate: float
+    mean_duration_ms: float
+    median_duration_ms: float
+    p95_duration_ms: float
+    fastest_duration_ms: int
+    slowest_duration_ms: int
+    failure_classification: dict[str, int]
+    rollback_required_count: int
+    rollback_successes: int
+    rollback_failures: int
+    recovery_rate: float
+    approval_accuracy: float
+    rejection_accuracy: float
+    false_positive_rate: float
+    false_negative_rate: float
+    approval_total: int
+    prediction_error: dict[str, Any]
+    total_resource_cost: float
+    mean_resource_cost: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 class BenchmarkArena:
     # Category floors requirement
     DEFAULT_FLOORS = {
@@ -48,6 +197,625 @@ class BenchmarkArena:
         "coding": 0.80,
         "tools": 0.80,
     }
+
+    FAILURE_TYPES = {
+        "tool_failure",
+        "environment_failure",
+        "validation_failure",
+        "human_rejection",
+    }
+
+    # -- Tool Benchmark Arena V1 -------------------------------------------
+    @classmethod
+    def calculate_tool_metrics(
+        cls,
+        runs: Sequence[ToolBenchmarkRun | dict[str, Any]],
+    ) -> ToolBenchmarkMetrics:
+        """Calculate success, speed, recovery, approval, and prediction metrics."""
+        normalised = cls._normalise_tool_runs(runs)
+        tool_name = normalised[0].tool_name if normalised else ""
+        tool_version = normalised[0].tool_version if normalised else ""
+        benchmark_suite = normalised[0].benchmark_suite if normalised else ""
+        total = len(normalised)
+        successes = sum(1 for run in normalised if run.success)
+        failures = total - successes
+        durations = [run.duration_ms for run in normalised]
+        failure_counts = {failure_type: 0 for failure_type in sorted(cls.FAILURE_TYPES)}
+        for run in normalised:
+            failure_type = cls.classify_failure(run)
+            if failure_type:
+                failure_counts[failure_type] = failure_counts.get(failure_type, 0) + 1
+
+        rollback_runs = [run for run in normalised if run.rollback_required]
+        rollback_successes = sum(1 for run in rollback_runs if run.rollback_success is True)
+        rollback_failures = sum(1 for run in rollback_runs if run.rollback_success is False)
+
+        costs = [run.resource_cost for run in normalised]
+        total_cost = sum(costs)
+        mean_cost = total_cost / total if total else 0.0
+
+        approval = cls.calculate_approval_accuracy(normalised)
+        prediction_error = cls.calculate_prediction_error(normalised)
+
+        return ToolBenchmarkMetrics(
+            tool_name=tool_name,
+            tool_version=tool_version,
+            benchmark_suite=benchmark_suite,
+            total_runs=total,
+            successful_runs=successes,
+            failed_runs=failures,
+            success_rate=round(successes / total, 4) if total else 0.0,
+            failure_rate=round(failures / total, 4) if total else 0.0,
+            mean_duration_ms=round(mean(durations), 2) if durations else 0.0,
+            median_duration_ms=round(median(durations), 2) if durations else 0.0,
+            p95_duration_ms=cls._percentile(durations, 0.95),
+            fastest_duration_ms=min(durations) if durations else 0,
+            slowest_duration_ms=max(durations) if durations else 0,
+            failure_classification=failure_counts,
+            rollback_required_count=len(rollback_runs),
+            rollback_successes=rollback_successes,
+            rollback_failures=rollback_failures,
+            recovery_rate=round(
+                rollback_successes / (rollback_successes + rollback_failures), 4
+            ) if rollback_successes + rollback_failures else 0.0,
+            approval_accuracy=approval["approval_accuracy"],
+            rejection_accuracy=approval["rejection_accuracy"],
+            false_positive_rate=approval["false_positive_rate"],
+            false_negative_rate=approval["false_negative_rate"],
+            approval_total=approval["approval_total"],
+            prediction_error=prediction_error,
+            total_resource_cost=round(total_cost, 4),
+            mean_resource_cost=round(mean_cost, 4),
+        )
+
+    @classmethod
+    def compare_tool_versions(
+        cls,
+        baseline_runs: Sequence[ToolBenchmarkRun | dict[str, Any]],
+        candidate_runs: Sequence[ToolBenchmarkRun | dict[str, Any]],
+        *,
+        tool_name: str = "",
+        baseline_version: str = "",
+        candidate_version: str = "",
+        benchmark_suite: str = "",
+        min_runs: int = 1,
+    ) -> dict[str, Any]:
+        """Compare a candidate tool version against a baseline using regression gates."""
+        baseline_metrics = cls.calculate_tool_metrics(baseline_runs)
+        candidate_metrics = cls.calculate_tool_metrics(candidate_runs)
+
+        tool = tool_name or candidate_metrics.tool_name or baseline_metrics.tool_name
+        baseline = baseline_version or baseline_metrics.tool_version
+        candidate = candidate_version or candidate_metrics.tool_version
+        suite = benchmark_suite or candidate_metrics.benchmark_suite or baseline_metrics.benchmark_suite
+
+        if baseline_metrics.total_runs < min_runs or candidate_metrics.total_runs < min_runs:
+            return {
+                "tool": tool,
+                "candidate": candidate,
+                "baseline": baseline,
+                "benchmark_suite": suite,
+                "decision": ToolBenchmarkDecision.KEEP.value,
+                "regression_detected": False,
+                "reasons": ["insufficient benchmark data for baseline or candidate"],
+                "baseline_metrics": baseline_metrics.to_dict(),
+                "candidate_metrics": candidate_metrics.to_dict(),
+            }
+
+        reasons: list[str] = []
+        gates = [
+            (
+                "success_rate",
+                candidate_metrics.success_rate >= baseline_metrics.success_rate,
+                candidate_metrics.success_rate,
+                baseline_metrics.success_rate,
+                "higher_or_equal",
+            ),
+            (
+                "failure_rate",
+                candidate_metrics.failure_rate <= baseline_metrics.failure_rate,
+                candidate_metrics.failure_rate,
+                baseline_metrics.failure_rate,
+                "lower_or_equal",
+            ),
+            (
+                "recovery_rate",
+                candidate_metrics.recovery_rate >= baseline_metrics.recovery_rate,
+                candidate_metrics.recovery_rate,
+                baseline_metrics.recovery_rate,
+                "higher_or_equal",
+            ),
+            (
+                "approval_accuracy",
+                candidate_metrics.approval_accuracy >= baseline_metrics.approval_accuracy,
+                candidate_metrics.approval_accuracy,
+                baseline_metrics.approval_accuracy,
+                "higher_or_equal",
+            ),
+            (
+                "resource_cost",
+                candidate_metrics.mean_resource_cost <= (baseline_metrics.mean_resource_cost * 1.25 + 0.01),
+                candidate_metrics.mean_resource_cost,
+                baseline_metrics.mean_resource_cost,
+                "lower_or_equal_to_1.25x",
+            ),
+        ]
+        for metric, passed, candidate_value, baseline_value, expected in gates:
+            if not passed:
+                reasons.append(
+                    f"{metric} regression: candidate {candidate_value:.4f}, "
+                    f"baseline {baseline_value:.4f}, expected {expected}"
+                )
+
+        regression_detected = bool(reasons)
+        success_rate_regression = candidate_metrics.success_rate < baseline_metrics.success_rate
+
+        # Enforce exact decision outputs: PROMOTE, KEEP, DEPRECATE, ROLLBACK
+        if success_rate_regression:
+            # automatic rejection / rollback
+            if candidate_metrics.rollback_required_count > 0 or candidate == baseline or candidate_metrics.failure_rate >= 0.3:
+                decision = ToolBenchmarkDecision.ROLLBACK.value
+            else:
+                decision = ToolBenchmarkDecision.DEPRECATE.value
+        elif regression_detected:
+            # other regressions (speed, cost, etc.) -> keep baseline, don't promote candidate
+            decision = ToolBenchmarkDecision.KEEP.value
+        else:
+            decision = ToolBenchmarkDecision.PROMOTE.value
+
+        return {
+            "tool": tool,
+            "candidate": candidate,
+            "baseline": baseline,
+            "benchmark_suite": suite,
+            "success_rate_delta": cls._format_delta(
+                cls._rate_delta(candidate_metrics.success_rate, baseline_metrics.success_rate)
+            ),
+            "speed_delta": cls._format_delta(
+                cls._rate_delta(
+                    candidate_metrics.mean_duration_ms,
+                    baseline_metrics.mean_duration_ms,
+                )
+            ),
+            "failure_rate_delta": cls._format_delta(
+                cls._rate_delta(candidate_metrics.failure_rate, baseline_metrics.failure_rate)
+            ),
+            "recovery_rate_delta": cls._format_delta(
+                cls._rate_delta(candidate_metrics.recovery_rate, baseline_metrics.recovery_rate)
+            ),
+            "approval_accuracy_delta": cls._format_delta(
+                cls._rate_delta(candidate_metrics.approval_accuracy, baseline_metrics.approval_accuracy)
+            ),
+            "resource_cost_delta": cls._format_delta(
+                cls._rate_delta(candidate_metrics.mean_resource_cost, baseline_metrics.mean_resource_cost)
+            ),
+            "decision": decision,
+            "regression_detected": regression_detected,
+            "reasons": reasons,
+            "baseline_metrics": baseline_metrics.to_dict(),
+            "candidate_metrics": candidate_metrics.to_dict(),
+        }
+
+    @classmethod
+    def evaluate_tool_version(
+        cls,
+        *,
+        tool_name: str,
+        baseline_version: str,
+        candidate_version: str,
+        benchmark_suite: str,
+        historical_runs: Sequence[ToolBenchmarkRun | dict[str, Any]],
+        candidate_runs: Sequence[ToolBenchmarkRun | dict[str, Any]] | None = None,
+        min_runs: int = 1,
+        persist: bool = False,
+    ) -> dict[str, Any]:
+        """Filter historical runs, compare versions, and optionally persist the report."""
+        all_runs = cls._normalise_tool_runs(historical_runs)
+        baseline = [
+            run for run in all_runs
+            if run.tool_name == tool_name
+            and run.tool_version == baseline_version
+            and run.benchmark_suite == benchmark_suite
+        ]
+        candidate = (
+            cls._normalise_tool_runs(candidate_runs)
+            if candidate_runs is not None
+            else [
+                run for run in all_runs
+                if run.tool_name == tool_name
+                and run.tool_version == candidate_version
+                and run.benchmark_suite == benchmark_suite
+            ]
+        )
+        report = cls.compare_tool_versions(
+            baseline,
+            candidate,
+            tool_name=tool_name,
+            baseline_version=baseline_version,
+            candidate_version=candidate_version,
+            benchmark_suite=benchmark_suite,
+            min_runs=min_runs,
+        )
+        if persist:
+            cls.save_tool_report(report)
+        return report
+
+    @classmethod
+    def rank_tool_versions(
+        cls,
+        runs: Sequence[ToolBenchmarkRun | dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Rank tool versions by reliability first, speed second."""
+        grouped: dict[tuple[str, str, str], list[ToolBenchmarkRun]] = {}
+        for run in cls._normalise_tool_runs(runs):
+            grouped.setdefault(
+                (run.tool_name, run.tool_version, run.benchmark_suite),
+                [],
+            ).append(run)
+
+        rankings: list[dict[str, Any]] = []
+        for (tool_name, version, suite), version_runs in grouped.items():
+            metrics = cls.calculate_tool_metrics(version_runs)
+            reliability_score = (
+                metrics.success_rate * 0.45
+                + (1.0 - metrics.failure_rate) * 0.20
+                + metrics.recovery_rate * 0.15
+                + metrics.approval_accuracy * 0.20
+            )
+            rankings.append({
+                "tool": tool_name,
+                "version": version,
+                "benchmark_suite": suite,
+                "score": round(reliability_score, 4),
+                "metrics": metrics.to_dict(),
+            })
+
+        return sorted(
+            rankings,
+            key=lambda item: (
+                item["score"],
+                item["metrics"]["success_rate"],
+                -item["metrics"]["failure_rate"],
+                -item["metrics"]["mean_duration_ms"],
+                item["metrics"]["total_runs"],
+            ),
+            reverse=True,
+        )
+
+    @classmethod
+    def save_tool_report(cls, report: dict[str, Any]) -> None:
+        """Append a tool benchmark comparison report to its own immutable history."""
+        path = _tool_history_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        history = cls.load_tool_history()
+        history.append(report)
+        path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+
+    @classmethod
+    def load_tool_history(cls) -> list[dict[str, Any]]:
+        """Load historical tool benchmark comparison reports."""
+        path = _tool_history_path()
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    @classmethod
+    def load_runs_from_action_memory(
+        cls,
+        *,
+        tool_name: str,
+        tool_version: str,
+        benchmark_suite: str,
+        agent: str | None = None,
+        action_type: str | None = None,
+        limit: int = 500,
+    ) -> list[ToolBenchmarkRun]:
+        """Convert Action Memory records into benchmark observations."""
+        from backend.core.action_memory import ActionMemory
+
+        records = ActionMemory.get_recent_actions(limit=limit)
+        runs: list[ToolBenchmarkRun] = []
+        for record in records:
+            if agent and record.agent != agent:
+                continue
+            if action_type and record.action != action_type:
+                continue
+            runs.append(
+                ToolBenchmarkRun(
+                    tool_name=tool_name,
+                    tool_version=tool_version,
+                    benchmark_suite=benchmark_suite,
+                    run_id=record.action_id,
+                    task_id=record.action,
+                    success=record.success,
+                    duration_ms=record.duration_ms,
+                    failure_type="tool_failure" if record.failure else None,
+                    rollback_required=record.rollback_executed,
+                    rollback_success=record.success if record.rollback_executed else None,
+                    execution_result=record.to_dict(),
+                    timestamp=record.timestamp,
+                    source="action_memory",
+                )
+            )
+        return runs
+
+    @classmethod
+    def build_run_from_dve(
+        cls,
+        *,
+        tool_name: str,
+        tool_version: str,
+        benchmark_suite: str,
+        run_id: str,
+        task_id: str,
+        execution_result: dict[str, Any],
+        dve_result: dict[str, Any],
+        simulation_prediction: dict[str, Any] | None = None,
+        human_decision: str = "",
+        duration_ms: int | None = None,
+    ) -> ToolBenchmarkRun:
+        """Build one benchmark observation from DVE, rollback, and simulation data."""
+        outcome = str(dve_result.get("outcome") or "").upper()
+        success = outcome == "SUCCESS" or bool(dve_result.get("success"))
+        rollback_required = bool(
+            dve_result.get("rollback_required")
+            or dve_result.get("recovery_action")
+            or dve_result.get("recovery_actions")
+        )
+        rollback_success = dve_result.get("rollback_success")
+        if rollback_success is None:
+            rollback_success = dve_result.get("recovery_success")
+        duration = duration_ms
+        if duration is None:
+            duration = int(execution_result.get("duration_ms") or 0)
+        return ToolBenchmarkRun(
+            tool_name=tool_name,
+            tool_version=tool_version,
+            benchmark_suite=benchmark_suite,
+            run_id=run_id,
+            task_id=task_id,
+            success=success,
+            duration_ms=max(0, int(duration or 0)),
+            failure_type="validation_failure" if not success else None,
+            rollback_required=rollback_required,
+            rollback_success=None if rollback_success is None else bool(rollback_success),
+            simulation_decision=cls._decision_from_prediction(simulation_prediction or {}),
+            human_decision=cls._normalise_decision(human_decision),
+            simulation_prediction=simulation_prediction or {},
+            execution_result={**execution_result, "dve_result": dve_result},
+            source="dve",
+        )
+
+    @classmethod
+    def classify_failure(cls, run: ToolBenchmarkRun | dict[str, Any]) -> str | None:
+        """Classify failed runs into the arena's four stable failure buckets."""
+        normalised = run if isinstance(run, ToolBenchmarkRun) else ToolBenchmarkRun.from_dict(run)
+        if normalised.success:
+            return None
+        explicit = (normalised.failure_type or "").strip().lower()
+        aliases = {
+            "tool": "tool_failure",
+            "tool_failure": "tool_failure",
+            "environment": "environment_failure",
+            "env": "environment_failure",
+            "environment_failure": "environment_failure",
+            "validation": "validation_failure",
+            "validator": "validation_failure",
+            "validation_failure": "validation_failure",
+            "dve": "validation_failure",
+            "human": "human_rejection",
+            "human_rejection": "human_rejection",
+            "human_rejected": "human_rejection",
+            "user_rejection": "human_rejection",
+        }
+        if explicit in aliases:
+            return aliases[explicit]
+
+        text = json.dumps(normalised.execution_result, default=str).lower()
+        if normalised.human_decision == "REJECT":
+            return "human_rejection"
+        if any(term in text for term in ("validation", "validator", "dve", "post-check")):
+            return "validation_failure"
+        if any(term in text for term in ("timeout", "network", "permission", "missing", "not found", "dependency")):
+            return "environment_failure"
+        return "tool_failure"
+
+    @classmethod
+    def calculate_approval_accuracy(
+        cls,
+        runs: Sequence[ToolBenchmarkRun | dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Compare simulation approval/rejection decisions with human decisions."""
+        pairs = []
+        for run in cls._normalise_tool_runs(runs):
+            simulation = cls._normalise_decision(run.simulation_decision)
+            human = cls._normalise_decision(run.human_decision)
+            if simulation in {"APPROVE", "REJECT"} and human in {"APPROVE", "REJECT"}:
+                pairs.append((simulation, human))
+        total = len(pairs)
+        matches = sum(1 for simulation, human in pairs if simulation == human)
+        human_approvals = sum(1 for _, human in pairs if human == "APPROVE")
+        human_rejections = sum(1 for _, human in pairs if human == "REJECT")
+        false_positives = sum(1 for simulation, human in pairs if simulation == "APPROVE" and human == "REJECT")
+        false_negatives = sum(1 for simulation, human in pairs if simulation == "REJECT" and human == "APPROVE")
+        correct_rejections = sum(1 for simulation, human in pairs if simulation == human == "REJECT")
+        return {
+            "approval_accuracy": round(matches / total, 4) if total else 0.0,
+            "rejection_accuracy": round(correct_rejections / human_rejections, 4) if human_rejections else 0.0,
+            "false_positive_rate": round(false_positives / human_rejections, 4) if human_rejections else 0.0,
+            "false_negative_rate": round(false_negatives / human_approvals, 4) if human_approvals else 0.0,
+            "approval_total": total,
+        }
+
+    @classmethod
+    def calculate_prediction_error(
+        cls,
+        runs: Sequence[ToolBenchmarkRun | dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Compare simulation predictions with execution reality."""
+        success_errors: list[float] = []
+        duration_errors: list[float] = []
+        duration_error_percents: list[float] = []
+        rollback_errors: list[float] = []
+        likely_failure_matches = 0
+        likely_failure_total = 0
+
+        for run in cls._normalise_tool_runs(runs):
+            prediction = run.simulation_prediction or {}
+            predicted_success = cls._extract_probability(
+                prediction,
+                "predicted_success",
+                "success_probability",
+                "success_rate",
+            )
+            if predicted_success is not None:
+                success_errors.append(abs(predicted_success - (1.0 if run.success else 0.0)))
+
+            predicted_duration = cls._extract_number(
+                prediction,
+                "predicted_duration",
+                "predicted_duration_ms",
+                "expected_duration_ms",
+            )
+            if predicted_duration is not None:
+                duration_errors.append(abs(run.duration_ms - predicted_duration))
+                if predicted_duration > 0:
+                    duration_error_percents.append(abs(run.duration_ms - predicted_duration) / predicted_duration)
+
+            predicted_rollback = cls._extract_probability(
+                prediction,
+                "predicted_rollback_risk",
+                "rollback_risk",
+            )
+            if predicted_rollback is not None:
+                rollback_errors.append(abs(predicted_rollback - (1.0 if run.rollback_required else 0.0)))
+
+            likely_failures = prediction.get("likely_failures") or []
+            if likely_failures and not run.success:
+                likely_failure_total += 1
+                observed = cls.classify_failure(run)
+                text = json.dumps(likely_failures, default=str).lower()
+                if observed and (observed in text or observed.replace("_", " ") in text):
+                    likely_failure_matches += 1
+
+        return {
+            "success_error_mean": round(mean(success_errors), 4) if success_errors else 0.0,
+            "duration_error_ms_mean": round(mean(duration_errors), 2) if duration_errors else 0.0,
+            "duration_error_percent_mean": round(mean(duration_error_percents), 4) if duration_error_percents else 0.0,
+            "rollback_error_mean": round(mean(rollback_errors), 4) if rollback_errors else 0.0,
+            "likely_failure_match_rate": round(likely_failure_matches / likely_failure_total, 4) if likely_failure_total else 0.0,
+            "samples": {
+                "success": len(success_errors),
+                "duration": len(duration_errors),
+                "rollback": len(rollback_errors),
+                "likely_failures": likely_failure_total,
+            },
+        }
+
+    @staticmethod
+    def _normalise_tool_runs(
+        runs: Sequence[ToolBenchmarkRun | dict[str, Any]],
+    ) -> list[ToolBenchmarkRun]:
+        return [
+            run if isinstance(run, ToolBenchmarkRun) else ToolBenchmarkRun.from_dict(run)
+            for run in runs
+        ]
+
+    @staticmethod
+    def _percentile(values: list[int], percentile: float) -> float:
+        if not values:
+            return 0.0
+        sorted_values = sorted(values)
+        if len(sorted_values) == 1:
+            return float(sorted_values[0])
+        index = int(round((len(sorted_values) - 1) * percentile))
+        index = max(0, min(index, len(sorted_values) - 1))
+        return float(sorted_values[index])
+
+    @staticmethod
+    def _rate_delta(candidate: float, baseline: float, *, lower_is_better: bool = False) -> float:
+        if baseline == 0:
+            if candidate == 0:
+                return 0.0
+            raw = 1.0
+        else:
+            raw = (candidate - baseline) / abs(baseline)
+        return -raw if lower_is_better else raw
+
+    @staticmethod
+    def _format_delta(delta: float) -> str:
+        sign = "+" if delta >= 0 else ""
+        return f"{sign}{round(delta * 100, 1)}%"
+
+    @staticmethod
+    def _normalise_decision(value: Any) -> str:
+        clean = str(value or "").strip().upper()
+        aliases = {
+            "APPROVED": "APPROVE",
+            "ALLOW": "APPROVE",
+            "ALLOWED": "APPROVE",
+            "PASS": "APPROVE",
+            "PASSED": "APPROVE",
+            "ACCEPT": "APPROVE",
+            "ACCEPTED": "APPROVE",
+            "REJECTED": "REJECT",
+            "DENY": "REJECT",
+            "DENIED": "REJECT",
+            "BLOCK": "REJECT",
+            "BLOCKED": "REJECT",
+            "FAIL": "REJECT",
+            "FAILED": "REJECT",
+        }
+        return aliases.get(clean, clean)
+
+    @classmethod
+    def _decision_from_prediction(cls, prediction: dict[str, Any]) -> str:
+        explicit = prediction.get("decision") or prediction.get("recommendation")
+        if explicit:
+            normalised = cls._normalise_decision(explicit)
+            if normalised in {"APPROVE", "REJECT"}:
+                return normalised
+            text = str(explicit).lower()
+            if any(term in text for term in ("revise", "reject", "block", "review")):
+                return "REJECT"
+            if any(term in text for term in ("proceed", "approve", "acceptable")):
+                return "APPROVE"
+        success_probability = cls._extract_probability(
+            prediction,
+            "success_probability",
+            "predicted_success",
+            "success_rate",
+        )
+        if success_probability is None:
+            return ""
+        return "APPROVE" if success_probability >= 0.70 else "REJECT"
+
+    @staticmethod
+    def _extract_number(data: dict[str, Any], *keys: str) -> float | None:
+        for key in keys:
+            if key not in data:
+                continue
+            value = data.get(key)
+            if isinstance(value, bool):
+                return 1.0 if value else 0.0
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @classmethod
+    def _extract_probability(cls, data: dict[str, Any], *keys: str) -> float | None:
+        value = cls._extract_number(data, *keys)
+        if value is None:
+            return None
+        if value > 1.0 and value <= 100.0:
+            value = value / 100.0
+        return max(0.0, min(1.0, value))
 
     # -- 1. Sandbox Environment --------------------------------------------
     @classmethod
