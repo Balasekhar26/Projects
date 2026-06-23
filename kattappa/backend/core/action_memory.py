@@ -73,6 +73,8 @@ class ActionRecord:
     All fields are serialisable to/from SQLite.
     """
     action_id: str
+    workflow_id: str
+    parent_action_id: str
     agent: str
     action: str
     reason: str
@@ -83,6 +85,8 @@ class ActionRecord:
     duration_ms: int
     confidence_score: float
     rollback_executed: bool
+    rollback_action_id: str
+    rollback_chain_id: str
     timestamp: str                      # ISO-8601 UTC
     timestamp_unix: float
     tags: list[str] = field(default_factory=list)
@@ -92,6 +96,7 @@ class ActionRecord:
         d["success"] = self.success
         d["failure"] = self.failure
         d["rollback_executed"] = self.rollback_executed
+        d["rolled_back"] = self.rollback_executed
         d["outcome"] = self.actual_outcome
         return d
 
@@ -101,6 +106,8 @@ class ActionRecord:
         failure = bool(row["failure"]) if "failure" in row.keys() else not success
         return cls(
             action_id=row["action_id"],
+            workflow_id=row["workflow_id"] if "workflow_id" in row.keys() else "",
+            parent_action_id=row["parent_action_id"] if "parent_action_id" in row.keys() else "",
             agent=row["agent"],
             action=row["action"],
             reason=row["reason"],
@@ -111,6 +118,8 @@ class ActionRecord:
             duration_ms=row["duration_ms"],
             confidence_score=row["confidence_score"],
             rollback_executed=bool(row["rollback_executed"]),
+            rollback_action_id=row["rollback_action_id"] if "rollback_action_id" in row.keys() else "",
+            rollback_chain_id=row["rollback_chain_id"] if "rollback_chain_id" in row.keys() else "",
             timestamp=row["timestamp"],
             timestamp_unix=row["timestamp_unix"],
             tags=tags or [],
@@ -145,6 +154,8 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS action_history (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     action_id         TEXT NOT NULL UNIQUE,
+    workflow_id       TEXT NOT NULL DEFAULT '',
+    parent_action_id  TEXT NOT NULL DEFAULT '',
     agent             TEXT NOT NULL,
     action            TEXT NOT NULL,
     reason            TEXT NOT NULL DEFAULT '',
@@ -155,15 +166,24 @@ CREATE TABLE IF NOT EXISTS action_history (
     duration_ms       INTEGER NOT NULL DEFAULT 0,
     confidence_score  REAL    NOT NULL DEFAULT 0.0,
     rollback_executed INTEGER NOT NULL DEFAULT 0,   -- 1=yes, 0=no
+    rollback_action_id TEXT NOT NULL DEFAULT '',
+    rollback_chain_id  TEXT NOT NULL DEFAULT '',
     timestamp         TEXT    NOT NULL,              -- ISO-8601
     timestamp_unix    REAL    NOT NULL               -- Unix epoch for range queries
 );
+"""
+
+_INDEX_SQL = """
+PRAGMA foreign_keys=ON;
 
 CREATE INDEX IF NOT EXISTS idx_ah_agent   ON action_history(agent);
 CREATE INDEX IF NOT EXISTS idx_ah_action  ON action_history(action);
 CREATE INDEX IF NOT EXISTS idx_ah_success ON action_history(success);
 CREATE INDEX IF NOT EXISTS idx_ah_failure ON action_history(failure);
 CREATE INDEX IF NOT EXISTS idx_ah_ts_unix ON action_history(timestamp_unix);
+CREATE INDEX IF NOT EXISTS idx_ah_workflow_id ON action_history(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_ah_parent_action_id ON action_history(parent_action_id);
+CREATE INDEX IF NOT EXISTS idx_ah_rollback_chain_id ON action_history(rollback_chain_id);
 
 CREATE TABLE IF NOT EXISTS action_tags (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,12 +203,40 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         row["name"]
         for row in conn.execute("PRAGMA table_info(action_history)").fetchall()
     }
+    additions = {
+        "workflow_id": "TEXT NOT NULL DEFAULT ''",
+        "parent_action_id": "TEXT NOT NULL DEFAULT ''",
+        "failure": "INTEGER NOT NULL DEFAULT 0",
+        "rollback_action_id": "TEXT NOT NULL DEFAULT ''",
+        "rollback_chain_id": "TEXT NOT NULL DEFAULT ''",
+    }
+    for column, definition in additions.items():
+        if column not in columns:
+            conn.execute(f"ALTER TABLE action_history ADD COLUMN {column} {definition}")
     if "failure" not in columns:
+        conn.execute("UPDATE action_history SET failure = CASE WHEN success=1 THEN 0 ELSE 1 END")
+    conn.commit()
+
+
+def _ensure_indexes(conn: sqlite3.Connection) -> None:
+    conn.executescript(_INDEX_SQL)
+    try:
         conn.execute(
-            "ALTER TABLE action_history ADD COLUMN failure INTEGER NOT NULL DEFAULT 0"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_at_action_tag_unique "
+            "ON action_tags(action_id, tag)"
         )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.execute("""
+            DELETE FROM action_tags
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM action_tags GROUP BY action_id, tag
+            )
+        """)
+        conn.commit()
         conn.execute(
-            "UPDATE action_history SET failure = CASE WHEN success=1 THEN 0 ELSE 1 END"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_at_action_tag_unique "
+            "ON action_tags(action_id, tag)"
         )
         conn.commit()
 
@@ -198,6 +246,7 @@ def _connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA_SQL)
     _migrate_schema(conn)
+    _ensure_indexes(conn)
     return conn
 
 
@@ -260,6 +309,10 @@ class ActionMemory:
         duration_ms: int = 0,
         confidence_score: float = 0.0,
         rollback_executed: bool = False,
+        workflow_id: str = "",
+        parent_action_id: str = "",
+        rollback_action_id: str = "",
+        rollback_chain_id: str = "",
         tags: list[str] | None = None,
         action_id: str | None = None,
         timestamp: str | None = None,
@@ -292,15 +345,15 @@ class ActionMemory:
                 cursor = conn.execute(
                     """
                     INSERT OR IGNORE INTO action_history
-                      (action_id, agent, action, reason, expected_outcome,
+                      (action_id, workflow_id, parent_action_id, agent, action, reason, expected_outcome,
                        actual_outcome, success, failure, duration_ms, confidence_score,
-                       rollback_executed, timestamp, timestamp_unix)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       rollback_executed, rollback_action_id, rollback_chain_id, timestamp, timestamp_unix)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
-                        aid, agent, action, reason, expected_outcome,
+                        aid, workflow_id, parent_action_id, agent, action, reason, expected_outcome,
                         actual_outcome, int(success), int(failure), duration_ms,
-                        confidence_score, int(rollback_executed),
+                        confidence_score, int(rollback_executed), rollback_action_id, rollback_chain_id,
                         recorded_at, recorded_unix,
                     ),
                 )
@@ -331,62 +384,70 @@ class ActionMemory:
         duration_ms: int | None = None,
         tags: list[str] | None = None,
     ) -> bool:
-        """Update the outcome of an already-recorded action (e.g. after rollback)."""
+        """Append an immutable outcome-update event for an existing action."""
+        return cls.append_outcome_update(
+            action_id,
+            actual_outcome=actual_outcome,
+            success=success,
+            rollback_executed=rollback_executed,
+            confidence_score=confidence_score,
+            duration_ms=duration_ms,
+            tags=tags,
+        ) is not None
+
+    @classmethod
+    def append_outcome_update(
+        cls,
+        action_id: str,
+        actual_outcome: str | None = None,
+        success: bool | None = None,
+        rollback_executed: bool | None = None,
+        confidence_score: float | None = None,
+        duration_ms: int | None = None,
+        tags: list[str] | None = None,
+    ) -> ActionRecord | None:
+        """
+        Append a linked outcome update without mutating the original row.
+
+        Action Memory is an execution ledger, so post-hoc changes become child
+        records with `parent_action_id` set to the original action.
+        """
         _ensure_schema()
         if confidence_score is not None and not 0.0 <= float(confidence_score) <= 1.0:
             raise ValueError("confidence_score must be between 0.0 and 1.0")
         if duration_ms is not None and duration_ms < 0:
             raise ValueError("duration_ms must be greater than or equal to 0")
 
-        updates: list[str] = []
-        params: list[Any] = []
-        if actual_outcome is not None:
-            updates.append("actual_outcome=?")
-            params.append(actual_outcome)
-        if success is not None:
-            updates.append("success=?")
-            params.append(int(success))
-            updates.append("failure=?")
-            params.append(int(not success))
-        if rollback_executed is not None:
-            updates.append("rollback_executed=?")
-            params.append(int(rollback_executed))
-        if confidence_score is not None:
-            updates.append("confidence_score=?")
-            params.append(confidence_score)
-        if duration_ms is not None:
-            updates.append("duration_ms=?")
-            params.append(duration_ms)
+        original = cls.get_action(action_id)
+        if original is None:
+            return None
 
-        with _WRITE_LOCK:
-            conn = _connect()
-            try:
-                changed = 0
-                if updates:
-                    cursor = conn.execute(
-                        f"UPDATE action_history SET {', '.join(updates)} WHERE action_id=?",
-                        (*params, action_id),
-                    )
-                    changed = cursor.rowcount
-                if tags is not None:
-                    exists = conn.execute(
-                        "SELECT 1 FROM action_history WHERE action_id=?",
-                        (action_id,),
-                    ).fetchone()
-                    if not exists:
-                        conn.rollback()
-                        return False
-                    conn.execute("DELETE FROM action_tags WHERE action_id=?", (action_id,))
-                    for tag in _clean_tags(tags):
-                        conn.execute(
-                            "INSERT INTO action_tags (action_id, tag) VALUES (?,?)",
-                            (action_id, tag),
-                        )
-                    changed = max(changed, 1)
-                conn.commit()
-                return changed > 0
-            finally:
-                conn.close()
+        new_action_id = f"{action_id}.event.{uuid.uuid4().hex[:8]}"
+        update_tags = _clean_tags((original.tags or []) + (tags or []) + ["outcome-update"])
+        if rollback_executed:
+            update_tags.append("rollback")
+        cls.record(
+            action_id=new_action_id,
+            workflow_id=original.workflow_id,
+            parent_action_id=original.action_id,
+            agent=original.agent,
+            action=f"{original.action}_OUTCOME_UPDATE",
+            reason=f"Outcome update for action {original.action_id}",
+            expected_outcome=original.expected_outcome,
+            actual_outcome=actual_outcome if actual_outcome is not None else original.actual_outcome,
+            success=success if success is not None else original.success,
+            duration_ms=duration_ms if duration_ms is not None else original.duration_ms,
+            confidence_score=(
+                confidence_score if confidence_score is not None else original.confidence_score
+            ),
+            rollback_executed=(
+                rollback_executed if rollback_executed is not None else original.rollback_executed
+            ),
+            rollback_action_id=original.rollback_action_id,
+            rollback_chain_id=original.rollback_chain_id,
+            tags=update_tags,
+        )
+        return cls.get_action(new_action_id)
 
     # --- Retrieval API --------------------------------------------------------
 
@@ -533,6 +594,25 @@ class ActionMemory:
         conn = _connect()
         try:
             rows = conn.execute(sql, params).fetchall()
+            return [cls._hydrate(conn, row) for row in rows]
+        finally:
+            conn.close()
+
+    @classmethod
+    def get_workflow_actions(cls, workflow_id: str, limit: int = 500) -> list[ActionRecord]:
+        """Returns immutable action events for a workflow, oldest first."""
+        _ensure_schema()
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT * FROM action_history
+                WHERE workflow_id=?
+                ORDER BY timestamp_unix ASC, id ASC
+                LIMIT ?
+                """,
+                (workflow_id, limit),
+            ).fetchall()
             return [cls._hydrate(conn, row) for row in rows]
         finally:
             conn.close()
@@ -790,6 +870,28 @@ def record_from_broker(
             duration_ms=max(0, duration_ms),
             confidence_score=max(0.0, min(1.0, confidence)),
             rollback_executed=rollback_executed,
+            workflow_id=str(
+                params.get("workflow_id")
+                or state.get("workflow_id")
+                or state.get("chat_session_id")
+                or ""
+            ),
+            parent_action_id=str(
+                params.get("parent_action_id")
+                or state.get("parent_action_id")
+                or state.get("current_action_id")
+                or ""
+            ),
+            rollback_action_id=str(
+                params.get("rollback_action_id")
+                or state.get("rollback_action_id")
+                or ""
+            ),
+            rollback_chain_id=str(
+                params.get("rollback_chain_id")
+                or state.get("rollback_chain_id")
+                or ""
+            ),
             tags=tags,
         )
     except Exception:

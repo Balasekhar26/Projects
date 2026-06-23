@@ -27,6 +27,8 @@ def test_empty_action_memory_returns_safe_defaults(isolated_action_memory):
 def test_insert_action_stores_required_fields_and_tags(isolated_action_memory):
     action_id = isolated_action_memory.record(
         action_id="act_insert",
+        workflow_id="wf_insert",
+        parent_action_id="act_parent",
         agent="browser",
         action="SEARCH_WEB",
         reason="Find RF design reference",
@@ -36,6 +38,8 @@ def test_insert_action_stores_required_fields_and_tags(isolated_action_memory):
         duration_ms=1320,
         confidence_score=0.97,
         rollback_executed=False,
+        rollback_action_id="",
+        rollback_chain_id="rb_chain_1",
         tags=["Browser", "web", "rf", "web"],
         timestamp="2026-06-23T12:30:10Z",
     )
@@ -44,6 +48,8 @@ def test_insert_action_stores_required_fields_and_tags(isolated_action_memory):
     assert record is not None
     payload = record.to_dict()
     assert payload["action_id"] == "act_insert"
+    assert payload["workflow_id"] == "wf_insert"
+    assert payload["parent_action_id"] == "act_parent"
     assert payload["action"] == "SEARCH_WEB"
     assert payload["reason"] == "Find RF design reference"
     assert payload["outcome"] == "Reference located"
@@ -51,6 +57,7 @@ def test_insert_action_stores_required_fields_and_tags(isolated_action_memory):
     assert payload["failure"] is False
     assert payload["duration_ms"] == 1320
     assert payload["confidence_score"] == 0.97
+    assert payload["rollback_chain_id"] == "rb_chain_1"
     assert payload["timestamp"] == "2026-06-23T12:30:10Z"
     assert payload["tags"] == ["browser", "web", "rf"]
 
@@ -70,9 +77,10 @@ def test_duplicate_action_id_is_rejected(isolated_action_memory):
         )
 
 
-def test_update_outcome_changes_success_failure_duration_and_tags(isolated_action_memory):
+def test_update_outcome_appends_immutable_child_event(isolated_action_memory):
     isolated_action_memory.record(
         action_id="act_update",
+        workflow_id="wf_update",
         agent="file",
         action="CREATE_FILE",
         success=False,
@@ -92,15 +100,51 @@ def test_update_outcome_changes_success_failure_duration_and_tags(isolated_actio
     )
 
     assert updated is True
-    record = isolated_action_memory.get_action("act_update")
-    assert record is not None
-    assert record.actual_outcome == "File created after retry"
-    assert record.success is True
-    assert record.failure is False
-    assert record.duration_ms == 710
-    assert record.confidence_score == 0.91
-    assert record.rollback_executed is True
-    assert record.tags == ["file", "retry", "success"]
+    original = isolated_action_memory.get_action("act_update")
+    assert original is not None
+    assert original.actual_outcome == "File missing"
+    assert original.success is False
+
+    workflow_items = isolated_action_memory.get_workflow_actions("wf_update")
+    assert len(workflow_items) == 2
+    child = workflow_items[1]
+    assert child.parent_action_id == "act_update"
+    assert child.action == "CREATE_FILE_OUTCOME_UPDATE"
+    assert child.actual_outcome == "File created after retry"
+    assert child.success is True
+    assert child.failure is False
+    assert child.duration_ms == 710
+    assert child.confidence_score == 0.91
+    assert child.rollback_executed is True
+    assert child.tags == ["file", "failed", "retry", "success", "outcome-update", "rollback"]
+
+
+def test_workflow_and_rollback_lineage_retrieval(isolated_action_memory):
+    isolated_action_memory.record(
+        action_id="act_lineage_parent",
+        workflow_id="wf_lineage",
+        agent="coder",
+        action="WRITE_FILE",
+        success=True,
+        rollback_chain_id="rollback_chain_alpha",
+    )
+    isolated_action_memory.record(
+        action_id="act_lineage_rollback",
+        workflow_id="wf_lineage",
+        parent_action_id="act_lineage_parent",
+        agent="coder",
+        action="DELETE_FILE",
+        success=True,
+        rollback_executed=True,
+        rollback_action_id="act_lineage_parent",
+        rollback_chain_id="rollback_chain_alpha",
+    )
+
+    items = isolated_action_memory.get_workflow_actions("wf_lineage")
+    assert [item.action_id for item in items] == ["act_lineage_parent", "act_lineage_rollback"]
+    assert items[1].parent_action_id == "act_lineage_parent"
+    assert items[1].rollback_action_id == "act_lineage_parent"
+    assert items[1].rollback_chain_id == "rollback_chain_alpha"
 
 
 def test_storage_validation_rejects_bad_values(isolated_action_memory):
@@ -219,12 +263,33 @@ def test_broker_records_verified_action_memory(tmp_path, monkeypatch, isolated_a
     assert record.success is True
 
 
+def test_record_from_broker_preserves_exact_dve_confidence(isolated_action_memory):
+    from backend.core.action_memory import record_from_broker
+
+    action_id = record_from_broker(
+        agent_name="browser",
+        action="BROWSER_SEARCH",
+        params={"query": "rf design", "reason": "Find RF reference"},
+        execution_result={"success": True, "message": "Reference located"},
+        dve_result={"success": True, "confidence_score": 0.72, "outcome": "REVIEW"},
+        duration_ms=321,
+        state={"workflow_id": "wf_dve"},
+    )
+
+    assert action_id is not None
+    record = isolated_action_memory.get_action(action_id)
+    assert record is not None
+    assert record.confidence_score == 0.72
+    assert record.workflow_id == "wf_dve"
+
+
 def test_action_memory_http_create_and_get(isolated_action_memory):
     client = TestClient(app)
     response = client.post(
         "/action-memory/actions",
         json={
             "action_id": "act_http",
+            "workflow_id": "wf_http",
             "agent": "browser",
             "action": "SEARCH_WEB",
             "reason": "Find a reference",
@@ -237,6 +302,7 @@ def test_action_memory_http_create_and_get(isolated_action_memory):
     )
     assert response.status_code == 200
     assert response.json()["item"]["action_id"] == "act_http"
+    assert response.json()["item"]["workflow_id"] == "wf_http"
 
     fetched = client.get("/action-memory/actions/act_http")
     assert fetched.status_code == 200
@@ -314,12 +380,13 @@ def test_action_memory_http_retrieval_apis(isolated_action_memory):
     assert stats.json()["item"]["rollback_rate"] == 0.5
 
 
-def test_action_memory_http_patch_updates_record(isolated_action_memory):
+def test_action_memory_http_patch_appends_child_record(isolated_action_memory):
     client = TestClient(app)
     client.post(
         "/action-memory/actions",
         json={
             "action_id": "act_http_patch",
+            "workflow_id": "wf_http_patch",
             "agent": "file",
             "action": "CREATE_FILE",
             "failure": True,
@@ -340,12 +407,19 @@ def test_action_memory_http_patch_updates_record(isolated_action_memory):
     )
 
     assert response.status_code == 200
+    assert response.json()["appended"] is True
+    assert response.json()["parent_action_id"] == "act_http_patch"
     item = response.json()["item"]
+    assert item["parent_action_id"] == "act_http_patch"
+    assert item["action"] == "CREATE_FILE_OUTCOME_UPDATE"
     assert item["success"] is True
     assert item["failure"] is False
     assert item["outcome"] == "Created file"
     assert item["duration_ms"] == 120
-    assert item["tags"] == ["file", "retry"]
+    assert item["tags"] == ["file", "retry", "outcome-update"]
+
+    original = client.get("/action-memory/actions/act_http_patch").json()["item"]
+    assert original["outcome"] == "Missing file"
 
 
 def test_action_memory_db_file_is_created_under_runtime_root(

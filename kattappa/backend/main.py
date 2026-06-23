@@ -143,6 +143,8 @@ class MemoryRequest(BaseModel):
 
 class ActionMemoryRecordRequest(BaseModel):
     action_id: str | None = None
+    workflow_id: str = ""
+    parent_action_id: str = ""
     agent: str
     action: str
     reason: str = ""
@@ -154,6 +156,8 @@ class ActionMemoryRecordRequest(BaseModel):
     duration_ms: int = Field(default=0, ge=0)
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
     rollback_executed: bool = False
+    rollback_action_id: str = ""
+    rollback_chain_id: str = ""
     timestamp: str | None = None
     tags: list[str] = Field(default_factory=list)
 
@@ -684,6 +688,13 @@ class SimulateRequest(BaseModel):
     scenario: dict[str, object] = {}
     trials: int = 1000
     seed: int = 42
+
+
+class PlanSimulationRequest(BaseModel):
+    goal: str = ""
+    workflow_id: str = ""
+    plan: list[dict[str, object]] = []
+    context: dict[str, object] = {}
 
 
 class DistillRequest(BaseModel):
@@ -1694,6 +1705,18 @@ def simulate(request: SimulateRequest) -> dict[str, object]:
     from backend.core.simulation_engine import SimulationEngine
     return SimulationEngine.simulate_dict(
         request.scenario, trials=request.trials, seed=request.seed).to_dict()
+
+
+@app.post("/simulate/plan")
+def simulate_plan(request: PlanSimulationRequest) -> dict[str, object]:
+    from backend.core.simulation_engine import SimulationEngine
+
+    return SimulationEngine.simulate_plan(
+        request.plan,
+        goal=request.goal,
+        workflow_id=request.workflow_id,
+        context=request.context,
+    ).to_dict()
 
 
 @app.post("/distill")
@@ -3128,6 +3151,18 @@ def action_memory_status() -> dict[str, object]:
         "status": "ready",
         "storage": "sqlite",
         "database": "action_memory.db",
+        "mode": "append_only_execution_ledger",
+        "indexed_fields": [
+            "action_id",
+            "agent",
+            "action",
+            "success",
+            "failure",
+            "timestamp_unix",
+            "workflow_id",
+            "parent_action_id",
+            "rollback_chain_id",
+        ],
         "total_actions": ActionMemory.count_total(),
         "agents": {agent: stats.to_dict() for agent, stats in agent_stats.items()},
     }
@@ -3141,6 +3176,8 @@ def action_memory_record(request: ActionMemoryRecordRequest) -> dict[str, object
     try:
         action_id = ActionMemory.record(
             action_id=request.action_id,
+            workflow_id=request.workflow_id,
+            parent_action_id=request.parent_action_id,
             agent=request.agent,
             action=request.action,
             reason=request.reason,
@@ -3150,6 +3187,8 @@ def action_memory_record(request: ActionMemoryRecordRequest) -> dict[str, object
             duration_ms=request.duration_ms,
             confidence_score=request.confidence_score,
             rollback_executed=request.rollback_executed,
+            rollback_action_id=request.rollback_action_id,
+            rollback_chain_id=request.rollback_chain_id,
             timestamp=request.timestamp,
             tags=request.tags,
         )
@@ -3237,6 +3276,13 @@ def action_memory_agent_statistics(agent: str) -> dict[str, object]:
     return {"item": ActionMemory.get_agent_statistics(agent).to_dict()}
 
 
+@app.get("/action-memory/workflows/{workflow_id}/actions")
+def action_memory_workflow_actions(workflow_id: str, limit: int = 500) -> dict[str, object]:
+    from backend.core.action_memory import ActionMemory
+
+    return {"items": _action_records_payload(ActionMemory.get_workflow_actions(workflow_id, limit=limit))}
+
+
 @app.patch("/action-memory/actions/{action_id}")
 def action_memory_update(
     action_id: str, request: ActionMemoryUpdateRequest
@@ -3247,7 +3293,7 @@ def action_memory_update(
     if request.success is not None or request.failure is not None:
         success = _resolve_action_success(request.success, request.failure)
     try:
-        updated = ActionMemory.update_outcome(
+        item = ActionMemory.append_outcome_update(
             action_id,
             actual_outcome=request.actual_outcome or request.outcome,
             success=success,
@@ -3258,10 +3304,9 @@ def action_memory_update(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not updated:
+    if item is None:
         raise HTTPException(status_code=404, detail="Action memory record not found")
-    item = ActionMemory.get_action(action_id)
-    return {"item": item.to_dict() if item else None}
+    return {"item": item.to_dict(), "appended": True, "parent_action_id": action_id}
 
 
 @app.get("/action-memory/actions/{action_id}")

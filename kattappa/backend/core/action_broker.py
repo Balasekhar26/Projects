@@ -594,6 +594,10 @@ class ActionBroker:
                     duration_ms=int((time.perf_counter() - _action_started_at) * 1000),
                     confidence_score=0.0,
                     rollback_executed=False,
+                    workflow_id=str(state.get("workflow_id") or state.get("chat_session_id") or ""),
+                    parent_action_id=str(state.get("parent_action_id") or state.get("current_action_id") or ""),
+                    rollback_action_id=str(state.get("rollback_action_id") or ""),
+                    rollback_chain_id=str(state.get("rollback_chain_id") or ""),
                     tags=[agent_name.lower(), action.lower().replace("_", "-"), "failed", "broker-exception"],
                 )
             except Exception:
