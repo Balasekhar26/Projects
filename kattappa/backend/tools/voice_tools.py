@@ -9,8 +9,86 @@ import shutil
 import subprocess
 import tempfile
 import wave
+import json
+import math
 from pathlib import Path
 from typing import Any
+
+from backend.core.action_broker import ActionBroker
+from backend.core.resource_governor import ResourceGovernor
+
+# Emotive Voice Profiles
+EMOTION_PROFILES = {
+    "LOYAL": {"pitch": "low", "speed": 1.25, "volume": "medium"},
+    "REPORTING": {"pitch": "medium", "speed": 1.0, "volume": "medium"},
+    "THINKING": {"pitch": "low", "speed": 1.35, "volume": "low"},
+    "WARNING": {"pitch": "medium", "speed": 0.85, "volume": "high"},
+    "URGENT": {"pitch": "high", "speed": 0.8, "volume": "high"},
+    "SUCCESS": {"pitch": "medium", "speed": 1.0, "volume": "medium"},
+    "ERROR": {"pitch": "low", "speed": 1.25, "volume": "medium"},
+    "NEUTRAL": {"pitch": "medium", "speed": 1.0, "volume": "medium"},
+    "SAD": {"pitch": "low", "speed": 1.35, "volume": "low"}
+}
+
+_is_piper_playing = False  # Track active playback for echo cancellation
+
+def scan_text_for_secrets(text: str) -> bool:
+    patterns = [
+        r"(?i)(api[_-]?key|password|secret|token|credential|passwd|private[_-]?key)\s*[:=]\s*[a-zA-Z0-9_\-\.\~]{8,}",
+        r"-----BEGIN [A-Z ]+ PRIVATE KEY-----",
+        r"(AIzaSy[A-Za-z0-9_\\\-]{33})",  # Google API Key
+        r"ghp_[a-zA-Z0-9]{36}",           # GitHub Token
+    ]
+    for pattern in patterns:
+        if re.search(pattern, text):
+            return True
+    return False
+
+def clean_ssml_markup(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text)
+
+def verify_factual_assertions(text: str, state: dict[str, Any]) -> str:
+    lower_text = text.lower()
+    logs = state.get("logs", [])
+    logs_str = " ".join(logs).lower()
+    result_str = str(state.get("result") or "").lower()
+    
+    mutations = {
+        "deploy": ["deploy", "deployment"],
+        "delete": ["deleted", "delete", "removal"],
+        "patch": ["patched", "patch", "code patch"],
+        "install": ["installed", "install", "package install"]
+    }
+    
+    for action_key, terms in mutations.items():
+        if any(term in lower_text for term in terms):
+            has_success = "success" in result_str or "success" in logs_str or "completed" in result_str or "completed" in logs_str
+            if not has_success:
+                if action_key == "deploy":
+                    return "I could not verify the deployment status, my lord."
+                elif action_key == "delete":
+                    return "I could not verify if the file was deleted, my lord."
+                elif action_key == "patch":
+                    return "I could not verify if the code was successfully patched, my lord."
+                elif action_key == "install":
+                    return "I could not verify if the package was installed, my lord."
+                else:
+                    return "I could not verify the status of the requested action."
+    return text
+
+def is_speech_active(wav_path: str, threshold: float = 0.005) -> bool:
+    try:
+        import numpy as np
+        with wave.open(wav_path, "rb") as w:
+            frames = w.readframes(w.getnframes())
+            data = np.frombuffer(frames, dtype=np.int16)
+            if len(data) == 0:
+                return False
+            normalized = data / 32768.0
+            rms = np.sqrt(np.mean(normalized ** 2))
+            return rms > threshold
+    except Exception:
+        return True
 
 
 WAKE_NAMES = ("kattappa", "mama", "kittu")
@@ -70,25 +148,183 @@ TELUGU_SPEECH_PHRASES = {
 }
 
 
-def speak(text: str, purpose: str = "assistant_response") -> str:
-    spoken_text = normalize_spoken_text(text, purpose=purpose)
+def speak(text: Any, purpose: str = "assistant_response", state: dict[str, Any] | None = None) -> str:
+    global _is_piper_playing
+
+    # Extract Voice Response Object fields
+    if isinstance(text, str):
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict) and "text" in data:
+                text_content = data.get("text", "")
+                emotion = data.get("emotion", "NEUTRAL").upper()
+                intensity = data.get("intensity", 0.5)
+                language = data.get("language", "telugu")
+                voice_profile = data.get("voice_profile", "kattappa")
+            else:
+                text_content = text
+                emotion = "NEUTRAL"
+                intensity = 0.5
+                language = "telugu" if _contains_telugu(text) else "english"
+                voice_profile = "kattappa"
+        except Exception:
+            text_content = text
+            emotion = "NEUTRAL"
+            intensity = 0.5
+            language = "telugu" if _contains_telugu(text) else "english"
+            voice_profile = "kattappa"
+    elif isinstance(text, dict):
+        text_content = text.get("text", "")
+        emotion = text.get("emotion", "NEUTRAL").upper()
+        intensity = text.get("intensity", 0.5)
+        language = text.get("language", "telugu")
+        voice_profile = text.get("voice_profile", "kattappa")
+    else:
+        text_content = str(text)
+        emotion = "NEUTRAL"
+        intensity = 0.5
+        language = "telugu" if _contains_telugu(text_content) else "english"
+        voice_profile = "kattappa"
+
+    # Rule 8: Secret Protection Scanner
+    if scan_text_for_secrets(text_content):
+        return "Speech output blocked: contains sensitive credentials."
+
+    # Prevent raw SSML injection: escape markup/tags
+    text_content = clean_ssml_markup(text_content)
+
+    # Rule 9: Persona Cannot Create Facts
+    if state is not None:
+        text_content = verify_factual_assertions(text_content, state)
+
+    # Call Action Broker to enforce permissions and policies
+    state_dummy = {"user_input": text_content, "logs": [], "approved": True}
+    broker_res = ActionBroker.intake_request("voice", "VOICE_SPEAKER_OUTPUT", {}, state_dummy)
+    if not broker_res.get("success"):
+        return f"Blocked by Action Broker: {broker_res.get('error')}"
+
+    # Get emotion mapping parameters
+    params = EMOTION_PROFILES.get(emotion, EMOTION_PROFILES["NEUTRAL"])
+    
+    # Render speech
+    spoken_text = normalize_spoken_text(text_content, purpose=purpose)
     if not spoken_text:
+        ResourceGovernor.record_execution_usage("voice", "VOICE_SPEAKER_OUTPUT", {}, {"success": True})
         return "Speech output skipped: empty text"
-    piper_result = _speak_with_piper(spoken_text)
-    if piper_result:
-        return piper_result
+
+    # Set playing flag to block microphone loop from transcribing own output (AEC)
+    _is_piper_playing = True
+    try:
+        piper_result = _speak_with_piper_emotive(spoken_text, params)
+        if piper_result:
+            return piper_result
+        return _speak_with_fallback_emotive(spoken_text, params)
+    finally:
+        _is_piper_playing = False
+        ResourceGovernor.record_execution_usage("voice", "VOICE_SPEAKER_OUTPUT", {}, {"success": True})
+
+
+def _speak_with_piper_emotive(text: str, params: dict[str, Any]) -> str | None:
+    piper_command = shutil.which("piper")
+    piper_model = _piper_voice_model()
+    if not piper_command or not piper_model:
+        return None
+    output_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as handle:
+            output_path = handle.name
+            
+        length_scale = 1.0
+        if params.get("speed") != 1.0:
+            length_scale = 1.0 / params["speed"]
+            
+        process = subprocess.run(
+            [
+                piper_command,
+                "--model",
+                str(piper_model),
+                "--output_file",
+                output_path,
+                "--length_scale",
+                str(length_scale)
+            ],
+            env=_piper_process_env(),
+            input=text,
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=60,
+            check=False,
+        )
+        if process.returncode != 0:
+            return None
+        if not _play_wav(output_path):
+            return None
+        return "spoken via Piper local TTS using Kattappa original voice profile"
+    except Exception:
+        return None
+    finally:
+        if output_path:
+            Path(output_path).unlink(missing_ok=True)
+
+
+def _speak_with_fallback_emotive(text: str, params: dict[str, Any]) -> str:
     try:
         import pyttsx3
-    except Exception as exc:
-        return _speak_with_os_adapter(spoken_text, exc)
-    try:
         engine = pyttsx3.init()
-        _apply_kattappa_profile(engine)
-        engine.say(spoken_text)
+        rate = int(200 * params["speed"])
+        engine.setProperty("rate", rate)
+        volume = 1.0 if params["volume"] == "high" else 0.5 if params["volume"] == "low" else 0.8
+        engine.setProperty("volume", volume)
+        engine.say(text)
         engine.runAndWait()
-        return "spoken via pyttsx3 using Kattappa original voice profile"
-    except Exception as exc:
-        return _speak_with_os_adapter(spoken_text, exc)
+        return f"spoken via pyttsx3 using Kattappa voice profile (rate={rate}, volume={volume})"
+    except Exception:
+        pass
+        
+    system = platform.system().lower()
+    if system == "darwin" and shutil.which("say"):
+        rate = int(175 * params["speed"])
+        subprocess.Popen(["say", "-r", str(rate), text])
+        return f"spoken via macOS say using Kattappa cinematic movie voice profile (rate={rate})"
+        
+    if system == "linux":
+        if shutil.which("espeak"):
+            speed = int(125 * params["speed"])
+            pitch = 35 if params["pitch"] == "low" else 45 if params["pitch"] == "medium" else 55
+            subprocess.Popen(["espeak", "-v", "te", "-s", str(speed), "-p", str(pitch), text])
+            return f"spoken via espeak using Kattappa voice profile (speed={speed}, pitch={pitch})"
+            
+    if system == "windows" and shutil.which("powershell"):
+        rate_val = 0
+        if params["speed"] > 1.2:
+            rate_val = -3
+        elif params["speed"] < 0.9:
+            rate_val = 3
+        volume_val = 100 if params["volume"] == "high" else 50 if params["volume"] == "low" else 80
+        
+        command = (
+            "Add-Type -AssemblyName System.Speech; "
+            "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            f"$synth.Rate = {rate_val}; "
+            f"$synth.Volume = {volume_val}; "
+            "$voice = $synth.GetInstalledVoices() | Where-Object { "
+            "  $_.VoiceInfo.Language.Name -like '*te*' -or "
+            "  $_.VoiceInfo.Name -like '*Heera*' -or "
+            "  $_.VoiceInfo.Name -like '*Ravi*' -or "
+            "  $_.VoiceInfo.Name -like '*Hemant*' -or "
+            "  $_.VoiceInfo.Language.Name -like '*in*' "
+            "} | Select-Object -First 1; "
+            "if ($voice) { $synth.SelectVoice($voice.VoiceInfo.Name); } "
+            "$synth.Speak($args[0])"
+        )
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-Command", command, text],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return f"spoken via Windows speech using Kattappa voice profile (rate={rate_val}, volume={volume_val})"
+    return "Speech output is unavailable on this OS/session: no voice synthesizer found."
 
 
 def voice_profile() -> dict[str, object]:

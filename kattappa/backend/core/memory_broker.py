@@ -115,115 +115,108 @@ class MemoryBroker:
     def _process_batch(cls, items: list[dict[str, Any]]) -> None:
         item_results: list[tuple[dict[str, Any], IngestResult]] = []
 
-        with HumanMemoryStore._lock:
-            conn = HumanMemoryStore._connect()
-            cursor = conn.cursor()
+        for item in items:
+            if item.get("action") != "ingest":
+                continue
             
-            try:
-                for item in items:
-                    if item.get("action") != "ingest":
-                        continue
-                    
-                    text = (item["text"] or "").strip()
-                    source = item["source"]
-                    session_id = item["session_id"]
-                    trusted = item["trusted"]
-                    relationship_hit = item["relationship_hit"]
-                    reasons: list[str] = []
+            text = (item["text"] or "").strip()
+            source = item["source"]
+            session_id = item["session_id"]
+            trusted = item["trusted"]
+            relationship_hit = item["relationship_hit"]
+            reasons: list[str] = []
 
-                    if trusted is None:
-                        trusted = source in {"user", "system", "voice"}
+            if trusted is None:
+                trusted = source in {"user", "system", "voice"}
 
-                    if not _tokens(text):
-                        res = IngestResult(False, StoreDecision.FORGET, False, False, None,
-                                           ImportanceScore(0, 0, 0, 0, 0, 0, StoreDecision.FORGET),
-                                           ["empty or contentless event"])
-                        item_results.append((item, res))
-                        continue
+            if not _tokens(text):
+                res = IngestResult(False, StoreDecision.FORGET, False, False, None,
+                                   ImportanceScore(0, 0, 0, 0, 0, 0, StoreDecision.FORGET),
+                                   ["empty or contentless event"])
+                item_results.append((item, res))
+                continue
 
-                    if SensoryDeduplicator.is_duplicate(text):
-                        reasons.append("near-duplicate sensory event discarded")
-                        res = IngestResult(False, StoreDecision.FORGET, True, False, None,
-                                           ImportanceScore(0, 0, 0, 0, 0, 0, StoreDecision.FORGET), reasons)
-                        item_results.append((item, res))
-                        continue
+            if SensoryDeduplicator.is_duplicate(text):
+                reasons.append("near-duplicate sensory event discarded")
+                res = IngestResult(False, StoreDecision.FORGET, True, False, None,
+                                   ImportanceScore(0, 0, 0, 0, 0, 0, StoreDecision.FORGET), reasons)
+                item_results.append((item, res))
+                continue
 
-                    WorkingMemory.observe(session_id, text)
-                    repetition = WorkingMemory.repetition_count(session_id, text)
+            WorkingMemory.observe(session_id, text)
+            repetition = WorkingMemory.repetition_count(session_id, text)
 
-                    score = ImportanceScorer.score(
-                        text, repetition_count=repetition, trusted=trusted, relationship_hit=relationship_hit
-                    )
-                    reasons.append(f"importance={score.total:.2f} decision={score.decision.value}")
+            score = ImportanceScorer.score(
+                text, repetition_count=repetition, trusted=trusted, relationship_hit=relationship_hit
+            )
+            reasons.append(f"importance={score.total:.2f} decision={score.decision.value}")
 
-                    if score.decision is StoreDecision.FORGET:
-                        reasons.append("below storage threshold; kept only in working memory")
-                        res = IngestResult(False, score.decision, False, False, None, score, reasons)
-                        item_results.append((item, res))
-                        continue
+            if score.decision is StoreDecision.FORGET:
+                reasons.append("below storage threshold; kept only in working memory")
+                res = IngestResult(False, score.decision, False, False, None, score, reasons)
+                item_results.append((item, res))
+                continue
 
-                    mem_type = classify_memory_type(text)
+            mem_type = classify_memory_type(text)
 
-                    pending = False
-                    if not trusted and mem_type in (MemoryType.SEMANTIC, MemoryType.PROCEDURAL):
-                        pending = True
-                        reasons.append("untrusted source: held for approval before long-term store")
+            from backend.core.memory_service import MemoryService
+            write_res = MemoryService.write(
+                agent="memory_service",
+                content=text,
+                memory_type=mem_type.value,
+                source=source,
+                session_id=session_id,
+                state={"approved": True}
+            )
 
-                    now = time.time()
-                    record = MemoryRecord(
-                        id=uuid.uuid4().hex,
-                        type=mem_type,
-                        content=text,
-                        importance=score.total,
-                        confidence=0.8 if trusted else 0.4,
-                        decay_score=max(0.5, score.total),
-                        recall_count=0,
-                        created_at=now,
-                        last_recall_at=now,
-                        pinned=False,
-                        trusted=trusted,
-                        source=source,
-                        compression_level=(int(CompressionLevel.RAW)
-                                           if score.decision is StoreDecision.STORE
-                                           else int(CompressionLevel.SUMMARY)),
-                        tags=["pending_approval"] if pending else [],
-                        metadata={"session_id": session_id},
-                        pending_approval=pending,
-                    )
-                    
-                    cursor.execute(
-                        """INSERT INTO hm_memories
-                           (id,type,content,importance,confidence,decay_score,recall_count,
-                            created_at,last_recall_at,pinned,trusted,source,compression_level,
-                            tags,metadata,pending_approval)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            record.id, record.type.value, record.content, record.importance,
-                            record.confidence, record.decay_score, record.recall_count,
-                            record.created_at, record.last_recall_at, int(record.pinned),
-                            int(record.trusted), record.source, record.compression_level,
-                            json.dumps(record.tags), json.dumps(record.metadata),
-                            int(record.pending_approval),
-                        ),
-                    )
-                    
-                    res = IngestResult(
-                        stored=not pending,
-                        decision=score.decision,
-                        duplicate=False,
-                        pending_approval=pending,
-                        record=record,
-                        score=score,
-                        reasons=reasons,
-                    )
-                    item_results.append((item, res))
-                
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                raise e
+            if not write_res.get("success"):
+                res = IngestResult(
+                    stored=False,
+                    decision=StoreDecision.FORGET,
+                    duplicate=False,
+                    pending_approval=False,
+                    record=None,
+                    score=score,
+                    reasons=reasons + [write_res.get("error", "write failed")]
+                )
+                item_results.append((item, res))
+                continue
 
-            for item, res in item_results:
-                item["result"] = res
-                if item.get("done_event"):
-                    item["done_event"].set()
+            # Check if record is inside a result key
+            result_payload = write_res.get("result", {}) if write_res.get("result") else write_res
+            rec_dict = result_payload.get("record") or {}
+
+            record = MemoryRecord(
+                id=rec_dict.get("id", uuid.uuid4().hex),
+                type=MemoryType(rec_dict.get("type", mem_type.value)),
+                content=rec_dict.get("content", text),
+                importance=rec_dict.get("importance", score.total),
+                confidence=rec_dict.get("confidence", 0.8 if trusted else 0.4),
+                decay_score=rec_dict.get("decay_score", max(0.5, score.total)),
+                recall_count=rec_dict.get("recall_count", 0),
+                created_at=rec_dict.get("created_at", time.time()),
+                last_recall_at=rec_dict.get("last_recall_at", time.time()),
+                pinned=rec_dict.get("pinned", False),
+                trusted=rec_dict.get("trusted", trusted),
+                source=rec_dict.get("source", source),
+                compression_level=rec_dict.get("compression_level", 0),
+                tags=rec_dict.get("tags", []),
+                metadata=rec_dict.get("metadata", {}),
+                pending_approval=rec_dict.get("pending_approval", False)
+            )
+
+            res = IngestResult(
+                stored=not record.pending_approval,
+                decision=StoreDecision(result_payload.get("decision", score.decision.value)),
+                duplicate=False,
+                pending_approval=record.pending_approval,
+                record=record,
+                score=score,
+                reasons=reasons
+            )
+            item_results.append((item, res))
+
+        for item, res in item_results:
+            item["result"] = res
+            if item.get("done_event"):
+                item["done_event"].set()

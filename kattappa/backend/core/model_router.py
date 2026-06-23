@@ -50,6 +50,11 @@ def health() -> tuple[bool, str]:
 
 
 def ask_model(prompt: str, role: str = "general", system: str | None = None) -> str:
+    from backend.core.resource_governor import ResourceGovernor
+    estimated_input_tokens = len(prompt) // 4
+    if not ResourceGovernor.check_token_budget(estimated_input_tokens):
+        return "Error: System token budget exceeded. LLM request blocked by Resource Governor."
+        
     config = load_config()
     
     # Dynamic Multi-Model Intelligent Routing
@@ -139,6 +144,8 @@ def ask_model(prompt: str, role: str = "general", system: str | None = None) -> 
                     SelfLearningEngine.log_response_time(model, duration)
                     SelfLearningEngine.reset_failures(model)
                     log_event(f"model_used role={routed_role} model={model} duration={duration:.3f}s")
+                    estimated_output_tokens = len(final_content) // 4
+                    ResourceGovernor.charge_tokens(estimated_input_tokens + estimated_output_tokens)
                     return final_content
                 errors.append(f"{model}: empty response")
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
@@ -176,6 +183,8 @@ def ask_model(prompt: str, role: str = "general", system: str | None = None) -> 
                             SelfLearningEngine.log_response_time(model, duration)
                             SelfLearningEngine.reset_failures(model)
                             log_event(f"model_used role={routed_role} model={model} duration={duration:.3f}s")
+                            estimated_output_tokens = len(final_content) // 4
+                            ResourceGovernor.charge_tokens(estimated_input_tokens + estimated_output_tokens)
                             return final_content
             except Exception as retry_exc:
                 exc = retry_exc

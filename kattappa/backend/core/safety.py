@@ -55,3 +55,30 @@ def classify_risk(text: str, trust_tag: str = "SYSTEM_TRUST") -> RiskDecision:
         return RiskDecision("medium", True, False, f"Approval keyword: {risky_hit}", trust_tag)
 
     return RiskDecision("safe", False, False, "No risky action detected", trust_tag)
+
+
+PROTECTED_FILES = {
+    "proposal_engine.py",
+    "proposal_governance.py",
+    "learning_dashboard.py",
+    "burn_in_governance.py",
+    "source_trust_engine.py",
+    "research_memory.py",
+    "safety.py",
+    "validators.py",
+    "execution_policy.py",
+    "approval_workflow.py",
+    "approval_continuation.py",
+    "reliability_monitor.py",
+    "audit"
+}
+
+
+def is_protected_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower()
+    for filename in PROTECTED_FILES:
+        if filename in normalized:
+            return True
+    return False
+
+

@@ -36,9 +36,7 @@ class MemoryGovernance:
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys = ON")
         with cls._lock:
-            if not cls._schema_ensured:
-                cls._ensure_schema(conn)
-                cls._schema_ensured = True
+            cls._ensure_schema(conn)
         return conn
 
     @classmethod

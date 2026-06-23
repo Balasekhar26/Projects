@@ -146,6 +146,32 @@ _DEFAULT_LIST = [
     _human("SEND_EMAIL", "Send an email"),
     _human("DESKTOP_CONTROL", "Control mouse/keyboard"),
     _human("COMMIT_MEMORY_DELTA", "Commit a memory delta to long-term memory"),
+    # Desktop policies (V3 Hardened)
+    _auto("DESKTOP_READ_SCREEN", "Read screen text or elements"),
+    _auto("DESKTOP_SCREENSHOT", "Take a screenshot"),
+    _auto("DESKTOP_OPEN_APP", "Open approved desktop application"),
+    _auto("DESKTOP_MOUSE_MOVE", "Move cursor"),
+    _auto("DESKTOP_MOUSE_CLICK", "Click validated UI targets"),
+    _auto("DESKTOP_KEYBOARD_TYPING", "Type text or shortcuts"),
+    _auto("DESKTOP_CLOSE_APP", "Close active application"),
+    _auto("DESKTOP_KILL_PROCESS", "Kill process"),
+    _human("DESKTOP_DELETE_FILE", "Delete a file via desktop"),
+    _human("DESKTOP_SHUTDOWN", "Shutdown system"),
+    _human("DESKTOP_SETTINGS", "Modify system settings"),
+    # Code policies
+    _auto("RUN_TESTS", "Run tests"),
+    _auto("RUN_BENCHMARKS", "Run benchmarks"),
+    _auto("ANALYZE_CODE", "Analyze code"),
+    _auto("GENERATE_CODE", "Generate code"),
+    _human("PATCH_CODE", "Patch code"),
+    _auto("CREATE_PROPOSAL", "Create proposal"),
+    _auto("ANALYZE_REPO", "Analyze repo codebase"),
+    # Voice policies (Auto Approved)
+    _auto("VOICE_MICROPHONE_READ", "Capture audio stream from local microphone"),
+    _auto("VOICE_SPEAKER_OUTPUT", "Play synthesized speech audio output"),
+    _auto("VOICE_STT", "Transcribe raw speech audio into text"),
+    _auto("VOICE_TTS", "Synthesize text into speech audio"),
+    _auto("VOICE_WAKE_WORD_DETECTION", "Locally detect wake words"),
     # Never automatic.
     _blocked("FORMAT_DRIVE", "Format a disk"),
     _blocked("DISABLE_SECURITY", "Disable security controls"),
@@ -179,7 +205,7 @@ class PolicyEngine:
     def policies(self) -> list[ActionPolicy]:
         return sorted(self._policies.values(), key=lambda p: p.action)
 
-    def evaluate(self, action: str) -> PolicyDecision:
+    def evaluate(self, action: str, agent_name: str | None = None) -> PolicyDecision:
         policy = self.get(action)
         if policy is None:
             # Deny by default: unknown actions need a human.
@@ -187,6 +213,18 @@ class PolicyEngine:
                 self._key(action), PolicyOutcome.REQUIRE_HUMAN, matched=False,
                 reason="unknown action -> human approval required (deny by default)",
             )
+            
+        # If agent_name is provided, check capability registry
+        if agent_name:
+            from backend.core.capability_registry import ACTION_CAPABILITY_MAP, CapabilityRegistry
+            required_cap = ACTION_CAPABILITY_MAP.get(action.upper())
+            if required_cap:
+                if not CapabilityRegistry.is_capability_allowed(agent_name, required_cap):
+                    return PolicyDecision(
+                        self._key(action), PolicyOutcome.BLOCKED, matched=True,
+                        reason=f"agent '{agent_name}' lacks required capability '{required_cap}' for action '{action}'",
+                    )
+            
         reason = {
             PolicyOutcome.AUTO_EXECUTE: "policy permits automatic execution",
             PolicyOutcome.REQUIRE_HUMAN: "policy requires human approval",

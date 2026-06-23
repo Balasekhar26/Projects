@@ -146,6 +146,7 @@ def test_approval_lifecycle() -> None:
     continued = decision["continuation"]
     assert continued["kind"] == "chat"
     assert continued["status"] == "completed"
+    print("DEBUG CONTINUATION:", json.dumps(continued, indent=2))
     assert continued["state"]["approval_required"] is False
     assert continued["state"]["approval_id"] is None
     assert "exact delete target" in continued["response"]

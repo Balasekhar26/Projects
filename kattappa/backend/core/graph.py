@@ -17,6 +17,7 @@ from backend.agents.self_improver import self_improver_node
 from backend.agents.terminal import terminal_node
 from backend.agents.vision import vision_node
 from backend.agents.voice import voice_node
+from backend.agents.monitoring import monitoring_node
 from backend.core.logger import log_event
 from backend.core.state import AgentState
 
@@ -40,9 +41,17 @@ def route_agent(state: AgentState) -> str:
             "terminal",
             "finance",
             "self_improver",
+            "monitoring",
         }
         else "evaluator"
     )
+
+
+def route_evaluator(state: AgentState) -> str:
+    if state.get("selected_agent") and state.get("result") is None:
+        return "safety"
+    return "end"
+
 
 
 def build_graph():
@@ -61,6 +70,7 @@ def build_graph():
     graph.add_node("terminal", terminal_node)
     graph.add_node("finance", finance_node)
     graph.add_node("self_improver", self_improver_node)
+    graph.add_node("monitoring", monitoring_node)
     graph.add_node("evaluator", evaluator_node)
 
     graph.set_entry_point("memory")
@@ -81,6 +91,7 @@ def build_graph():
             "terminal": "terminal",
             "finance": "finance",
             "self_improver": "self_improver",
+            "monitoring": "monitoring",
             "evaluator": "evaluator",
         },
     )
@@ -96,10 +107,19 @@ def build_graph():
         "terminal",
         "finance",
         "self_improver",
+        "monitoring",
     ]:
         graph.add_edge(node, "evaluator")
-    graph.add_edge("evaluator", END)
+    graph.add_conditional_edges(
+        "evaluator",
+        route_evaluator,
+        {
+            "safety": "safety",
+            "end": END,
+        },
+    )
     return graph.compile()
+
 
 
 compiled_graph = build_graph()
@@ -124,9 +144,9 @@ def run_graph(
         "selected_agent": None,
         "memory_context": None,
         "related_messages": [],
-        "tool_request": None,
         "approval_id": None,
         "approved_approval_id": approved_approval_id,
+        "approved": approved_approval_id is not None,
         "approval_required": False,
         "risk_level": "unknown",
         "result": None,

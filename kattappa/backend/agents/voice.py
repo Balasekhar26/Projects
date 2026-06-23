@@ -1,38 +1,15 @@
+"""Voice Agent router — thin delegation shim.
+
+This module provides the `voice_node` entry point that the LangGraph state
+machine calls.  It delegates immediately to the full hardened Voice Agent V1
+implementation in `voice_agent.py`.
+
+The split preserves backward compatibility with any import that references
+``backend.agents.voice.voice_node`` while keeping the core implementation in
+a single, well-documented module.
+"""
 from __future__ import annotations
 
-from backend.core.free_stack import free_stack_report
-from backend.tools.voice_tools import voice_pipeline_status, voice_profile
+from backend.agents.voice_agent import voice_node  # noqa: F401 — re-exported
 
-
-def voice_node(state):
-    report = free_stack_report()
-    profile = voice_profile()
-    pipeline = voice_pipeline_status()
-    voice_items = [
-        item
-        for item in report["capabilities"]
-        if item["key"] in {"faster_whisper", "piper", "openwakeword"}
-    ]
-    lines = [
-        "Voice agent free/local readiness:",
-        f"Assistant voice: {profile['name']} ({profile['style']}).",
-        (
-            f"Language contract: speaks {profile['primary_spoken_language']} first, "
-            f"{profile['secondary_spoken_language']} second; typed output remains "
-            f"{profile['text_output_language']}."
-        ),
-        f"Voice boundary: {profile['policy']}",
-    ]
-    for item in voice_items:
-        marker = "ready" if item["installed"] else "missing"
-        lines.append(f"- {item['name']}: {marker} ({item['role']})")
-    lines.append(
-        "Desktop voice uses local backend audio processing; browser speech APIs are not the primary path."
-    )
-    lines.append(
-        f"Wake: {pipeline['wake']['primary_decision']} ({pipeline['wake']['status']}); STT: {pipeline['stt']['status']}; "
-        f"TTS: {pipeline['tts']['primary_decision']} (available: {pipeline['tts']['available']})."
-    )
-    state["result"] = "\n".join(lines)
-    state["logs"].append("voice: ready")
-    return state
+__all__ = ["voice_node"]

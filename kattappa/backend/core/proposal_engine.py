@@ -256,8 +256,18 @@ class ProposalEngine:
         affected_modules: list[str] | None = None,
         parent_proposal_id: str | None = None,
         research_cost: float = 10.0,
+        source_name: str | None = None,
     ) -> dict[str, Any]:
         """Validates safety, budget, Negative Knowledge, and Occam Gate before writing proposal."""
+        from backend.core.burn_in_governance import BurnInGovernance
+        if BurnInGovernance.is_frozen():
+            return {
+                "id": f"prop_rejected_{int(time.time())}",
+                "title": title,
+                "status": "rejected",
+                "reasons": ["Governance Freeze: Proposal generation is disabled in Audit Mode."],
+            }
+
         if affected_modules is None:
             affected_modules = []
 
@@ -268,9 +278,12 @@ class ProposalEngine:
             SemanticNegativeKnowledgeMatcher
         )
 
+        from backend.core.research_memory import ResearchMemory
+
         # 1. Protected Core & Integrity check
         pis = ProposalIntegrityScorer.compute_pis(title, proposal, affected_modules)
         if pis < 100.0 or ProtectedCoreRegistry.check_affected_modules(affected_modules) or cls.is_protected_core_violation(proposal) or cls.is_protected_core_violation(title):
+            ResearchMemory.record_rejected(title)
             return {
                 "id": f"prop_rejected_{int(time.time())}",
                 "title": title,
@@ -285,6 +298,7 @@ class ProposalEngine:
         day_ago = now - 86400
         created_today = sum(1 for p in cls.list_proposals() if p.get("created_at", 0.0) >= day_ago)
         if created_today >= limit:
+            ResearchMemory.record_rejected(title)
             return {
                 "id": f"prop_rejected_{int(time.time())}",
                 "title": title,
@@ -311,6 +325,7 @@ class ProposalEngine:
         warnings = []
         
         if band == "block":
+            ResearchMemory.record_rejected(title)
             return {
                 "id": f"prop_rejected_{int(time.time())}",
                 "title": title,
@@ -327,6 +342,7 @@ class ProposalEngine:
         # 4. Occam Gate Check
         occam_res = cls.evaluate_occam_gate(proposal, expected_gain, complexity)
         if not occam_res["beats_simple_fix"]:
+            ResearchMemory.record_rejected(title)
             return {
                 "id": f"prop_rejected_{int(time.time())}",
                 "title": title,
@@ -336,6 +352,31 @@ class ProposalEngine:
                     f"beats complex proposal ROI ({occam_res['candidate_roi']})."
                 ],
                 "occam_gate": occam_res,
+            }
+
+        # 5. PVS Calculation & Filtering
+        reputation_score = 0.5
+        if source_name:
+            try:
+                from backend.core.source_trust_engine import SourceTrustEngine
+                reputation_score = SourceTrustEngine.get_source_reputation(source_name).get("reputation_score", 0.5)
+            except Exception:
+                pass
+        
+        novelty_risk = occam_res.get("novelty_risk_score", 0.0)
+        risk_score = 1.0 + (novelty_risk / 50.0)
+        pvs = (expected_gain * (confidence / 100.0) * reputation_score) / (max(1, complexity) * risk_score)
+        pvs = round(pvs, 4)
+
+        # Reject/filter out low-performing proposals (PVS < 0.5)
+        if pvs < 0.5:
+            ResearchMemory.record_rejected(title)
+            return {
+                "id": f"prop_rejected_{int(time.time())}",
+                "title": title,
+                "status": ProposalStatus.REJECTED.value,
+                "reasons": [f"Proposal Value Score (PVS) {pvs} is below the required threshold of 0.5."],
+                "pvs": pvs
             }
 
         # Save to persistent storage
@@ -362,10 +403,15 @@ class ProposalEngine:
             "warnings": warnings,
             "pis": pis,
             "created_at": time.time(),
+            "source_name": source_name,
+            "pvs": pvs
         }
 
         history.append(new_proposal)
         path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+
+        # Record proposed
+        ResearchMemory.record_proposed(title)
 
         try:
             from backend.core.proposal_governance import ImprovementRegistry

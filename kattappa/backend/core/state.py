@@ -16,6 +16,8 @@ class AgentState(TypedDict):
     tool_request: dict[str, Any] | None
     approval_id: str | None
     approved_approval_id: str | None
+    approved: bool | None
+    double_approved: bool | None
     approval_required: bool
     risk_level: str
     result: str | None

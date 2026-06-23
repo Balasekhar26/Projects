@@ -52,6 +52,13 @@ class ProtectedCoreRegistry:
         "reliability_monitor",
         "proposal_governance",
         "approval_gates",
+        "approval_workflow",       # Step 7.2 — Approval Workflow is Protected Core
+        "learning_dashboard",      # Step 7.3 — Dashboard metric definitions are Protected Core
+        "burn_in_governance",      # Step 8.0 — Operational Burn-in freeze rules are Protected Core
+        "research_reader",         # Step 9.0 — Research reading is Protected Core
+        "research_summarizer",     # Step 9.0 — Research summarizing is Protected Core
+        "idea_extractor",          # Step 9.0 — Idea extraction is Protected Core
+        "research_scheduler",      # Step 9.0 — Research scheduling is Protected Core
         "deployment_controls",
         "deployment_controller",
         "reliability",
@@ -953,6 +960,13 @@ class ImprovementRegistry:
             registry = cls._load_registry()
             registry.append(entry)
             cls._save_registry(registry)
+
+            # Trigger reputation update in SourceTrustEngine
+            try:
+                from backend.core.source_trust_engine import SourceTrustEngine
+                SourceTrustEngine.update_reputation(proposal_id, final_outcome)
+            except Exception:
+                pass
 
             return entry
 

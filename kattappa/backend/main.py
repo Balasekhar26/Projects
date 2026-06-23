@@ -1711,6 +1711,20 @@ def start_startup_tasks():
     thread = threading.Thread(target=internet_hub_worker_poll_loop, daemon=True)
     thread.start()
     
+    # Start Step 9.0 Daily Research Loop
+    try:
+        from backend.core.research_scheduler import ResearchScheduler
+        ResearchScheduler.start()
+    except Exception:
+        pass
+    
+    # Run Experiment Sandbox startup orphan cleanup scan
+    try:
+        from backend.core.experiment_sandbox import ExperimentManager
+        ExperimentManager.cleanup_orphans()
+    except Exception:
+        pass
+
     # Warm up default fast and coder models in the background on startup
     from backend.core.config import load_config
     from backend.core.adaptive_runtime import WarmupManager
@@ -3408,3 +3422,400 @@ def _chat_state_metadata(state: dict[str, object]) -> str:
             ],
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Approval Workflow API  (Step 7.2)
+# ---------------------------------------------------------------------------
+
+from backend.core.approval_workflow import ApprovalWorkflow, ApprovalState, ChangeType  # noqa: E402
+
+
+class _ApprovalSubmitRequest(BaseModel):
+    proposal_id: str
+    change_type: str
+    title: str
+    description: str
+    affected_modules: list[str] = []
+    submitter: str = "system"
+
+
+class _ApprovalActionRequest(BaseModel):
+    reviewer: str
+    reason: str = ""
+
+
+@app.post("/approval/submit")
+def approval_submit(req: _ApprovalSubmitRequest) -> dict[str, object]:
+    """Submit a new approval request. System auto-advances to REVIEWING or ELEVATED_REVIEW."""
+    try:
+        record = ApprovalWorkflow.submit(
+            proposal_id=req.proposal_id,
+            change_type=req.change_type,
+            title=req.title,
+            description=req.description,
+            affected_modules=req.affected_modules,
+            submitter=req.submitter,
+        )
+        return {"status": "submitted", "record": record}
+    except (ValueError, KeyError) as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/approval/approve/{approval_id}")
+def approval_approve(approval_id: str, req: _ApprovalActionRequest) -> dict[str, object]:
+    """Human Gate H1: REVIEWING / ELEVATED_REVIEW -> APPROVED."""
+    try:
+        record = ApprovalWorkflow.approve(
+            approval_id=approval_id,
+            reviewer=req.reviewer,
+            reason=req.reason or "Human approved.",
+        )
+        return {"status": "approved", "record": record}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/approval/reject/{approval_id}")
+def approval_reject(approval_id: str, req: _ApprovalActionRequest) -> dict[str, object]:
+    """Human rejection from REVIEWING, ELEVATED_REVIEW, or TESTING."""
+    try:
+        record = ApprovalWorkflow.reject(
+            approval_id=approval_id,
+            reviewer=req.reviewer,
+            reason=req.reason or "Human rejected.",
+        )
+        return {"status": "rejected", "record": record}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/approval/advance-to-testing/{approval_id}")
+def approval_advance_to_testing(approval_id: str) -> dict[str, object]:
+    """System action: APPROVED -> TESTING (sandbox passed)."""
+    try:
+        record = ApprovalWorkflow.advance_to_testing(approval_id=approval_id)
+        return {"status": "advanced_to_testing", "record": record}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/approval/deploy/{approval_id}")
+def approval_deploy(approval_id: str, req: _ApprovalActionRequest) -> dict[str, object]:
+    """Human Gate H2: TESTING -> DEPLOYED. Requires a named human reviewer."""
+    try:
+        record = ApprovalWorkflow.deploy(
+            approval_id=approval_id,
+            reviewer=req.reviewer,
+            reason=req.reason or "Human authorized deployment.",
+        )
+        return {"status": "deployed", "record": record}
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/approval/get/{approval_id}")
+def approval_get(approval_id: str) -> dict[str, object]:
+    """Retrieve a single approval record."""
+    record = ApprovalWorkflow.get(approval_id)
+    if record is None:
+        return {"status": "not_found", "approval_id": approval_id}
+    return {"status": "ok", "record": record}
+
+
+@app.get("/approval/list")
+def approval_list(state: str | None = None, change_type: str | None = None) -> dict[str, object]:
+    """List approval records, optionally filtered by state or change_type."""
+    records = ApprovalWorkflow.list_all(state=state, change_type=change_type)
+    return {"status": "ok", "count": len(records), "records": records}
+
+
+@app.get("/approval/events/{approval_id}")
+def approval_events(approval_id: str) -> dict[str, object]:
+    """Return the full append-only event ledger for an approval."""
+    events = ApprovalWorkflow.get_events(approval_id)
+    if not events:
+        return {"status": "not_found", "approval_id": approval_id, "events": []}
+    return {"status": "ok", "approval_id": approval_id, "events": events}
+
+
+@app.get("/approval/metrics")
+def approval_metrics() -> dict[str, object]:
+    """Return burn-in metrics: AAR, TTR, DAR, RAR."""
+    return {"status": "ok", "metrics": ApprovalWorkflow.metrics()}
+
+
+# ---------------------------------------------------------------------------
+# Learning Dashboard API  (Step 7.3 — Read Only)
+# NO write endpoints exist here. Every route is GET.
+# ---------------------------------------------------------------------------
+
+from backend.core.learning_dashboard import LearningDashboard  # noqa: E402
+
+
+@app.get("/dashboard/executive")
+def dashboard_executive() -> dict[str, object]:
+    """Three-panel executive summary in governance priority order."""
+    try:
+        return {"status": "ok", "data": LearningDashboard.executive_summary()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/proposals")
+def dashboard_proposals() -> dict[str, object]:
+    """Proposal funnel with status breakdown and workflow backlog."""
+    try:
+        return {"status": "ok", "data": LearningDashboard.proposals_panel()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/experiments")
+def dashboard_experiments() -> dict[str, object]:
+    """Experiment list with sandbox pass rate and orphan count."""
+    try:
+        return {"status": "ok", "data": LearningDashboard.experiments_panel()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/benchmarks")
+def dashboard_benchmarks() -> dict[str, object]:
+    """Per-category benchmark scores with floors and recent history."""
+    try:
+        return {"status": "ok", "data": LearningDashboard.benchmarks_panel()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/research")
+def dashboard_research() -> dict[str, object]:
+    """Research summaries with trust level classification."""
+    try:
+        return {"status": "ok", "data": LearningDashboard.research_panel()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/eroi")
+def dashboard_eroi() -> dict[str, object]:
+    """Production-anchored EROI with 95% confidence interval."""
+    try:
+        return {"status": "ok", "data": LearningDashboard.eroi()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/metric-trust")
+def dashboard_metric_trust() -> dict[str, object]:
+    """Protected-Core metric trust map: MEASURED / DERIVED / PREDICTED."""
+    try:
+        return {"status": "ok", "data": LearningDashboard.metric_trust_map()}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Burn-In Governance API  (Step 8.0 — State, Reset, Snapshot)
+# ---------------------------------------------------------------------------
+
+from backend.core.burn_in_governance import BurnInGovernance, ResearchDebtLedger, PredictionReliabilityTracker  # noqa: E402
+
+
+@app.get("/dashboard/burn-in/status")
+def burn_in_status() -> dict[str, object]:
+    """Return burn-in safety state, active freezes, debt, and reliability logs."""
+    try:
+        state = BurnInGovernance.get_state()
+        snapshots = BurnInGovernance.get_weekly_snapshots()
+        debt = ResearchDebtLedger.get_debt_report()
+        reliability = PredictionReliabilityTracker.get_reliability_report()
+        return {
+            "status": "ok",
+            "data": {
+                "state": state.get("state"),
+                "active_freezes": state.get("active_freezes"),
+                "research_debt": debt.get("research_debt"),
+                "debt_accumulating": debt.get("debt_accumulating"),
+                "average_prediction_error": reliability.get("average_prediction_error"),
+                "snapshots": snapshots,
+            }
+        }
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/dashboard/burn-in/reset")
+def burn_in_reset(reviewer: str) -> dict[str, object]:
+    """Reset system from AUDIT back to NORMAL. Human reviewer parameter required."""
+    try:
+        BurnInGovernance.reset_audit_mode(reviewer)
+        return {"status": "ok", "message": f"Successfully reset audit mode to NORMAL by human reviewer '{reviewer}'."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/dashboard/burn-in/snapshot")
+def burn_in_snapshot() -> dict[str, object]:
+    """Trigger/mock manual weekly snapshot generation for testing."""
+    try:
+        snapshot = BurnInGovernance.record_weekly_snapshot()
+        return {"status": "ok", "data": snapshot}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Daily Research Loop API (Step 9.0 — Status & Trigger)
+# ---------------------------------------------------------------------------
+
+from backend.core.research_scheduler import ResearchScheduler  # noqa: E402
+
+
+@app.get("/dashboard/research-loop/status")
+def research_loop_status() -> dict[str, object]:
+    """Return status details of the daily research loop."""
+    try:
+        status_data = LearningDashboard.research_loop_status()
+        return {"status": "ok", "data": status_data}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/research-loop/reputation")
+def research_loop_reputation() -> dict[str, object]:
+    """Return reputation database list of researched sources."""
+    try:
+        reputations = LearningDashboard.source_reputations()
+        return {"status": "ok", "data": reputations}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/dashboard/research-loop/trigger")
+def research_loop_trigger() -> dict[str, object]:
+    """Manually trigger an execution cycle of the research loop."""
+    try:
+        run_record = ResearchScheduler.trigger_run()
+        return {"status": "ok", "data": run_record}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/agent-society/reputation")
+def dashboard_agent_society_reputation() -> dict[str, object]:
+    """Returns the list of agents, their current reputation scores, and health status."""
+    try:
+        from backend.core.agent_society import AgentSociety
+        reps = list(AgentSociety.load_reputations().values())
+        return {"status": "ok", "data": reps}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/agent-society/debates")
+def dashboard_agent_society_debates() -> dict[str, object]:
+    """Returns the historical log of agent debates, votes, consensus decisions, and veto occurrences."""
+    try:
+        from backend.core.learning_dashboard import LearningDashboard
+        stats = LearningDashboard.agent_society_stats()
+        return {"status": "ok", "data": stats}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/executive-brain/missions")
+def dashboard_executive_brain_missions() -> dict[str, object]:
+    """Returns all missions, active status counts, weekly trend history, and long-horizon plans."""
+    try:
+        from backend.core.learning_dashboard import LearningDashboard
+        stats = LearningDashboard.executive_brain_stats()
+        return {"status": "ok", "data": stats}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/dashboard/executive-brain/missions/create")
+def dashboard_executive_brain_create_mission(payload: dict[str, str]) -> dict[str, object]:
+    """Converts a goal description into a mission with structured stages."""
+    try:
+        title = payload.get("title", "").strip()
+        description = payload.get("description", "").strip()
+        if not title:
+            return {"status": "error", "message": "Goal title cannot be empty."}
+        from backend.core.mission_manager import MissionManager
+        mission = MissionManager.create_mission_from_goal(title, description)
+        return {"status": "ok", "data": mission}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/executive-brain/evaluations")
+def dashboard_executive_brain_evaluations() -> dict[str, object]:
+    """Returns self-evaluations and performance averages for all agents."""
+    try:
+        from backend.core.self_evaluator import SelfEvaluator
+        evals = SelfEvaluator.load_evaluations()
+        performance = SelfEvaluator.agent_performance_averages()
+        return {
+            "status": "ok",
+            "data": {
+                "evaluations": evals,
+                "performance": performance
+            }
+        }
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/dashboard/executive-brain/persistent-missions")
+def dashboard_executive_brain_persistent_missions() -> dict[str, object]:
+    """Returns persistent mission states, forecasts, RCA recovery queue, and cross learning."""
+    try:
+        from backend.core.learning_dashboard import LearningDashboard
+        stats = LearningDashboard.executive_command_center_stats()
+        return {"status": "ok", "data": stats}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/dashboard/executive-brain/missions/recover")
+def dashboard_executive_brain_recover_mission(payload: dict[str, str]) -> dict[str, object]:
+    """Manually triggers a recovery override or resolves a blocker/failure."""
+    try:
+        failure_id = payload.get("failure_id", "").strip()
+        if not failure_id:
+            return {"status": "error", "message": "Failure ID is required."}
+        from backend.core.failure_recovery import FailureRecoveryEngine
+        FailureRecoveryEngine.resolve_failure(failure_id)
+        return {"status": "ok", "message": "Failure resolved, mission continuation resumed."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/dashboard/executive-brain/cross-learning/publish")
+def dashboard_executive_brain_publish_cross_learning(payload: dict[str, str]) -> dict[str, object]:
+    """Publishes a learned lesson or bug report globally to the cross-mission knowledge store."""
+    try:
+        mission_id = payload.get("mission_id", "").strip()
+        topic = payload.get("topic", "").strip()
+        details = payload.get("details", "").strip()
+        if not mission_id or not topic or not details:
+            return {"status": "error", "message": "mission_id, topic, and details are required."}
+        from backend.core.cross_mission_learning import CrossMissionLearning
+        entry = CrossMissionLearning.publish_finding(mission_id, topic, details)
+        return {"status": "ok", "data": entry}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.on_event("shutdown")
+def stop_shutdown_tasks():
+    """Stop background scheduler threads on shutdown."""
+    try:
+        ResearchScheduler.stop()
+    except Exception:
+        pass
+
+

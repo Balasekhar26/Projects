@@ -58,9 +58,20 @@ def refine_placeholder_response(user_input: str, draft: str) -> str:
 
 
 def evaluator_node(state):
+    # Planner Chaining Iteration check
+    if state.get("execution_steps"):
+        next_agent = state["execution_steps"].pop(0)
+        state["chained_results"] = (state.get("chained_results") or []) + [state.get("result")]
+        state["user_input"] = f"Chained execution context: Previous output was:\n{state['result']}\nRequest context: {state['user_input']}"
+        state["result"] = None
+        state["selected_agent"] = next_agent
+        state["logs"].append(f"evaluator: chained transition to '{next_agent}', remaining queue: {state['execution_steps']}")
+        return state
+
     if state.get("result"):
         final = state["result"]
     elif state["user_input"].strip().lower() in QUICK_REPLIES:
+
         final = QUICK_REPLIES[state["user_input"].strip().lower()]
         state["result"] = final
         return _finalize_evaluator(state, final)
