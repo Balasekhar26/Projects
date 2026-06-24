@@ -467,6 +467,20 @@ class RuleBasedIntelligenceLayer:
     def classify_escalation_level(cls, text: str) -> int:
         text_lower = text.lower()
 
+        # Multi-step conjunctions -> Level 4 (forces Planner/Specialists)
+        if any(f" {conj} " in f" {text_lower} " for conj in ("then", "and then", "after that", "next", "and check", "and test")):
+            return 4
+
+        # Browser / Speedtest keywords -> Level 4
+        browser_speed_keywords = {"chrome", "browser", "speedtest", "speed test", "internet speed", "speed", "fast.com"}
+        if any(word in text_lower for word in browser_speed_keywords):
+            return 4
+
+        # Coding keywords and intent -> Level 4
+        coding_keywords = {"code", "python", "javascript", "program", "script", "hello world", "write a python", "write python"}
+        if any(word in text_lower for word in coding_keywords):
+            return 4
+
         # Check safety requirements first -> Level 4
         from backend.core.safety import classify_risk
         safety_decision = classify_risk(text)
