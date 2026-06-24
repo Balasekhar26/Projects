@@ -3877,14 +3877,23 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
     }
 
 
-def _build_direct_model_prompt(clean_message: str, session_id: str, current_message_id: str) -> str:
+def _build_direct_model_prompt(clean_message: str, session_id: str, current_message_id: str) -> list[dict[str, str]]:
     import datetime
     recent_messages = []
+    semantic_hits = []
     if session_id:
         try:
             all_msgs = memory.list_chat_messages(session_id, limit=30)
             filtered = [m for m in all_msgs if m["id"] != current_message_id]
             recent_messages = filtered[-10:]
+            
+            # Fetch semantic context matches from older messages
+            semantic_hits = memory.search_chat_messages(
+                clean_message,
+                limit=3,
+                session_id=session_id,
+                exclude_message_id=current_message_id
+            )
         except Exception:
             pass
 
@@ -3892,19 +3901,40 @@ def _build_direct_model_prompt(clean_message: str, session_id: str, current_mess
     time_str = now.strftime('%I:%M %p')
     date_str = now.strftime('%Y-%m-%d (%A)')
 
-    prompt_parts = [
-        "System Context:",
-        f"- Current Local Time: {time_str}",
-        f"- Current Date: {date_str}",
+    default_system = (
+        "You are Kattappa AI OS, Bala's local-first desktop assistant. Text replies must be English only; "
+        "the separate voice layer renders assistant speech in Telugu. Be respectful, calm, loyal, practical, "
+        "and concise. Do not use sarcasm, insults, flirting, movie-character roleplay, or a British/JARVIS persona. "
+        "Do not claim you have control, permissions, files, screen access, internet access, or installed tools unless "
+        "the runtime context confirms it. If action needs approval, say that clearly. If you are unsure, ask one short "
+        "clarifying question or state the safest next step."
+    )
+
+    system_content = (
+        f"{default_system}\n\n"
+        f"System Context:\n"
+        f"- Current Local Time: {time_str}\n"
+        f"- Current Date: {date_str}"
+    )
+
+    if semantic_hits:
+        system_content += "\n\nRelated older context from memory:\n"
+        for m in semantic_hits:
+            role_name = "User" if m["role"] == "user" else "Assistant"
+            system_content += f"- {role_name}: {m['content']}\n"
+
+    messages = [
+        {"role": "system", "content": system_content.strip()}
     ]
 
-    if recent_messages:
-        prompt_parts.append("\nRecent conversation history:")
-        for m in recent_messages:
-            prompt_parts.append(f"- {m['role']}: {m['content']}")
+    for m in recent_messages:
+        role = m["role"]
+        if role not in ("user", "assistant", "system"):
+            role = "user"
+        messages.append({"role": role, "content": m["content"]})
 
-    prompt_parts.append(f"\nUser: {clean_message}")
-    return "\n".join(prompt_parts)
+    messages.append({"role": "user", "content": clean_message})
+    return messages
 
 
 @app.post("/chat")
@@ -3919,6 +3949,76 @@ def chat(request: ChatRequest) -> dict[str, object]:
 
     session = memory.get_or_create_primary_chat_session()
     clean_message = _strip_operator_prefix(request.message)
+
+    # Check if the query is a major system/architectural rewrite or redesign request
+    # which requires the Personality Council deliberation.
+    msg_lower = clean_message.lower()
+    if ("rewrite" in msg_lower and "scratch" in msg_lower) or ("redesign" in msg_lower and "scratch" in msg_lower) or ("rewrite" in msg_lower and "project" in msg_lower):
+        from backend.core.council_session import CouncilSession
+        res_obj = CouncilSession.deliberate(question=clean_message, question_type="architecture")
+        d = res_obj.to_dict()
+        
+        brahma_rat = "No specific rationale."
+        shiva_rat = "No specific rationale."
+        rama_rat = "No specific rationale."
+        for vote in d.get("votes", []):
+            persp = vote.get("perspective")
+            rat = vote.get("rationale")
+            if persp == "Brahma":
+                brahma_rat = rat
+            elif persp == "Shiva":
+                shiva_rat = rat
+            elif persp == "Rama":
+                rama_rat = rat
+                
+        reasons = "\n".join(d.get("reasons", []))
+        tradeoff_response = (
+            "### Personality Council Deliberation\n\n"
+            f"**Brahma (Engineering & Creation Lens):**\n"
+            f"> {brahma_rat}\n\n"
+            f"**Shiva (Risk & Destruction Lens):**\n"
+            f"> {shiva_rat}\n\n"
+            f"**Rama (Integrity & Stability Lens):**\n"
+            f"> {rama_rat}\n\n"
+            f"**Tradeoff & Decision Summary:**\n"
+            f"The council deliberated on: \"{clean_message}\".\n"
+            f"- **Resolution Path:** {d.get('mode_profile', 'standard')} analysis\n"
+            f"- **Decision / Reason:** {reasons if reasons else 'No consensus reached.'}"
+        )
+        
+        user_message = memory.add_chat_message(session["id"], "user", clean_message)
+        assistant_message = memory.add_chat_message(
+            session["id"],
+            "assistant",
+            tradeoff_response,
+            agent="personality_council",
+            risk="low",
+            metadata=json.dumps({"approval_id": None, "related_message_ids": [], "personality_council": True})
+        )
+        state = {
+            "user_input": request.message,
+            "memory_query": clean_message,
+            "chat_session_id": session["id"],
+            "current_chat_message_id": user_message["id"],
+            "selected_agent": "personality_council",
+            "risk_level": "low",
+            "approval_required": False,
+            "approval_id": None,
+            "result": tradeoff_response,
+            "logs": ["resolved via Personality Council deliberation"],
+            "tool_request": None,
+            "operator_plan": None,
+            "related_messages": [],
+        }
+        _trigger_voice_response(state)
+        return {
+            "response": tradeoff_response,
+            "state": state,
+            "session": session,
+            "user_message": user_message,
+            "assistant_message": assistant_message,
+            "assistant_message_id": assistant_message["id"],
+        }
 
     # 1. Check RBIL (Level 0)
     from backend.core.rbil import RBIL, MetricsTracker

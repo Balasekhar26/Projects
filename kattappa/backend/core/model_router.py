@@ -49,21 +49,31 @@ def health() -> tuple[bool, str]:
         return False, str(exc)
 
 
-def ask_model(prompt: str, role: str = "general", system: str | None = None) -> str:
+def ask_model(prompt: str | list[dict[str, str]], role: str = "general", system: str | None = None) -> str:
     from backend.core.resource_governor import ResourceGovernor
-    estimated_input_tokens = len(prompt) // 4
+    if isinstance(prompt, list):
+        total_len = sum(len(m.get("content", "")) for m in prompt)
+        estimated_input_tokens = total_len // 4
+    else:
+        estimated_input_tokens = len(prompt) // 4
+
     if not ResourceGovernor.check_token_budget(estimated_input_tokens):
         return "Error: System token budget exceeded. LLM request blocked by Resource Governor."
         
     config = load_config()
     
     # Dynamic Multi-Model Intelligent Routing
-    input_lower = prompt.lower()
+    if isinstance(prompt, list):
+        routing_text = "\n".join(m.get("content", "") for m in prompt)
+    else:
+        routing_text = prompt
+
+    input_lower = routing_text.lower()
     coding_keywords = {"code", "python", "javascript", "function", "class", "compile", "bug", "refactor", "algorithm", "html", "css", "database", "sqlite"}
     is_coding = any(word in input_lower for word in coding_keywords)
     
     reasoning_keywords = {"explain", "compare", "analyze", "why", "difference", "architect", "logic"}
-    is_reasoning = len(prompt.split()) > 150 or any(word in input_lower for word in reasoning_keywords)
+    is_reasoning = len(routing_text.split()) > 150 or any(word in input_lower for word in reasoning_keywords)
     
     routed_role = role
     if role == "general":
@@ -74,7 +84,7 @@ def ask_model(prompt: str, role: str = "general", system: str | None = None) -> 
 
     from backend.core.adaptive_runtime import SelfLearningEngine, WarmupManager, GPUTaskScheduler, AgentHibernationEngine, SelfHealingRuntime
     
-    preferred = GPUTaskScheduler.route_task(prompt, routed_role)
+    preferred = GPUTaskScheduler.route_task(routing_text, routed_role)
     AgentHibernationEngine.touch_model(preferred)
     
     # Warm up preferred model in VRAM
@@ -96,24 +106,28 @@ def ask_model(prompt: str, role: str = "general", system: str | None = None) -> 
         "and concise. Do not use sarcasm, insults, flirting, movie-character roleplay, or a British/JARVIS persona. "
         "Do not claim you have control, permissions, files, screen access, internet access, or installed tools unless "
         "the runtime context confirms it. If action needs approval, say that clearly. If you are unsure, ask one short "
-        "clarifying question or state the safest next step."
+        "clarifying question or state the safest next step. If the user provides or corrects factual context (such as "
+        "name, language preference, or date), acknowledge and confirm the correction explicitly."
     )
     
-    messages = [
-        {
-            "role": "system",
-            "content": system or default_system,
-        },
-        {"role": "user", "content": prompt},
-    ]
+    if isinstance(prompt, list):
+        messages = prompt
+    else:
+        messages = [
+            {
+                "role": "system",
+                "content": system or default_system,
+            },
+            {"role": "user", "content": prompt},
+        ]
     
     errors: list[str] = []
     for model in active_candidates:
         t0 = time.perf_counter()
         AgentHibernationEngine.touch_model(model)
         try:
-            # Enforce 3-second read timeout and 2-second connect timeout for fast escalation
-            timeout_cfg = httpx.Timeout(10.0, connect=2.0, read=3.0)
+            # Enforce 15-second read timeout and 2-second connect timeout for fast escalation
+            timeout_cfg = httpx.Timeout(20.0, connect=2.0, read=15.0)
             with httpx.stream(
                 "POST",
                 f"{config.ollama_host}/api/chat",
@@ -152,7 +166,7 @@ def ask_model(prompt: str, role: str = "general", system: str | None = None) -> 
             try:
                 # Try to launch/heal Ollama dynamically if connection failed
                 if SelfHealingRuntime.heal_ollama():
-                    timeout_cfg = httpx.Timeout(10.0, connect=2.0, read=3.0)
+                    timeout_cfg = httpx.Timeout(20.0, connect=2.0, read=15.0)
                     with httpx.stream(
                         "POST",
                         f"{config.ollama_host}/api/chat",
