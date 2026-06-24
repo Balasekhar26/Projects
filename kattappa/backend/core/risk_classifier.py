@@ -55,6 +55,7 @@ class RiskClassifier:
             "BROWSER_READ": 1,
             "BROWSER_NAVIGATE": 1,
             "BROWSER_SEARCH": 1,
+            "BROWSER_SPEEDTEST": 1,
             
             # Level 2: Moderate Risk
             "CREATE_FILE": 2,

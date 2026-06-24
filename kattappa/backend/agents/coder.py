@@ -180,7 +180,14 @@ def coder_node(state: dict[str, Any]) -> dict[str, Any]:
                         break
             
             if not target_file:
-                state["result"] = "Error: No target file specified for modification."
+                status = git_status()
+                state["result"] = ask_model(
+                    f"Act as Bala's technical assistant.\nRequest: {user_input}\nPlan: {state.get('plan')}\nGit status: {status}\n"
+                    "If the user asks for code, always provide a clean, complete, formatted code block using markdown syntax (e.g. ```python ... ```). "
+                    "Do not write to files directly.",
+                    role="coder",
+                )
+                logs.append("coder: responded with code generation fallback")
                 return state
                 
             # Extract or generate code
@@ -329,7 +336,8 @@ def coder_node(state: dict[str, Any]) -> dict[str, Any]:
             state["result"] = ask_model(
                 f"Act as Bala's technical assistant.\nRequest: {user_input}\nPlan: {state.get('plan')}\nGit status: {status}\n"
                 "If the user asks for an explanation, explain clearly and deeply in simple words. "
-                "If the user asks for code changes, give a safe coding plan (as a change proposal/diff) and do not write to files directly.",
+                "If the user asks for code, always provide a clean, complete, formatted code block using markdown syntax (e.g. ```python ... ```). "
+                "Do not write to files directly.",
                 role="fast" if explanation_only else "coder",
             )
             logs.append("coder: responded")

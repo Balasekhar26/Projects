@@ -31,6 +31,9 @@ DEFAULT_POLICY_ENGINE.register(
 DEFAULT_POLICY_ENGINE.register(
     ActionPolicy("BROWSER_DOWNLOAD_FILE", auto_execute=True, require_human=False, description="Download a file via browser")
 )
+DEFAULT_POLICY_ENGINE.register(
+    ActionPolicy("BROWSER_SPEEDTEST", auto_execute=True, require_human=False, description="Run internet speed test")
+)
 
 DEFAULT_POLICY_ENGINE.register(
     ActionPolicy("BROWSER_FILL_FORM", auto_execute=False, require_human=True, description="Fill inputs on a page")
@@ -61,6 +64,10 @@ def classify_browser_action(user_input: str) -> tuple[str, dict[str, Any]]:
         return "BROWSER_PAYMENT", {}
     if any(trigger in lower_input for trigger in delete_triggers):
         return "BROWSER_DELETE", {}
+
+    # Check for speedtest first before generic URL/Search
+    if any(q in lower_input for q in ("speedtest", "speed test", "internet speed")):
+        return "BROWSER_SPEEDTEST", {}
         
     # 2. Extract URL
     url_match = re.search(r"https?://[^\s/$.?#].[^\s]*", user_input)

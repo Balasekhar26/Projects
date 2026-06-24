@@ -486,6 +486,18 @@ class ActionBroker:
                             "trust_score": 95,
                             "provenance": "UNTRUSTED"
                         }
+                    elif action == "BROWSER_SPEEDTEST":
+                        from backend.core.macros.browser_macros import execute_speedtest
+                        res = execute_speedtest()
+                        execution_result = {
+                            "content": res,
+                            "source": "https://fast.com",
+                            "source_url": "https://fast.com",
+                            "timestamp": time.time(),
+                            "trust": 95,
+                            "trust_score": 95,
+                            "provenance": "SYSTEM_TRUST"
+                        }
                     elif action == "BROWSER_MAP_LINKS":
                         links = map_links(url)
                         parent_depth = tabs_depth.get(url, 0)

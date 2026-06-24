@@ -237,7 +237,7 @@ class IntentClassifier:
             }
 
         # 4. Date
-        if re.search(r"(?i)\b(what is today's date|what date is it|current date|what's today's date|what day is it today|what is the date|today's date)\b", lower):
+        if re.search(r"(?i)\b(what is today'?s? date|what date is it|current date|what's today's date|what day is it today|what is the date|today's date)\b", lower):
             date_str = datetime.date.today().strftime("%B %d, %Y")
             day_str = datetime.date.today().strftime("%A")
             return {

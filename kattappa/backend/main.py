@@ -3760,6 +3760,10 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
     import re
     clean_text = re.sub(r"[?!.,]", "", text).strip()
 
+    # Ignore multi-step commands so they go to full agent graph
+    if "then" in clean_text or "and" in clean_text:
+        return None
+
     response = None
     agent = "fast_path"
 
@@ -3804,16 +3808,25 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
     elif any(q in clean_text for q in ["open chrome", "launch chrome"]):
         import subprocess
         import os
+        import platform
         try:
-            chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-            if not os.path.exists(chrome_path):
-                chrome_path = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
-
-            if os.path.exists(chrome_path):
-                subprocess.Popen([chrome_path])
+            sys_name = platform.system().lower()
+            if sys_name == "darwin":
+                subprocess.Popen(["open", "-a", "Google Chrome"])
                 response = "Opening Google Chrome..."
+            elif sys_name == "windows":
+                chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+                if not os.path.exists(chrome_path):
+                    chrome_path = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+
+                if os.path.exists(chrome_path):
+                    subprocess.Popen([chrome_path])
+                    response = "Opening Google Chrome..."
+                else:
+                    subprocess.Popen("start chrome", shell=True)
+                    response = "Opening Google Chrome..."
             else:
-                subprocess.Popen("start chrome", shell=True)
+                subprocess.Popen(["google-chrome"])
                 response = "Opening Google Chrome..."
         except Exception as exc:
             response = f"Failed to open Chrome: {exc}"
@@ -3862,6 +3875,36 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
         "assistant_message": assistant_message,
         "assistant_message_id": assistant_message["id"],
     }
+
+
+def _build_direct_model_prompt(clean_message: str, session_id: str, current_message_id: str) -> str:
+    import datetime
+    recent_messages = []
+    if session_id:
+        try:
+            all_msgs = memory.list_chat_messages(session_id, limit=30)
+            filtered = [m for m in all_msgs if m["id"] != current_message_id]
+            recent_messages = filtered[-10:]
+        except Exception:
+            pass
+
+    now = datetime.datetime.now()
+    time_str = now.strftime('%I:%M %p')
+    date_str = now.strftime('%Y-%m-%d (%A)')
+
+    prompt_parts = [
+        "System Context:",
+        f"- Current Local Time: {time_str}",
+        f"- Current Date: {date_str}",
+    ]
+
+    if recent_messages:
+        prompt_parts.append("\nRecent conversation history:")
+        for m in recent_messages:
+            prompt_parts.append(f"- {m['role']}: {m['content']}")
+
+    prompt_parts.append(f"\nUser: {clean_message}")
+    return "\n".join(prompt_parts)
 
 
 @app.post("/chat")
@@ -3989,7 +4032,8 @@ def chat(request: ChatRequest) -> dict[str, object]:
         role = "fast" if escalation_level == 1 else "general"
         from backend.core.model_router import ask_model
         t0 = time.perf_counter()
-        result_text = ask_model(clean_message, role=role)
+        prompt_with_context = _build_direct_model_prompt(clean_message, session["id"], user_message["id"])
+        result_text = ask_model(prompt_with_context, role=role)
         duration = time.perf_counter() - t0
 
         MetricsTracker.record_hit("rule", time_saved=1.5, tokens_saved=200)
@@ -4296,7 +4340,8 @@ async def chat_socket(websocket: WebSocket) -> None:
             )
             from backend.core.model_router import ask_model
             t0 = time.perf_counter()
-            result_text = ask_model(clean_message, role=role)
+            prompt_with_context = _build_direct_model_prompt(clean_message, session["id"], stored_user_message["id"])
+            result_text = ask_model(prompt_with_context, role=role)
             duration = time.perf_counter() - t0
 
             MetricsTracker.record_hit("rule", time_saved=1.5, tokens_saved=200)
