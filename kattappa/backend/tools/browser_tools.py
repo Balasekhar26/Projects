@@ -82,7 +82,8 @@ def classify_domain_risk(url: str) -> tuple[str, str, int]:
 
 def check_egress_safety(data: str) -> str | None:
     # 1. Check for workspace root exfiltration
-    workspace_root = "/Users/alwaysdesigns/Documents/Codex/2026-06-14/balasekhar26-ult-translator-https-github-com/work/ult-translator"
+    from backend.core.config import load_config
+    workspace_root = str(load_config().root)
     if workspace_root in data:
         return f"Exfiltrating workspace path is prohibited: {workspace_root}"
         

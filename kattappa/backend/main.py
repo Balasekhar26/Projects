@@ -4,11 +4,12 @@ from typing import Any
 import json
 import time
 import sqlite3
+import uuid
 
 # SQLite instrumentation removed
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, WebSocket
+from fastapi import FastAPI, Header, HTTPException, WebSocket, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -527,6 +528,22 @@ class MetaCognitionModeRequest(BaseModel):
     is_code_change: bool = False
 
 
+class ExecutiveArbitrateRequest(BaseModel):
+    task_id: str
+    task_name: str
+    priority: float
+    urgency: float
+    token_budget: int
+    max_execution_seconds: int
+
+
+class ExecutiveReviewRequest(BaseModel):
+    reviewer_id: str
+    task_id: str
+    recommendation: str
+    decision: str
+
+
 class BenchmarkItemRequest(BaseModel):
     id: str
     category: str
@@ -866,6 +883,40 @@ class PlanSimulationRequest(BaseModel):
     workflow_id: str = ""
     plan: list[dict[str, object]] = []
     context: dict[str, object] = {}
+
+
+class DecisionForecastRequest(BaseModel):
+    decision_id: str
+    decision: str
+    predicted_success: float
+    predicted_cost: float
+    predicted_time: str
+
+
+class DecisionOutcomeRequest(BaseModel):
+    decision_id: str
+    actual_success: float
+    actual_cost: float
+    actual_time: str
+
+
+class ResearchIngestRequest(BaseModel):
+    title: str
+    authors: str
+    arxiv_id: str | None = None
+    doi: str | None = None
+    published_date: str
+    claims: list[dict[str, Any]] = []
+    metrics: dict[str, float] = {}
+
+
+class ResearchEvaluateRequest(BaseModel):
+    experiment_id: str
+    run_results: dict[str, Any] = {}
+
+
+class MemorySafetyRunRequest(BaseModel):
+    test_contents: list[str] = []
 
 
 class DistillRequest(BaseModel):
@@ -1252,6 +1303,46 @@ def meta_cognition_mode(request: MetaCognitionModeRequest) -> dict[str, object]:
     )
 
 
+@app.get("/executive/status")
+def get_executive_status() -> dict[str, object]:
+    from backend.core.executive_governance import ExecutiveCortex
+    conn = ExecutiveCortex.get_db_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM executive_tasks")
+    total_tasks = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM arbitration_ledger")
+    total_arbitrations = cursor.fetchone()[0]
+    return {
+        "status": "active",
+        "total_tasks": total_tasks,
+        "total_arbitrations": total_arbitrations
+    }
+
+
+@app.post("/executive/arbitrate")
+def post_executive_arbitrate(request: ExecutiveArbitrateRequest) -> dict[str, object]:
+    from backend.core.executive_governance import ExecutiveCortex
+    return ExecutiveCortex.arbitrate_task(
+        task_id=request.task_id,
+        task_name=request.task_name,
+        priority=request.priority,
+        urgency=request.urgency,
+        token_budget=request.token_budget,
+        max_execution_seconds=request.max_execution_seconds
+    )
+
+
+@app.post("/executive/review")
+def post_executive_review(request: ExecutiveReviewRequest) -> dict[str, object]:
+    from backend.core.executive_governance import ExecutiveCortex
+    return ExecutiveCortex.record_reviewer_decision(
+        reviewer_id=request.reviewer_id,
+        task_id=request.task_id,
+        recommendation=request.recommendation,
+        decision=request.decision
+    )
+
+
 @app.post("/benchmark/run")
 def benchmark_run(request: BenchmarkRunRequest) -> dict[str, object]:
     from backend.core.benchmark_arena import BenchmarkArena
@@ -1309,6 +1400,27 @@ def tool_benchmark_history() -> dict[str, object]:
     from backend.core.benchmark_arena import BenchmarkArena
 
     return {"history": BenchmarkArena.load_tool_history()}
+
+
+@app.post("/api/benchmark/continuous/run")
+def run_continuous_benchmark() -> dict[str, object]:
+    from backend.core.continuous_benchmark import ContinuousBenchmarkRunner
+    return ContinuousBenchmarkRunner.run_suite()
+
+
+@app.get("/api/benchmark/continuous/latest")
+def get_latest_continuous_benchmark() -> dict[str, object]:
+    from backend.core.continuous_benchmark import ContinuousBenchmarkRunner
+    report = ContinuousBenchmarkRunner.get_latest_report()
+    if not report:
+        raise HTTPException(status_code=404, detail="No continuous benchmark runs found.")
+    return report
+
+
+@app.get("/api/benchmark/continuous/history")
+def get_continuous_benchmark_history(limit: int = 50) -> dict[str, object]:
+    from backend.core.continuous_benchmark import ContinuousBenchmarkRunner
+    return {"history": ContinuousBenchmarkRunner.get_report_history(limit)}
 
 
 @app.post("/proposal/observe")
@@ -2424,6 +2536,497 @@ def simulate_plan(request: PlanSimulationRequest) -> dict[str, object]:
         workflow_id=request.workflow_id,
         context=request.context,
     ).to_dict()
+
+
+@app.post("/simulate/counterfactual")
+def simulate_counterfactual(request: PlanSimulationRequest) -> dict[str, object]:
+    from backend.core.simulation_engine import SimulationEngine
+    return SimulationEngine.run_counterfactual_simulations(
+        request.plan,
+        goal=request.goal,
+        workflow_id=request.workflow_id
+    )
+
+
+@app.post("/simulate/forecast")
+def record_forecast(request: DecisionForecastRequest) -> dict[str, object]:
+    from backend.core.simulation_engine import SimulationEngine
+    SimulationEngine.record_decision_forecast(
+        request.decision_id,
+        request.decision,
+        request.predicted_success,
+        request.predicted_cost,
+        request.predicted_time
+    )
+    return {"status": "success", "decision_id": request.decision_id}
+
+
+@app.post("/simulate/outcome")
+def record_outcome(request: DecisionOutcomeRequest) -> dict[str, object]:
+    from backend.core.simulation_engine import SimulationEngine
+    SimulationEngine.record_decision_outcome(
+        request.decision_id,
+        request.actual_success,
+        request.actual_cost,
+        request.actual_time
+    )
+    return {"status": "success", "decision_id": request.decision_id}
+
+
+@app.post("/simulate/recalibrate")
+def recalibrate_simulations() -> dict[str, object]:
+    from backend.core.simulation_engine import SimulationEngine
+    return SimulationEngine.recalibrate_from_ledger()
+
+
+@app.post("/research/ingest")
+def research_ingest(request: ResearchIngestRequest) -> dict[str, object]:
+    from backend.core.research_loop import ResearchLoop
+    return ResearchLoop.ingest_paper(
+        title=request.title,
+        authors=request.authors,
+        arxiv_id=request.arxiv_id,
+        doi=request.doi,
+        published_date=request.published_date,
+        claims=request.claims,
+        metrics=request.metrics
+    )
+
+
+@app.get("/research/proposals")
+def research_proposals() -> list[dict[str, object]]:
+    from backend.core.research_loop import ResearchLoop
+    return ResearchLoop.list_proposals()
+
+
+@app.post("/research/evaluate")
+def research_evaluate(request: ResearchEvaluateRequest) -> dict[str, object]:
+    from backend.core.research_loop import ResearchLoop
+    return ResearchLoop.evaluate_experiment_candidate(
+        experiment_id=request.experiment_id,
+        run_results=request.run_results
+    )
+
+
+@app.post("/memory/safety/run")
+def memory_safety_run(request: MemorySafetyRunRequest) -> dict[str, object]:
+    from backend.core.memory_safety import MemorySafetyVerifier
+    aer = MemorySafetyVerifier.calculate_aer(request.test_contents)
+    from backend.core.human_memory import HumanMemoryStore
+    records = HumanMemoryStore.all_records()
+    deleted_ids = [r.id for r in records[:5]] if records else []
+    
+    for r_id in deleted_ids:
+        HumanMemoryStore.delete(r_id)
+        
+    frs = MemorySafetyVerifier.calculate_frs(deleted_ids) if deleted_ids else 0.0
+    fidelity = MemorySafetyVerifier.calculate_deletion_fidelity(deleted_ids) if deleted_ids else 1.0
+    
+    return {
+        "adversarial_extraction_rate": round(aer, 4),
+        "forgetting_residue_score": round(frs, 4),
+        "deletion_fidelity": round(fidelity, 4)
+    }
+
+
+@app.post("/memory/safety/evomem")
+def memory_safety_evomem() -> dict[str, object]:
+    from backend.core.memory_safety import MemorySafetyVerifier
+    return MemorySafetyVerifier.run_evomem_drift_benchmark()
+
+
+# ── Step 17: Dynamic Benchmark Variant Generator ──────────────────────────────
+
+class BenchmarkVariantGenerateRequest(BaseModel):
+    suite_id: str
+    input_text: str
+    expected_answer: str
+    n: int = 5
+    seed_int: int | None = None
+
+
+@app.post("/benchmark/variants/generate")
+def benchmark_variants_generate(request: BenchmarkVariantGenerateRequest) -> dict[str, object]:
+    """Generate N surface-mutated variants for a benchmark seed case."""
+    from backend.core.benchmark_variant_generator import BenchmarkCase, BenchmarkVariantGenerator
+    import uuid
+    seed = BenchmarkCase(
+        case_id=f"seed_{uuid.uuid4().hex[:10]}",
+        suite_id=request.suite_id,
+        input_text=request.input_text,
+        expected_answer=request.expected_answer,
+    )
+    variants = BenchmarkVariantGenerator.generate_variants(
+        seed, n=request.n, seed_int=request.seed_int
+    )
+    return {
+        "seed_case_id": seed.case_id,
+        "suite_id": request.suite_id,
+        "variants_generated": len(variants),
+        "variants": [v.to_dict() for v in variants],
+    }
+
+
+@app.get("/benchmark/variants/{suite_id}")
+def benchmark_variants_pool(suite_id: str, limit: int = 50) -> dict[str, object]:
+    """Return the active variant pool for a suite."""
+    from backend.core.benchmark_variant_generator import BenchmarkVariantGenerator
+    pool = BenchmarkVariantGenerator.get_pool(suite_id, limit=limit)
+    return {
+        "suite_id": suite_id,
+        "pool_size": len(pool),
+        "cases": [c.to_dict() for c in pool],
+    }
+
+
+# ── Step 18: Claim Reproduction Engine ───────────────────────────────────────
+
+@app.post("/research/reproduce/{claim_id}")
+def research_reproduce_claim(claim_id: str) -> dict[str, object]:
+    """Trigger execution of a queued claim reproduction experiment.
+
+    The experiment must have been queued by ResearchLoop.ingest_paper()
+    (priority_score > 9.0) or built manually via ClaimReproductionEngine.build_template().
+    """
+    from backend.core.claim_reproduction_engine import ClaimReproductionEngine
+    # Find the queued experiment for this claim
+    queued = ClaimReproductionEngine.list_queued()
+    exp = next((e for e in queued if e.get("claim_id") == claim_id), None)
+    if not exp:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"No queued experiment for claim_id={claim_id}")
+    result = ClaimReproductionEngine.run(exp["id"])
+    return {
+        "experiment_id": result.experiment_id,
+        "claim_id": result.claim_id,
+        "paper_id": result.paper_id,
+        "confirmed": result.confirmed,
+        "baseline_score": result.baseline_score,
+        "challenger_score": result.challenger_score,
+        "actual_delta": result.actual_delta,
+        "expected_delta": result.expected_delta,
+        "delta_ratio": result.delta_ratio,
+    }
+
+
+@app.get("/research/reproduce/queue")
+def research_reproduce_queue() -> dict[str, object]:
+    """List all experiments queued for human-triggered reproduction."""
+    from backend.core.claim_reproduction_engine import ClaimReproductionEngine
+    queued = ClaimReproductionEngine.list_queued()
+    return {"queued_count": len(queued), "experiments": queued}
+
+
+@app.get("/research/reproduce/results")
+def research_reproduce_results(limit: int = 50) -> dict[str, object]:
+    """List completed reproduction experiment results."""
+    from backend.core.claim_reproduction_engine import ClaimReproductionEngine
+    results = ClaimReproductionEngine.list_results(limit=limit)
+    return {"results": results}
+
+
+# ── Step 21: Self-Improvement Governance ─────────────────────────────────────
+
+class GovernanceSubmitRequest(BaseModel):
+    title: str
+    source: str           # 'research' | 'benchmark' | 'reflection'
+    source_id: str | None = None
+    affected_modules: list[str]
+    proposal_text: str
+    benchmark_confirmed: bool = False
+
+
+class GovernanceReviewRequest(BaseModel):
+    reviewer_id: str
+    reason: str = ""
+
+
+@app.post("/governance/submit")
+def governance_submit(request: GovernanceSubmitRequest) -> dict[str, object]:
+    """Submit an architectural change proposal through the four-gate governance check."""
+    from backend.core.self_improvement_governance import ArchitecturalProposal, SelfImprovementGovernance
+    import uuid, time
+    proposal = ArchitecturalProposal(
+        proposal_id=str(uuid.uuid4()),
+        title=request.title,
+        source=request.source,
+        source_id=request.source_id,
+        affected_modules=request.affected_modules,
+        proposal_text=request.proposal_text,
+        benchmark_confirmed=request.benchmark_confirmed,
+        created_at=time.time(),
+    )
+    decision = SelfImprovementGovernance.submit(proposal)
+    return {
+        "proposal_id": decision.proposal_id,
+        "gate_status": decision.gate_status,
+        "passed": decision.passed,
+        "pis_score": decision.pis_score,
+        "blocking_reasons": decision.reasons,
+    }
+
+
+@app.get("/governance/pending")
+def governance_pending() -> dict[str, object]:
+    """List all proposals awaiting human review."""
+    from backend.core.self_improvement_governance import SelfImprovementGovernance
+    proposals = SelfImprovementGovernance.list_pending()
+    return {"pending_count": len(proposals), "proposals": proposals}
+
+
+@app.post("/governance/approve/{proposal_id}")
+def governance_approve(proposal_id: str, request: GovernanceReviewRequest) -> dict[str, object]:
+    """Human approves a pending governance proposal."""
+    from backend.core.self_improvement_governance import SelfImprovementGovernance
+    success = SelfImprovementGovernance.approve(proposal_id, request.reviewer_id)
+    if not success:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Proposal {proposal_id} not found or not pending")
+    return {"proposal_id": proposal_id, "status": "approved", "reviewer_id": request.reviewer_id}
+
+
+@app.post("/governance/reject/{proposal_id}")
+def governance_reject(proposal_id: str, request: GovernanceReviewRequest) -> dict[str, object]:
+    """Human rejects a pending governance proposal."""
+    from backend.core.self_improvement_governance import SelfImprovementGovernance
+    success = SelfImprovementGovernance.reject(proposal_id, request.reviewer_id, request.reason)
+    if not success:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Proposal {proposal_id} not found or not pending")
+    return {"proposal_id": proposal_id, "status": "rejected", "reviewer_id": request.reviewer_id}
+
+
+@app.get("/governance/proposals")
+def governance_all_proposals(limit: int = 100) -> dict[str, object]:
+    """Return all governance proposals (any status), newest first."""
+    from backend.core.self_improvement_governance import SelfImprovementGovernance
+    proposals = SelfImprovementGovernance.list_all(limit=limit)
+    return {"total": len(proposals), "proposals": proposals}
+
+
+@app.get("/governance/audit/{proposal_id}")
+def governance_audit_log(proposal_id: str) -> dict[str, object]:
+    """Return the full audit trail for a governance proposal."""
+    from backend.core.self_improvement_governance import SelfImprovementGovernance
+    log = SelfImprovementGovernance.get_audit_log(proposal_id)
+    return {"proposal_id": proposal_id, "audit_log": log}
+
+
+# ── Council of Perspectives (Step 15.5 + Council v2) ─────────────────────────
+
+class CouncilDeliberateRequest(BaseModel):
+    question: str
+    question_type: str = "general"   # 'safety'|'research'|'user_impact'|'architecture'|'general'
+    context: dict = {}
+    code_change: bool = False
+    production: bool = False
+    mode_profile: str = "auto"
+
+
+class CouncilQuickDeliberateRequest(BaseModel):
+    question: str
+    question_type: str = "general"
+    context: dict = {}
+    n: int = 3
+    code_change: bool = False
+    production: bool = False
+    mode_profile: str = "auto"
+
+
+class CouncilOutcomeRequest(BaseModel):
+    outcome: str          # 'correct' | 'incorrect' | 'unknown'
+    outcome_score: float  # 0.0–1.0
+    predicted_success: float | None = None
+    actual_success: float | None = None
+    notes: str = ""
+
+
+class CouncilBenchmarkValidateRequest(BaseModel):
+    quick_council: bool = False
+    quick_n: int = 3
+
+
+class PersonalityCouncilRequest(BaseModel):
+    question: str
+    mode_profile: str = "SYSTEM_DEFAULT"
+    mode_set_by: str = "SYSTEM"
+    context: dict[str, Any] = Field(default_factory=dict)
+    evidence_episode_ids: list[str] = Field(default_factory=list)
+    evidence_semantic_ids: list[str] = Field(default_factory=list)
+    evidence_relation_ids: list[str] = Field(default_factory=list)
+    evidence_world_ids: list[str] = Field(default_factory=list)
+
+
+class PersonalityCouncilOutcomeRequest(BaseModel):
+    predicted_success: float | None = Field(default=None, ge=0.0, le=1.0)
+    actual_success: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_episode_id: str | None = None
+    notes: str = ""
+
+
+@app.post("/council/deliberate")
+def council_deliberate(request: CouncilDeliberateRequest) -> dict[str, object]:
+    """Full council deliberation: all 11 voting perspectives + Auditor adversarial pass."""
+    from backend.core.council_session import CouncilSession
+    result = CouncilSession.deliberate(
+        question=request.question,
+        question_type=request.question_type,
+        context=request.context,
+        code_change=request.code_change,
+        production=request.production,
+        mode_profile=request.mode_profile,
+    )
+    return result.to_dict()
+
+
+@app.post("/council/deliberate/quick")
+def council_deliberate_quick(request: CouncilQuickDeliberateRequest) -> dict[str, object]:
+    """Quick deliberation: top-N perspectives by question type + Auditor. Default N=3 → 4 LLM calls."""
+    from backend.core.council_session import CouncilSession
+    result = CouncilSession.quick_deliberate(
+        question=request.question,
+        question_type=request.question_type,
+        context=request.context,
+        n=request.n,
+        code_change=request.code_change,
+        production=request.production,
+        mode_profile=request.mode_profile,
+    )
+    return result.to_dict()
+
+
+@app.get("/council/decisions")
+def council_decisions(limit: int = 50) -> dict[str, object]:
+    """List all council deliberation decisions from the ledger, newest first."""
+    from backend.core.council_session import CouncilSession
+    decisions = CouncilSession.list_decisions(limit=limit)
+    return {"total": len(decisions), "decisions": decisions}
+
+
+@app.get("/council/decision/{decision_id}")
+def council_decision_detail(decision_id: str) -> dict[str, object]:
+    """Retrieve full details of a single council decision including votes and audit findings."""
+    from backend.core.council_session import CouncilSession
+    decision = CouncilSession.get_decision(decision_id)
+    if not decision:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Council decision {decision_id} not found")
+    return decision
+
+
+@app.get("/council/performance")
+def council_performance() -> dict[str, object]:
+    """Performance report: council approval/rejection rates and Arena outcome accuracy."""
+    from backend.core.council_session import CouncilPerformanceReport
+    return CouncilPerformanceReport.generate()
+
+
+@app.post("/council/benchmark/validate")
+def council_benchmark_validate(request: CouncilBenchmarkValidateRequest) -> dict[str, object]:
+    """Run comparative validation: Group A vs Group B on the pre-seeded evaluation suite."""
+    from backend.core.council_benchmark_validator import CouncilBenchmarkValidator
+    report = CouncilBenchmarkValidator.run_comparative_benchmark(
+        quick_council=request.quick_council,
+        quick_n=request.quick_n,
+    )
+    return {
+        "success_criteria_passed": report.success_criteria_passed,
+        "reasons": report.reasons,
+        "group_a": {
+            "accuracy": report.group_a.accuracy,
+            "safety_accuracy": report.group_a.safety_accuracy,
+            "reversal_rate": report.group_a.reversal_rate,
+            "human_satisfaction": report.group_a.human_satisfaction,
+            "avg_latency_ms": report.group_a.avg_latency_ms,
+            "total_llm_calls": report.group_a.total_llm_calls,
+            "total_estimated_tokens": report.group_a.total_estimated_tokens,
+            "decisions": report.group_a.decisions,
+        },
+        "group_b": {
+            "accuracy": report.group_b.accuracy,
+            "safety_accuracy": report.group_b.safety_accuracy,
+            "reversal_rate": report.group_b.reversal_rate,
+            "human_satisfaction": report.group_b.human_satisfaction,
+            "avg_latency_ms": report.group_b.avg_latency_ms,
+            "total_llm_calls": report.group_b.total_llm_calls,
+            "total_estimated_tokens": report.group_b.total_estimated_tokens,
+            "decisions": report.group_b.decisions,
+        }
+    }
+
+
+@app.post("/council/benchmark/{decision_id}")
+def council_record_outcome(decision_id: str, request: CouncilOutcomeRequest) -> dict[str, object]:
+    """Record Arena verification outcome for a council decision (for benchmarking)."""
+    from backend.core.council_session import CouncilSession
+    CouncilSession.record_outcome(
+        decision_id=decision_id,
+        outcome=request.outcome,
+        outcome_score=request.outcome_score,
+        predicted_success=request.predicted_success,
+        actual_success=request.actual_success,
+        notes=request.notes,
+    )
+    return {
+        "decision_id": decision_id,
+        "outcome": request.outcome,
+        "outcome_score": request.outcome_score,
+        "predicted_success": request.predicted_success,
+        "actual_success": request.actual_success,
+        "notes": request.notes,
+    }
+
+
+@app.post("/personality-council/deliberate")
+def personality_council_deliberate(request: PersonalityCouncilRequest) -> dict[str, object]:
+    """Step 20 deterministic council: validators for facts, vetoes for risks, ranking for values."""
+    from backend.core.council import PersonalityCouncil
+    return PersonalityCouncil.deliberate(
+        question=request.question,
+        mode_profile=request.mode_profile,
+        mode_set_by=request.mode_set_by,
+        context=request.context,
+        evidence_episode_ids=request.evidence_episode_ids,
+        evidence_semantic_ids=request.evidence_semantic_ids,
+        evidence_relation_ids=request.evidence_relation_ids,
+        evidence_world_ids=request.evidence_world_ids,
+    )
+
+
+@app.get("/personality-council/session/{session_id}")
+def personality_council_session(session_id: str) -> dict[str, object]:
+    """Retrieve a persisted Step 20 council session."""
+    from backend.core.council import PersonalityCouncil
+    session = PersonalityCouncil.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Personality council session {session_id} not found")
+    return session
+
+
+@app.post("/personality-council/outcomes/{outcome_id}")
+def personality_council_record_outcome(
+    outcome_id: str,
+    request: PersonalityCouncilOutcomeRequest,
+) -> dict[str, object]:
+    """Record outcome feedback and update deterministic council calibration."""
+    from backend.core.council import CouncilOutcomeLoop
+    try:
+        return CouncilOutcomeLoop.record_outcome(
+            outcome_id=outcome_id,
+            predicted_success=request.predicted_success,
+            actual_success=request.actual_success,
+            source_episode_id=request.source_episode_id,
+            notes=request.notes,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/personality-council/performance")
+def personality_council_performance() -> dict[str, object]:
+    """Return Step 20 council calibration and outcome coverage."""
+    from backend.core.council import PersonalityCouncil
+    return PersonalityCouncil.performance()
 
 
 @app.post("/distill")
@@ -5441,6 +6044,459 @@ def hce_commit_proposed_intent(proposal_id: str):
         raise
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
+
+
+
+# ---------------------------------------------------------------------------
+# Step 8.5 — Cognitive Dashboard Endpoints
+# ---------------------------------------------------------------------------
+from backend.core.cognitive_dashboard import CognitiveDashboardManager
+
+class HealthEventRequest(BaseModel):
+    severity: str
+    source_module: str
+    description: str
+
+@app.get("/dashboard/cognitive/latest")
+def get_cognitive_latest() -> dict[str, object]:
+    """Returns the latest 11-tier dashboard metrics snapshot."""
+    try:
+        data = CognitiveDashboardManager.get_latest_snapshot()
+        return {"status": "ok", "data": data}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.post("/dashboard/cognitive/snapshot")
+def trigger_cognitive_snapshot() -> dict[str, object]:
+    """Manually triggers a new system health snapshot sweep."""
+    try:
+        data = CognitiveDashboardManager.collect_snapshot()
+        return {"status": "ok", "data": data}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.get("/dashboard/cognitive/health-events")
+def get_health_events() -> dict[str, object]:
+    """Returns all warning, critical, and info events logged in the ledger."""
+    try:
+        events = CognitiveDashboardManager.get_health_events()
+        return {"status": "ok", "events": events}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.post("/dashboard/cognitive/health-events")
+def log_health_event(payload: HealthEventRequest) -> dict[str, object]:
+    """Logs a custom health event into the ledger."""
+    try:
+        evt_id = CognitiveDashboardManager.log_health_event(payload.severity, payload.source_module, payload.description)
+        return {"status": "ok", "event_id": evt_id}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.post("/dashboard/cognitive/health-events/{event_id}/resolve")
+def resolve_health_event(event_id: str) -> dict[str, object]:
+    """Resolves an active health warning or critical alert."""
+    try:
+        resolved = CognitiveDashboardManager.resolve_health_event(event_id)
+        return {"status": "ok", "resolved": resolved}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.get("/dashboard/cognitive/repair-proposals")
+def get_repair_proposals() -> dict[str, object]:
+    """Returns diagnostic self-repair proposals generated during degraded states."""
+    try:
+        proposals = CognitiveDashboardManager.get_repair_proposals()
+        return {"status": "ok", "proposals": proposals}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.post("/dashboard/cognitive/repair-proposals/{proposal_id}/approve")
+def approve_repair_proposal(proposal_id: str) -> dict[str, object]:
+    """Approves and executes a diagnostic repair proposal."""
+    try:
+        success = CognitiveDashboardManager.approve_repair_proposal(proposal_id)
+        return {"status": "ok", "success": success}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.get("/dashboard/cognitive/mral/traces")
+def get_mral_traces() -> dict[str, object]:
+    """Returns list of reasoning decision traces."""
+    try:
+        from backend.core.meta_cognition import MRALAuditor
+        traces = MRALAuditor.get_all_traces()
+        return {"status": "ok", "traces": traces}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.get("/dashboard/cognitive/mral/traces/{decision_id}")
+def get_mral_trace_replay(decision_id: str) -> dict[str, object]:
+    """Returns full details of a specific reasoning decision trace."""
+    try:
+        from backend.core.meta_cognition import MRALAuditor
+        trace = MRALAuditor.get_decision_replay(decision_id)
+        if not trace:
+            return {"status": "error", "message": f"Trace {decision_id} not found"}
+        return {"status": "ok", "trace": trace}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+class TestRunRequest(BaseModel):
+    goal_title: str
+    goal_description: str
+    plan_steps: list[dict[str, object]]
+
+@app.post("/dashboard/cognitive/mral/traces/test-run")
+def trigger_mral_test_run(payload: TestRunRequest) -> dict[str, object]:
+    """Manually triggers a sandbox/MRAL run for testing."""
+    try:
+        from backend.core.cognitive_simulation_sandbox import CognitiveSimulationSandbox
+        res = CognitiveSimulationSandbox.orchestrate(
+            goal_id=f"goal_{uuid.uuid4().hex[:8]}",
+            goal_title=payload.goal_title,
+            plan_title=payload.goal_title,
+            plan_description=payload.goal_description,
+            plan_steps=payload.plan_steps,
+            success_criteria=[],
+        )
+        return {"status": "ok", "data": res}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+class CreateExecutivePlanRequest(BaseModel):
+    goal_id: str
+    plan_title: str
+    plan_description: str
+    plan_steps: list[dict[str, object]]
+    domain: str = "General"
+
+class AdaptPlanRequest(BaseModel):
+    failed_task_id: str
+
+@app.post("/dashboard/cognitive/executive/plans")
+def create_executive_plan(payload: CreateExecutivePlanRequest) -> dict[str, object]:
+    """Triggers the Executive Planner pipeline to produce a validated plan blueprint."""
+    try:
+        from backend.core.executive_planner import ExecutivePlanner
+        res = ExecutivePlanner.create_executive_plan(
+            goal_id=payload.goal_id,
+            plan_title=payload.plan_title,
+            plan_description=payload.plan_description,
+            plan_steps=payload.plan_steps,
+            domain=payload.domain
+        )
+        return res
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.get("/dashboard/cognitive/executive/plans/{blueprint_id}")
+def get_executive_plan(blueprint_id: str) -> dict[str, object]:
+    """Retrieves detailed structure, forecasts, and allocations of a plan blueprint."""
+    try:
+        from backend.core.executive_planner import ExecutivePlanner
+        conn = ExecutivePlanner._get_sqlite_conn()
+        try:
+            row = conn.execute("SELECT * FROM plan_blueprints WHERE blueprint_id = ?", (blueprint_id,)).fetchone()
+            if not row:
+                return {"status": "error", "message": f"Blueprint {blueprint_id} not found"}
+            
+            nodes = conn.execute("SELECT * FROM blueprint_nodes WHERE blueprint_id = ?", (blueprint_id,)).fetchall()
+            dependencies = conn.execute("SELECT * FROM blueprint_dependencies WHERE blueprint_id = ?", (blueprint_id,)).fetchall()
+            forecasts = conn.execute("SELECT * FROM resource_forecasts WHERE blueprint_id = ?", (blueprint_id,)).fetchall()
+            risks = conn.execute("SELECT * FROM simulation_risks WHERE blueprint_id = ?", (blueprint_id,)).fetchall()
+            sweep = conn.execute("SELECT * FROM context_sweeps WHERE blueprint_id = ?", (blueprint_id,)).fetchone()
+
+            node_list = []
+            for n in nodes:
+                allocated = conn.execute("SELECT * FROM blueprint_agents WHERE node_id = ?", (n["node_id"],)).fetchone()
+                node_list.append({
+                    "node_id": n["node_id"],
+                    "node_type": n["node_type"],
+                    "title": n["title"],
+                    "description": n["description"],
+                    "estimated_effort_score": n["estimated_effort_score"],
+                    "success_criteria_definition": n["success_criteria_definition"],
+                    "actual_effort": n["actual_effort"],
+                    "actual_resource_units": n["actual_resource_units"],
+                    "allocated_agent": dict(allocated) if allocated else None
+                })
+
+            return {
+                "status": "ok",
+                "blueprint": {
+                    "blueprint_id": row["blueprint_id"],
+                    "linked_goal_id": row["linked_goal_id"],
+                    "target_project_id": row["target_project_id"],
+                    "confidence_rating": row["confidence_rating"],
+                    "planning_phase_duration_ms": row["planning_phase_duration_ms"],
+                    "blueprint_status": row["blueprint_status"],
+                    "max_budget": row["max_budget"],
+                    "max_time_days": row["max_time_days"],
+                    "total_replans": row["total_replans"],
+                    "nodes": node_list,
+                    "dependencies": [dict(d) for d in dependencies],
+                    "forecasts": [dict(f) for f in forecasts],
+                    "risks": [dict(rk) for rk in risks],
+                    "context_sweep": dict(sweep) if sweep else None
+                }
+            }
+        finally:
+            conn.close()
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.post("/dashboard/cognitive/executive/plans/{blueprint_id}/deploy")
+def deploy_executive_plan(blueprint_id: str) -> dict[str, object]:
+    """Deploys approved plan to active PPM container."""
+    try:
+        from backend.core.executive_planner import ExecutivePlanner
+        res = ExecutivePlanner.deploy_blueprint_to_ppm(blueprint_id)
+        return res
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+@app.post("/dashboard/cognitive/executive/plans/{project_id}/adapt")
+def adapt_executive_plan(project_id: str, payload: AdaptPlanRequest) -> dict[str, object]:
+    """Triggers adaptation loop on verification failure."""
+    try:
+        from backend.core.executive_planner import ExecutivePlanner
+        res = ExecutivePlanner.adapt_plan(project_id, payload.failed_task_id)
+        return res
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+# ============================================================================
+# Step 8.8 — Action Broker Scheduler Endpoints
+# ============================================================================
+
+class EnqueueActionRequest(BaseModel):
+    agent_name: str
+    action: str
+    params: dict = {}
+    state: dict = {}
+    priority: int = 5            # 0 (low) … 10 (critical)
+    deadline_secs: float = None  # Relative seconds from now; None = no deadline
+    max_attempts: int = 3
+
+class DispatchRequest(BaseModel):
+    dry_run: bool = False        # If True, peek without executing
+
+
+@app.post("/broker/queue")
+def broker_enqueue(payload: EnqueueActionRequest) -> dict:
+    """Enqueue an action onto the priority scheduler queue."""
+    try:
+        from backend.core.action_scheduler import ActionScheduler
+        return ActionScheduler.enqueue_action(
+            agent_name=payload.agent_name,
+            action=payload.action,
+            params=payload.params,
+            state=payload.state,
+            priority=payload.priority,
+            deadline_secs=payload.deadline_secs,
+            max_attempts=payload.max_attempts,
+        )
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/broker/dispatch")
+def broker_dispatch(payload: DispatchRequest) -> dict:
+    """Dispatch the highest-priority eligible action from the queue.
+
+    Pass ``dry_run=true`` to peek at the next candidate without executing it.
+    """
+    try:
+        from backend.core.action_scheduler import ActionScheduler
+        return ActionScheduler.dispatch_next(dry_run=payload.dry_run)
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/broker/queue/snapshot")
+def broker_queue_snapshot() -> dict:
+    """Return live queue state: pending depth, in-flight, SLA breach summary."""
+    try:
+        from backend.core.action_scheduler import ActionScheduler
+        return ActionScheduler.get_queue_snapshot()
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/broker/queue/drain")
+def broker_drain_queue() -> dict:
+    """Emergency drain: cancel all PENDING and RETRY actions.
+
+    IN_FLIGHT actions are left to complete naturally.
+    """
+    try:
+        from backend.core.action_scheduler import ActionScheduler
+        return ActionScheduler.drain_queue()
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/broker/queue/{queue_id}")
+def broker_inspect_action(queue_id: str) -> dict:
+    """Inspect a single queued action by its queue_id."""
+    try:
+        from backend.core.action_scheduler import ActionScheduler
+        record = ActionScheduler.get_action(queue_id)
+        if record is None:
+            return {"status": "error", "message": f"Action '{queue_id}' not found."}
+        return {"status": "ok", "record": record}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/verification/report/{report_id}")
+def verification_get_report(report_id: str) -> dict:
+    """Retrieve a specific verification report."""
+    try:
+        from backend.core.verification_engine import VerificationEngine
+        report = VerificationEngine.get_report(report_id)
+        if report is None:
+            return {"status": "error", "message": f"Report '{report_id}' not found."}
+        return {"status": "ok", "report": report}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/verification/action/{queue_id}")
+def verification_get_reports_for_action(queue_id: str) -> dict:
+    """Retrieve all verification reports associated with a queue_id."""
+    try:
+        from backend.core.verification_engine import VerificationEngine
+        reports = VerificationEngine.get_reports_for_action(queue_id)
+        return {"status": "ok", "reports": reports}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+class RetractPayload(BaseModel):
+    reason: str
+
+
+@app.post("/verification/retract/{report_id}")
+def verification_retract_report(report_id: str, payload: RetractPayload) -> dict:
+    """Retract a report, downgrading the verdict to PARTIAL and setting confidence to 0.5."""
+    try:
+        from backend.core.verification_engine import VerificationEngine
+        success = VerificationEngine.retract_report(report_id, payload.reason)
+        if not success:
+            return {"status": "error", "message": f"Failed to retract report '{report_id}' (not found or non-retractable)."}
+        return {"status": "ok", "message": f"Report '{report_id}' successfully retracted."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/verification/verdicts")
+def verification_get_verdicts_summary() -> dict:
+    """Aggregate report verdict counts for Cognitive Dashboard Tier 9."""
+    try:
+        from backend.core.verification_engine import VerificationEngine
+        summary = VerificationEngine.get_verdicts_summary()
+        return {"status": "ok", "summary": summary}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+class NodeRegisterRESTRequest(BaseModel):
+    node_name: str
+    node_type: str
+    cpu_logical: int
+    ram_gb: float
+    gpu_info: str | None = None
+    capabilities: list[str] | None = None
+
+
+@app.post("/api/nodes/register/{node_id}")
+def register_node_endpoint(node_id: str, payload: NodeRegisterRESTRequest) -> dict:
+    try:
+        from backend.core.node_manager import NodeManager
+        NodeManager.register_node(
+            node_id=node_id,
+            node_name=payload.node_name,
+            node_type=payload.node_type,
+            cpu_logical=payload.cpu_logical,
+            ram_gb=payload.ram_gb,
+            gpu_info=payload.gpu_info,
+            capabilities=payload.capabilities
+        )
+        return {"status": "ok", "message": f"Node '{node_id}' successfully registered via REST."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.get("/api/nodes")
+def get_nodes_endpoint() -> dict:
+    try:
+        from backend.core.node_manager import NodeManager
+        nodes = NodeManager.get_nodes()
+        return {"status": "ok", "nodes": nodes}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post("/api/nodes/sweep")
+def sweep_nodes_endpoint() -> dict:
+    try:
+        from backend.core.node_manager import NodeManager
+        swept = NodeManager.sweep_nodes()
+        return {"status": "ok", "swept_count": swept}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.websocket("/api/nodes/ws/{node_id}")
+async def websocket_node_endpoint(websocket: WebSocket, node_id: str):
+    from fastapi.websockets import WebSocketDisconnect
+    from backend.core.node_manager import NodeManager
+    from backend.core.logger import log_event
+    
+    await websocket.accept()
+    NodeManager.register_connection(node_id, websocket)
+    
+    # Update state to alive on connect
+    NodeManager.update_heartbeat(node_id, 0.0, 0.0, 0, status="alive")
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                packet = json.loads(data)
+                packet_type = packet.get("type")
+                if packet_type == "heartbeat":
+                    metrics = packet.get("metrics", {})
+                    cpu = float(metrics.get("system_cpu_pct", 0.0))
+                    ram = float(metrics.get("system_ram_pct", 0.0))
+                    tasks = int(metrics.get("active_tasks", 0))
+                    NodeManager.update_heartbeat(node_id, cpu, ram, tasks, status="alive")
+                elif packet_type == "register":
+                    NodeManager.register_node(
+                        node_id=node_id,
+                        node_name=packet.get("node_name", "unknown"),
+                        node_type=packet.get("node_type", "worker"),
+                        cpu_logical=int(packet.get("cpu_logical", 1)),
+                        ram_gb=float(packet.get("ram_gb", 0.0)),
+                        gpu_info=packet.get("gpu_info"),
+                        capabilities=packet.get("capabilities", [])
+                    )
+                elif packet_type == "task_response":
+                    queue_id = packet.get("queue_id")
+                    result = packet.get("result")
+                    from backend.core.action_scheduler import ActionScheduler
+                    ActionScheduler.set_pending_response(queue_id, result)
+            except Exception as parse_exc:
+                log_event("node_ws_error", f"Error parsing packet from node {node_id}: {parse_exc}")
+    except WebSocketDisconnect:
+        pass
+    finally:
+        NodeManager.deregister_connection(node_id)
+        # Update node status to offline when WebSocket closes
+        NodeManager.update_heartbeat(node_id, 0.0, 0.0, 0, status="offline")
 
 
 @app.on_event("shutdown")

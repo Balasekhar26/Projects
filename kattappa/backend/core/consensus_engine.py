@@ -28,6 +28,7 @@ Key safety properties:
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -226,9 +227,16 @@ class AgentOutput:
     def evidence_multiplier(self) -> float:
         return max((e.multiplier for e in self.evidence), default=0.5)
 
+    def get_vote_weight(self, dynamic_weights: dict[str, float] | None = None) -> float:
+        if dynamic_weights and self.agent in dynamic_weights:
+            auth = dynamic_weights[self.agent] * 10.0
+        else:
+            auth = _authority(self.agent)
+        return auth * self.evidence_multiplier
+
     @property
     def vote_weight(self) -> float:
-        return _authority(self.agent) * self.evidence_multiplier
+        return self.get_vote_weight(None)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentOutput":
@@ -378,10 +386,66 @@ class ConsensusEngine:
 
     @classmethod
     def decide(
-        cls, outputs: list[AgentOutput], context: DecisionContext | None = None
+        cls,
+        outputs: list[AgentOutput],
+        context: DecisionContext | None = None,
+        dynamic_weights: dict[str, float] | None = None,
     ) -> ConsensusDecision:
         context = context or DecisionContext()
         reasons: list[str] = []
+
+        # 1. Fetch LIS dynamic weights from IdentitySystem based on decision context
+        if dynamic_weights is None:
+            from backend.core.identity_system import IdentitySystem
+            lis_context = {
+                "task_type": "code" if context.code_change else "execution",
+                "domain": context.project
+            }
+            dynamic_weights = IdentitySystem.derive_role_weights(lis_context) if context.project else None
+
+        # Log LIS dynamic weight trace
+        from backend.core.identity_system import IdentitySystem
+        context_id = str(uuid.uuid4())
+        IdentitySystem.log_role_log("default_profile", context_id, dynamic_weights or {})
+
+        # 2. Run recommendations through the LIS Truth Gate (Truthfulness is a gate, not a weight)
+        filtered_outputs = []
+        for o in outputs:
+            recommendations_passed = []
+            for rec in o.recommendations:
+                rec_dict = {
+                    "source": rec.source,
+                    "message": rec.message,
+                    "weight": rec.weight,
+                }
+                if o.veto:
+                    rec_dict["verification"] = {
+                        "outcome": "VERIFIED" if o.veto.passed else "FAILED",
+                        "reason": o.veto.reason
+                    }
+                if IdentitySystem.evaluate_truth_gate(rec_dict):
+                    recommendations_passed.append(rec)
+            
+            # If all recommendations pass or if we filter out the failing ones:
+            if len(recommendations_passed) == len(o.recommendations):
+                filtered_outputs.append(o)
+            else:
+                new_out = AgentOutput(
+                    agent=o.agent,
+                    decision=o.decision if o.decision != Decision.APPROVE else Decision.ABSTAIN,
+                    confidence=o.confidence,
+                    constraints=o.constraints,
+                    recommendations=tuple(recommendations_passed),
+                    veto=o.veto,
+                    evidence=o.evidence,
+                    critic_findings=o.critic_findings,
+                    source_id=o.source_id,
+                    rationale=o.rationale
+                )
+                filtered_outputs.append(new_out)
+
+        outputs = filtered_outputs
+
         vetoes = [o.veto for o in outputs if o.veto is not None]
         hard = [c for o in outputs for c in o.constraints if c.type is ConstraintType.HARD]
         soft = [c for o in outputs for c in o.constraints if c.type is ConstraintType.SOFT]
@@ -441,10 +505,10 @@ class ConsensusEngine:
             )
 
         # Stage 4: weighted voting (independent-source) + recommendation ranking.
-        approve_mass, reject_mass, approve_srcs, reject_srcs = cls._tally(outputs)
+        approve_mass, reject_mass, approve_srcs, reject_srcs = cls._tally(outputs, dynamic_weights)
         total = approve_mass + reject_mass
         margin = abs(approve_mass - reject_mass) / total if total > 0 else None
-        ranked = cls._rank(outputs)
+        ranked = cls._rank(outputs, dynamic_weights)
         independent_sources = len(set(o.source_id for o in outputs
                                       if o.decision in (Decision.APPROVE, Decision.REJECT)))
 
@@ -483,7 +547,31 @@ class ConsensusEngine:
             human = True
             reasons.append("code change -> human approval required (no automatic code changes)")
 
+        # Restricted Mode and Reduced Autonomy checks based on health score
+        from backend.core.cognitive_dashboard import CognitiveDashboardManager
+        autonomy_level = IdentitySystem.get_autonomy_level("default_profile")
+        if CognitiveDashboardManager.is_restricted_mode() or autonomy_level == "RESTRICTED_MODE":
+            human = True
+            status = ConsensusStatus.ESCALATE
+            selected = None
+            reasons.append("Restricted Mode active: health status critical. Human gating strictly enforced.")
+        elif autonomy_level == "REDUCED_AUTONOMY" and status == ConsensusStatus.APPROVED:
+            human = True
+            reasons.append("Reduced Autonomy active: health status degraded. Proposer requires human verification.")
+
+        # Stage 5: Assistant Intent Validator (Post-Arbitration Intent Check)
         rejected_by = "vote" if status is ConsensusStatus.REJECTED else None
+        if selected and status == ConsensusStatus.APPROVED:
+            intent_passed, intent_reason = AssistantIntentValidator.validate(
+                selected, context.project, outputs
+            )
+            if not intent_passed:
+                status = ConsensusStatus.REJECTED
+                selected = None
+                human = True
+                rejected_by = "AssistantIntentValidator"
+                reasons.append(f"Assistant Intent Validator: {intent_reason}")
+
         return ConsensusDecision(
             status=status, selected=selected, requires_human_approval=human,
             ranked_recommendations=ranked, rejected_by=rejected_by,
@@ -508,7 +596,7 @@ class ConsensusEngine:
         return conflicts
 
     @staticmethod
-    def _tally(outputs: list[AgentOutput]) -> tuple[float, float, list[str], list[str]]:
+    def _tally(outputs: list[AgentOutput], dynamic_weights: dict[str, float] | None = None) -> tuple[float, float, list[str], list[str]]:
         """Per-independent-source vote mass. Same source_id counts ONCE."""
         by_source: dict[str, list[AgentOutput]] = {}
         for o in outputs:
@@ -519,8 +607,8 @@ class ConsensusEngine:
         approve_srcs: list[str] = []
         reject_srcs: list[str] = []
         for source, group in by_source.items():
-            app = max((o.vote_weight for o in group if o.decision is Decision.APPROVE), default=0.0)
-            rej = max((o.vote_weight for o in group if o.decision is Decision.REJECT), default=0.0)
+            app = max((o.get_vote_weight(dynamic_weights) for o in group if o.decision is Decision.APPROVE), default=0.0)
+            rej = max((o.get_vote_weight(dynamic_weights) for o in group if o.decision is Decision.REJECT), default=0.0)
             if app > rej:
                 approve_mass += app
                 approve_srcs.append(source)
@@ -531,13 +619,17 @@ class ConsensusEngine:
         return approve_mass, reject_mass, approve_srcs, reject_srcs
 
     @staticmethod
-    def _rank(outputs: list[AgentOutput]) -> list[RankedRecommendation]:
+    def _rank(outputs: list[AgentOutput], dynamic_weights: dict[str, float] | None = None) -> list[RankedRecommendation]:
         by_agent = {o.agent: o for o in outputs}
         ranked: list[RankedRecommendation] = []
         for o in outputs:
             for rec in o.recommendations:
                 owner = by_agent.get(rec.source, o)
-                score = (rec.weight * _authority(rec.source)
+                if dynamic_weights and rec.source in dynamic_weights:
+                    auth = dynamic_weights[rec.source] * 10.0
+                else:
+                    auth = _authority(rec.source)
+                score = (rec.weight * auth
                          * owner.evidence_multiplier * _conf01(owner.confidence))
                 ranked.append(RankedRecommendation(rec, score))
         ranked.sort(key=lambda r: (-r.score, r.recommendation.source, r.recommendation.message))
@@ -562,3 +654,62 @@ def decide_from_dicts(
     return ConsensusEngine.decide(
         [AgentOutput.from_dict(d) for d in raw_outputs], DecisionContext.from_dict(context)
     )
+
+
+class AssistantIntentValidator:
+    """Post-Arbitration intent compliance checker."""
+
+    @classmethod
+    def validate(
+        cls,
+        selected: Recommendation,
+        project_id: str | None,
+        outputs: list[AgentOutput]
+    ) -> tuple[bool, str]:
+        # 1. Check if the Assistant agent voted to REJECT or raised intent conflict
+        for o in outputs:
+            if o.agent == "Assistant" and o.decision == Decision.REJECT:
+                return False, f"Assistant agent explicitly rejected the proposal: {o.rationale or 'intent conflict'}"
+
+        # 2. Rule-based goal/project checks
+        if not project_id:
+            return True, ""
+
+        try:
+            from backend.core.personal_project_manager import PersonalProjectManager
+            from backend.core.goal_memory import GoalMemory
+            
+            project = PersonalProjectManager.get_project(project_id)
+            if not project:
+                return True, ""
+            
+            goal_id = project.get("linked_goal_id")
+            if not goal_id:
+                return True, ""
+                
+            goal = GoalMemory.get_goal(goal_id)
+            if not goal:
+                return True, ""
+
+            goal_text = f"{goal.get('title', '')} {goal.get('description', '')}".lower()
+            rec_text = selected.message.lower()
+
+            # Define conflict keywords mappings
+            conflicts = [
+                ("read-only", ["write", "delete", "edit", "update", "modify"]),
+                ("disable writing", ["write", "delete", "edit", "update", "modify"]),
+                ("encrypt", ["plain text", "unencrypted", "disable encryption"]),
+                ("no code change", ["edit code", "refactor", "modify file", "rewrite"]),
+            ]
+
+            for key, bad_words in conflicts:
+                if key in goal_text:
+                    for word in bad_words:
+                        if word in rec_text:
+                            return False, f"Proposed action '{selected.message}' contradicts goal policy '{key}'."
+
+        except Exception:
+            # Defensive logging / fail safe (default to True)
+            pass
+
+        return True, ""

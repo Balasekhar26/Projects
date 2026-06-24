@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import random
 import time
+import sqlite3
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -119,6 +121,9 @@ class StepPrediction:
     confidence_score: float
     evidence_count: int
     adjustments: list[dict[str, Any]] = field(default_factory=list)
+    confidence_interval: tuple[float, float] = (0.0, 1.0)
+    resource_cost: float = 0.0
+    risk_score: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -132,6 +137,9 @@ class StepPrediction:
             "confidence_score": round(self.confidence_score, 4),
             "evidence_count": self.evidence_count,
             "adjustments": self.adjustments,
+            "confidence_interval": [round(x, 4) for x in self.confidence_interval],
+            "resource_cost": round(self.resource_cost, 4),
+            "risk_score": round(self.risk_score, 4),
         }
 
 
@@ -173,6 +181,7 @@ class PlanSimulationReport:
 
 
 class SimulationEngine:
+    _lock = threading.RLock()
     REVIEW_THRESHOLD = 0.10  # failure rate above which a human review is advised
     DEFAULT_AGENT_SUCCESS = {
         "browser": 0.78,
@@ -501,9 +510,33 @@ class SimulationEngine:
         except Exception:
             pass
 
+        # Apply Step 15 Global Decision Calibration modifier if present
+        try:
+            global_multiplier = cls.get_global_calibration_modifier()
+            success_probability *= global_multiplier
+        except Exception:
+            pass
+
         success_probability = _clamp(success_probability, 0.02, 0.99)
         rollback_risk = _clamp(rollback_risk, 0.0, 0.95)
         avg_duration_ms = max(0, avg_duration_ms or cls._default_duration_ms(step))
+
+        # Calculate Wilson interval, resource cost, risk score
+        successes_count = int(base_success * evidence_count)
+        confidence_interval = cls._wilson_interval(successes_count, evidence_count)
+
+        agent_multipliers = {
+            "coder": 1.5,
+            "browser": 1.0,
+            "desktop": 2.0,
+            "terminal": 1.8,
+            "file": 1.2,
+        }
+        agent_mult = agent_multipliers.get(step.agent, 1.2)
+        resource_cost = (avg_duration_ms / 1000.0) * agent_mult
+
+        failure_prob = 1.0 - success_probability
+        risk_score = failure_prob * 0.7 + rollback_risk * 0.3
 
         return (
             StepPrediction(
@@ -511,12 +544,15 @@ class SimulationEngine:
                 agent=step.agent,
                 action=step.action,
                 success_probability=success_probability,
-                failure_probability=1.0 - success_probability,
+                failure_probability=failure_prob,
                 expected_duration_ms=avg_duration_ms,
                 rollback_risk=rollback_risk,
                 confidence_score=avg_confidence,
                 evidence_count=evidence_count,
                 adjustments=adjustments,
+                confidence_interval=confidence_interval,
+                resource_cost=resource_cost,
+                risk_score=risk_score,
             ),
             policy_adjustments,
             reflection_adjustments,
@@ -977,3 +1013,347 @@ class SimulationEngine:
             "critical_path": critical_path,
             "resource_demand": resource_demand
         }
+
+    # -- Step 15 Database, Counterfactual, and Calibration APIs ------------
+    @classmethod
+    def _get_sqlite_conn(cls) -> sqlite3.Connection:
+        from backend.core.config import load_config
+        config = load_config()
+        config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(config.sqlite_path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        with cls._lock:
+            # Check dynamically if tables exist to support clean_db/unlink operations in tests
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='simulation_runs'")
+            if not cursor.fetchone():
+                cls._ensure_schema(conn)
+        return conn
+
+    @classmethod
+    def _ensure_schema(cls, conn: sqlite3.Connection) -> None:
+        with cls._lock:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS simulation_runs (
+                    run_id TEXT PRIMARY KEY,
+                    goal TEXT NOT NULL,
+                    workflow_id TEXT,
+                    timestamp REAL NOT NULL,
+                    base_success REAL NOT NULL,
+                    base_risk REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS counterfactual_scenarios (
+                    scenario_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    parameters TEXT NOT NULL,
+                    predicted_success REAL NOT NULL,
+                    predicted_risk REAL NOT NULL,
+                    predicted_duration_ms INTEGER NOT NULL,
+                    recommendation TEXT NOT NULL,
+                    FOREIGN KEY(run_id) REFERENCES simulation_runs(run_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS decision_forecasts (
+                    decision_id TEXT PRIMARY KEY,
+                    decision TEXT NOT NULL,
+                    predicted_success REAL NOT NULL,
+                    predicted_cost REAL NOT NULL,
+                    predicted_time TEXT NOT NULL,
+                    actual_success REAL,
+                    actual_cost REAL,
+                    actual_time TEXT,
+                    timestamp REAL NOT NULL,
+                    status TEXT DEFAULT 'pending'
+                );
+
+                CREATE TABLE IF NOT EXISTS forecast_calibration (
+                    calibration_id TEXT PRIMARY KEY,
+                    timestamp REAL NOT NULL,
+                    total_decisions INTEGER NOT NULL,
+                    mean_absolute_error REAL NOT NULL,
+                    root_mean_squared_error REAL NOT NULL,
+                    details TEXT NOT NULL
+                );
+                """
+            )
+            conn.commit()
+
+    @classmethod
+    def run_counterfactual_simulations(
+        cls,
+        plan: list[dict[str, Any]],
+        *,
+        goal: str = "",
+        workflow_id: str = ""
+    ) -> dict[str, Any]:
+        """Runs standard simulation AND alternate counterfactual branches, logging them to the ledger."""
+        import uuid
+        run_id = f"sim_{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        
+        # 1. Run Reality Simulation
+        reality_report = cls.simulate_plan(plan, goal=goal, workflow_id=workflow_id)
+        reality_success = reality_report.success_probability
+        reality_risk = reality_report.rollback_risk
+        reality_duration = reality_report.estimated_duration_ms
+        reality_recommendation = reality_report.recommendation
+        
+        # 2. Run No Action Simulation
+        no_action_success = 0.0
+        no_action_risk = 0.0
+        no_action_duration = 0
+        no_action_rec = "No action taken: goal not achieved, resources preserved."
+        
+        # 3. Run Delay 7 Days Simulation
+        delay_duration = reality_duration + (7 * 24 * 3600 * 1000)
+        delay_success = _clamp(reality_success * 0.95, 0.02, 0.99)
+        delay_risk = reality_risk
+        delay_rec = cls._plan_recommendation(delay_success, delay_risk)
+        if "acceptable" in delay_rec:
+            delay_rec = "acceptable risk with delay, but watch for dependency drift"
+        
+        # 4. Run Budget Decreased 50% Simulation
+        budget_success = _clamp(reality_success * 0.80, 0.02, 0.99)
+        budget_risk = _clamp(reality_risk * 2.0, 0.0, 0.95)
+        budget_duration = reality_duration
+        budget_rec = cls._plan_recommendation(budget_success, budget_risk)
+        if "acceptable" in budget_rec:
+            budget_rec = "increased execution risk due to reduced testing budget"
+            
+        conn = cls._get_sqlite_conn()
+        try:
+            conn.execute(
+                """
+                INSERT INTO simulation_runs (run_id, goal, workflow_id, timestamp, base_success, base_risk)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, goal or "Simulation Goal", workflow_id or f"wf_{int(now)}", now, reality_success, reality_risk)
+            )
+            
+            scenarios = [
+                ("Reality", {}, reality_success, reality_risk, reality_duration, reality_recommendation),
+                ("No Action", {"skip_execution": True}, no_action_success, no_action_risk, no_action_duration, no_action_rec),
+                ("Delay 7 Days", {"delay_days": 7}, delay_success, delay_risk, delay_duration, delay_rec),
+                ("Budget Decrease 50%", {"budget_factor": 0.5}, budget_success, budget_risk, budget_duration, budget_rec),
+            ]
+            
+            for name, params, succ, risk, dur, rec in scenarios:
+                scenario_id = f"scen_{uuid.uuid4().hex[:12]}"
+                conn.execute(
+                    """
+                    INSERT INTO counterfactual_scenarios (
+                        scenario_id, run_id, name, parameters, predicted_success, predicted_risk, predicted_duration_ms, recommendation
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (scenario_id, run_id, name, json.dumps(params), succ, risk, dur, rec)
+                )
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
+            
+        return {
+            "run_id": run_id,
+            "goal": goal,
+            "workflow_id": workflow_id,
+            "timestamp": now,
+            "scenarios": {
+                "Reality": {
+                    "predicted_success": reality_success,
+                    "predicted_risk": reality_risk,
+                    "predicted_duration_ms": reality_duration,
+                    "recommendation": reality_recommendation,
+                },
+                "No Action": {
+                    "predicted_success": no_action_success,
+                    "predicted_risk": no_action_risk,
+                    "predicted_duration_ms": no_action_duration,
+                    "recommendation": no_action_rec,
+                },
+                "Delay 7 Days": {
+                    "predicted_success": delay_success,
+                    "predicted_risk": delay_risk,
+                    "predicted_duration_ms": delay_duration,
+                    "recommendation": delay_rec,
+                },
+                "Budget Decrease 50%": {
+                    "predicted_success": budget_success,
+                    "predicted_risk": budget_risk,
+                    "predicted_duration_ms": budget_duration,
+                    "recommendation": budget_rec,
+                }
+            }
+        }
+
+    @staticmethod
+    def _wilson_interval(successes: int, total: int, confidence: float = 0.95) -> tuple[float, float]:
+        if total == 0:
+            return (0.0, 1.0)
+        z = 1.96 if confidence == 0.95 else 1.645
+        p = successes / total
+        denominator = 1 + z**2 / total
+        centre_adj_p = p + z**2 / (2 * total)
+        adj_sem = z * ((p * (1 - p) + z**2 / (4 * total)) / total) ** 0.5
+        low = (centre_adj_p - adj_sem) / denominator
+        high = (centre_adj_p + adj_sem) / denominator
+        return (max(0.0, low), min(1.0, high))
+
+    @classmethod
+    def get_global_calibration_modifier(cls) -> float:
+        """Fetch the latest global calibration modifier from forecast_calibration."""
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                row = conn.execute("SELECT details FROM forecast_calibration ORDER BY timestamp DESC LIMIT 1").fetchone()
+                if row:
+                    details = json.loads(row["details"])
+                    avg_pred = details.get("avg_predicted_success", 1.0)
+                    avg_act = details.get("avg_actual_success", 1.0)
+                    if avg_pred > 0:
+                        ratio = avg_act / avg_pred
+                        return max(0.5, min(1.5, ratio))
+            except Exception:
+                pass
+            finally:
+                conn.close()
+        return 1.0
+
+    @classmethod
+    def record_decision_forecast(
+        cls,
+        decision_id: str,
+        decision: str,
+        predicted_success: float,
+        predicted_cost: float,
+        predicted_time: str
+    ) -> None:
+        """Records a future decision forecast before executive governance approval."""
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO decision_forecasts (decision_id, decision, predicted_success, predicted_cost, predicted_time, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(decision_id) DO UPDATE SET
+                        decision=excluded.decision,
+                        predicted_success=excluded.predicted_success,
+                        predicted_cost=excluded.predicted_cost,
+                        predicted_time=excluded.predicted_time,
+                        timestamp=excluded.timestamp
+                    """,
+                    (decision_id, decision.strip(), max(0.0, min(1.0, predicted_success)), max(0.0, predicted_cost), predicted_time.strip(), time.time())
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
+    def record_decision_outcome(
+        cls,
+        decision_id: str,
+        actual_success: float,
+        actual_cost: float,
+        actual_time: str
+    ) -> None:
+        """Records the actual outcome of a decision and marks it as resolved."""
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                conn.execute(
+                    """
+                    UPDATE decision_forecasts
+                    SET actual_success = ?, actual_cost = ?, actual_time = ?, status = 'resolved'
+                    WHERE decision_id = ?
+                    """,
+                    (max(0.0, min(1.0, actual_success)), max(0.0, actual_cost), actual_time.strip(), decision_id)
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
+    def recalibrate_from_ledger(cls) -> dict[str, Any]:
+        """Calculates prediction errors against reality and records a calibration run."""
+        import uuid
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                rows = conn.execute("SELECT * FROM decision_forecasts WHERE status = 'resolved'").fetchall()
+                if not rows:
+                    return {"status": "no_resolved_decisions", "count": 0}
+                
+                errors = []
+                sq_errors = []
+                pred_success_list = []
+                act_success_list = []
+                
+                for r in rows:
+                    pred = r["predicted_success"]
+                    act = r["actual_success"]
+                    pred_success_list.append(pred)
+                    act_success_list.append(act)
+                    
+                    errors.append(abs(pred - act))
+                    sq_errors.append((pred - act) ** 2)
+                
+                mae = sum(errors) / len(errors)
+                rmse = (sum(sq_errors) / len(sq_errors)) ** 0.5
+                
+                avg_pred = sum(pred_success_list) / len(pred_success_list)
+                avg_act = sum(act_success_list) / len(act_success_list)
+                
+                details = {
+                    "avg_predicted_success": avg_pred,
+                    "avg_actual_success": avg_act,
+                    "records": [
+                        {
+                            "decision_id": r["decision_id"],
+                            "decision": r["decision"],
+                            "predicted_success": r["predicted_success"],
+                            "actual_success": r["actual_success"],
+                            "error": abs(r["predicted_success"] - r["actual_success"])
+                        }
+                        for r in rows
+                    ]
+                }
+                
+                calibration_id = f"cal_{uuid.uuid4().hex[:12]}"
+                conn.execute(
+                    """
+                    INSERT INTO forecast_calibration (calibration_id, timestamp, total_decisions, mean_absolute_error, root_mean_squared_error, details)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (calibration_id, time.time(), len(rows), mae, rmse, json.dumps(details))
+                )
+                
+                # Mark as calibrated
+                conn.execute("UPDATE decision_forecasts SET status = 'calibrated' WHERE status = 'resolved'")
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "calibration_id": calibration_id,
+                    "total_decisions": len(rows),
+                    "mean_absolute_error": round(mae, 4),
+                    "root_mean_squared_error": round(rmse, 4),
+                }
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()

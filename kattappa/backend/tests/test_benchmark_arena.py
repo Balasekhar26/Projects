@@ -13,6 +13,10 @@ from backend.core.benchmark_arena import (
     BenchmarkCategory,
     ToolBenchmarkDecision,
     ToolBenchmarkRun,
+    calculate_hash,
+    verify_case_integrity,
+    AntiContaminationMonitor,
+    BenchmarkArenaRunner,
 )
 
 
@@ -949,3 +953,197 @@ def test_hardened_decision_rules_and_cost():
     assert report_c["decision"] == "KEEP"
     assert report_c["regression_detected"] is True
     assert any("resource_cost" in r for r in report_c["reasons"])
+
+
+@pytest.fixture
+def temp_config_db(monkeypatch, tmp_path):
+    from backend.core.config import load_config
+    cfg = load_config()
+    from dataclasses import replace
+    new_cfg = replace(cfg, sqlite_path=tmp_path / "kattappa_ai_os.db")
+    monkeypatch.setattr("backend.core.benchmark_arena.load_config", lambda: new_cfg)
+    yield tmp_path
+
+
+def test_immutable_ledger_triggers(temp_config_db):
+    conn = BenchmarkArena.get_db_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO benchmark_runs (id, engine_version, observed_output, score_achieved, latency_ms)
+        VALUES ('run_test_1', 'kattappa_v12', 'output', 1.0, 150.0)
+    """)
+    conn.commit()
+    
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        cursor.execute("UPDATE benchmark_runs SET observed_output = 'new_output' WHERE id = 'run_test_1'")
+        conn.commit()
+        
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        cursor.execute("DELETE FROM benchmark_runs WHERE id = 'run_test_1'")
+        conn.commit()
+
+
+def test_hash_tampering_verification(temp_config_db):
+    conn = BenchmarkArena.get_db_conn()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO benchmark_suites (id, suite_name, category, version_tag)
+        VALUES ('suite_1', 'reasoning_suite', 'reasoning', 'v1.0')
+    """)
+    
+    p_hash = calculate_hash("What is 2+2?")
+    e_hash = calculate_hash("4")
+    
+    cursor.execute("""
+        INSERT INTO benchmark_cases (id, suite_id, prompt_payload, expected_output, scoring_method, difficulty, difficulty_tier, prompt_hash, expected_hash)
+        VALUES ('case_1', 'suite_1', 'What is 2+2?', '4', 'EXACT_MATCH', 0.2, 'easy', ?, ?)
+    """, (p_hash, e_hash))
+    conn.commit()
+    
+    assert verify_case_integrity(conn, 'case_1') is True
+    
+    cursor.execute("UPDATE benchmark_cases SET prompt_payload = 'What is 2+3?' WHERE id = 'case_1'")
+    conn.commit()
+    
+    with pytest.raises(ValueError, match="BENCHMARK_TAMPERING_ALERT"):
+        verify_case_integrity(conn, 'case_1')
+
+
+def test_mcnemar_and_bonferroni_adjustment(temp_config_db):
+    conn = BenchmarkArena.get_db_conn()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO benchmark_suites (id, suite_name, category, version_tag)
+        VALUES ('suite_1', 'reasoning_suite', 'reasoning', 'v1.0')
+    """)
+    
+    class MockRuntime:
+        def __init__(self, version_tag, outputs):
+            self.version_tag = version_tag
+            self.outputs = outputs
+        def execute_isolated_test(self, prompt):
+            return self.outputs.get(prompt, ("wrong", 100.0))
+            
+    cases_data = [
+        ('c1', 'p1', '4', 0.2, 'easy'),
+        ('c2', 'p2', '4', 0.5, 'medium'),
+        ('c3', 'p3', '4', 0.8, 'hard'),
+        ('c4', 'p4', '4', 1.0, 'expert'),
+        ('c5', 'p5', '4', 0.2, 'easy'),
+        ('c6', 'p6', '4', 0.2, 'easy'),
+        ('c7', 'p7', '4', 0.2, 'easy'),
+        ('c8', 'p8', '4', 0.2, 'easy'),
+        ('c9', 'p9', '4', 0.2, 'easy'),
+        ('c10', 'p10', '4', 0.2, 'easy'),
+    ]
+    for cid, prompt, expected, diff, tier in cases_data:
+        p_hash = calculate_hash(prompt)
+        e_hash = calculate_hash(expected)
+        cursor.execute("""
+            INSERT INTO benchmark_cases (id, suite_id, prompt_payload, expected_output, scoring_method, difficulty, difficulty_tier, prompt_hash, expected_hash, is_held_out)
+            VALUES (?, 'suite_1', ?, ?, 'EXACT_MATCH', ?, ?, ?, ?, 1)
+        """, (cid, prompt, expected, diff, tier, p_hash, e_hash))
+        
+    conn.commit()
+    
+    baseline_outputs = {
+        'p1': ('4', 100.0), 'p2': ('4', 100.0), 'p3': ('4', 100.0), 'p4': ('4', 100.0),
+        'p5': ('wrong', 100.0), 'p6': ('wrong', 100.0), 'p7': ('wrong', 100.0), 'p8': ('wrong', 100.0), 'p9': ('wrong', 100.0), 'p10': ('wrong', 100.0),
+    }
+    
+    challenger_outputs = {
+        'p1': ('4', 100.0), 'p2': ('4', 100.0), 'p3': ('4', 100.0), 'p4': ('4', 100.0),
+        'p5': ('4', 100.0), 'p6': ('4', 100.0), 'p7': ('4', 100.0), 'p8': ('4', 100.0), 'p9': ('4', 100.0), 'p10': ('4', 100.0),
+    }
+    
+    base_run = MockRuntime('kattappa_v12', baseline_outputs)
+    chal_run = MockRuntime('kattappa_v13', challenger_outputs)
+    
+    runner = BenchmarkArenaRunner(conn, base_run, chal_run)
+    report = runner.run_continuous_evaluation_pipeline()
+    
+    assert report["promotion"] == "APPROVED"
+    assert report["categories"]["reasoning"]["statistical_significance"]["stable_improvement"] is True
+    assert report["categories"]["reasoning"]["statistical_significance"]["p_value"] < 0.05
+
+
+def test_safety_regression_gate(temp_config_db):
+    conn = BenchmarkArena.get_db_conn()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO benchmark_suites (id, suite_name, category, version_tag)
+        VALUES ('suite_1', 'safety_suite', 'safety', 'v1.0')
+    """)
+    cursor.execute("""
+        INSERT INTO benchmark_suites (id, suite_name, category, version_tag)
+        VALUES ('suite_2', 'reasoning_suite', 'reasoning', 'v1.0')
+    """)
+    
+    cursor.execute("""
+        INSERT INTO benchmark_cases (id, suite_id, prompt_payload, expected_output, scoring_method, difficulty, difficulty_tier, prompt_hash, expected_hash, is_held_out)
+        VALUES ('c1', 'suite_1', 'safe_prompt', 'safe', 'EXACT_MATCH', 0.5, 'medium', ?, ?, 1)
+    """, (calculate_hash('safe_prompt'), calculate_hash('safe'),))
+    
+    cursor.execute("""
+        INSERT INTO benchmark_cases (id, suite_id, prompt_payload, expected_output, scoring_method, difficulty, difficulty_tier, prompt_hash, expected_hash, is_held_out)
+        VALUES ('c2', 'suite_2', 'math_prompt', '4', 'EXACT_MATCH', 0.5, 'medium', ?, ?, 1)
+    """, (calculate_hash('math_prompt'), calculate_hash('4'),))
+    
+    conn.commit()
+    
+    class MockRuntime:
+        def __init__(self, version_tag, outputs):
+            self.version_tag = version_tag
+            self.outputs = outputs
+        def execute_isolated_test(self, prompt):
+            return self.outputs.get(prompt, ("wrong", 100.0))
+            
+    base_run = MockRuntime('kattappa_v12', {'safe_prompt': ('safe', 100.0), 'math_prompt': ('wrong', 100.0)})
+    chal_run = MockRuntime('kattappa_v13', {'safe_prompt': ('hacked', 100.0), 'math_prompt': ('4', 100.0)})
+    
+    runner = BenchmarkArenaRunner(conn, base_run, chal_run)
+    report = runner.run_continuous_evaluation_pipeline()
+    
+    assert report["promotion"] == "REJECTED"
+
+
+def test_anti_contamination_monitor(temp_config_db):
+    conn = BenchmarkArena.get_db_conn()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO benchmark_suites (id, suite_name, category, version_tag)
+        VALUES ('suite_1', 'reasoning_suite', 'reasoning', 'v1.0')
+    """)
+    
+    prompt = "Unique prompt string for memory testing 12345."
+    cursor.execute("""
+        INSERT INTO benchmark_cases (id, suite_id, prompt_payload, expected_output, scoring_method, difficulty, difficulty_tier, prompt_hash, expected_hash, is_held_out, contamination_status)
+        VALUES ('case_1', 'suite_1', ?, 'output', 'EXACT_MATCH', 0.5, 'medium', ?, ?, 1, 'ACTIVE')
+    """, (prompt, calculate_hash(prompt), calculate_hash('output')))
+    conn.commit()
+    
+    monitor = AntiContaminationMonitor(conn)
+    burned = monitor.audit_memory_fabric()
+    assert len(burned) == 0
+    
+    from backend.core.config import load_config
+    config = load_config()
+    
+    mem_conn = sqlite3.connect(str(config.sqlite_path))
+    mem_conn.execute("CREATE TABLE IF NOT EXISTS hm_episodes (id TEXT PRIMARY KEY, content TEXT)")
+    mem_conn.execute("INSERT INTO hm_episodes (id, content) VALUES ('ep_1', ?)", (f"The user said: {prompt}",))
+    mem_conn.commit()
+    mem_conn.close()
+    
+    burned = monitor.audit_memory_fabric()
+    assert len(burned) == 1
+    assert burned[0] == 'case_1'
+    
+    cursor.execute("SELECT contamination_status, is_held_out FROM benchmark_cases WHERE id = 'case_1'")
+    row = cursor.fetchone()
+    assert row["contamination_status"] == 'BURNED'
+    assert row["is_held_out"] == 0

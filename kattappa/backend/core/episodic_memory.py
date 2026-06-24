@@ -1,6 +1,20 @@
+"""Episodic Memory Subsystem (Layer 3 - Spec v2.0).
+
+Authoritative storage is in SQLite with dynamic, read-only query-time strength calculations.
+Vector search uses ChromaDB for semantic retrieval.
+Features:
+- Verbatim trace and Gist separation.
+- Source reality tags (DID, READ, HEARD, SIMULATED, INFERRED).
+- Relevance floor firewall.
+- Access-log based reinforcement (no overwrites to event records on query).
+- Zeigarnik effect (boost for unresolved OPEN episodes).
+- Exponential decay combined with interference checks.
+"""
+
 from __future__ import annotations
 
 import json
+import math
 import queue
 import re
 import sqlite3
@@ -17,16 +31,8 @@ from backend.core.logger import log_event
 
 
 class EpisodicMemory:
-    """Episodic Memory Subsystem (Layer 3) representing chronological experience history.
+    """Episodic Memory Subsystem representing the chronological autobiographical narrative of experiences."""
     
-    Adheres to Memory System v2.0 specification:
-    - Authoritative source of truth is SQLite.
-    - Retrieval indexing via Chroma DB (indices only, never authoritative).
-    - Query-time lazy decay to avoid write amplification and lockups.
-    - Hybrid retrieval (FTS5 + Vector + Reciprocal Rank Fusion).
-    - Background embedding queue to keep the chat loop fast.
-    - Vector GC to prevent ghost recalls.
-    """
     _lock = threading.RLock()
     _embed_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
     _worker_thread: threading.Thread | None = None
@@ -44,6 +50,7 @@ class EpisodicMemory:
         config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(config.sqlite_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         with cls._lock:
@@ -55,7 +62,7 @@ class EpisodicMemory:
     @classmethod
     def _ensure_schema(cls, conn: sqlite3.Connection) -> None:
         with cls._lock:
-            # 1. Authoritative SQLite Episodes Table & Archive Table
+            # 1. Legacy tables & FTS5 (for full backward compatibility)
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS hm_episodes (
@@ -84,18 +91,98 @@ class EpisodicMemory:
                     tags TEXT DEFAULT '[]'
                 );
 
-                -- 2. FTS5 Virtual Table for External Content mapping (Memory System v2.0)
                 CREATE VIRTUAL TABLE IF NOT EXISTS hm_episodes_fts USING fts5(
                     content,
                     content='hm_episodes'
                 );
+                """
+            )
 
-                -- 3. Drop triggers to re-create with correct external-content deletion syntax
+            # 2. Episodic Memory v2.0 Schema
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS episodic_episodes (
+                    id TEXT PRIMARY KEY,
+                    project_identifier TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    summary_gist TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('OPEN', 'RESOLVED', 'ABANDONED', 'FAILED')),
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS episodic_events (
+                    event_id TEXT PRIMARY KEY,
+                    episode_id TEXT REFERENCES episodic_episodes(id) ON DELETE SET NULL,
+                    timestamp REAL NOT NULL,
+                    event_type TEXT NOT NULL CHECK (event_type IN ('PLANNING', 'IMPLEMENTATION', 'TESTING', 'BENCHMARK', 'INCIDENT', 'CRITICAL_RECOVERY')),
+                    source_type TEXT NOT NULL CHECK (source_type IN ('DID', 'READ', 'HEARD', 'SIMULATED', 'INFERRED')),
+                    title TEXT NOT NULL,
+                    verbatim_trace TEXT NOT NULL,
+                    gist_summary TEXT NOT NULL,
+                    outcome TEXT NOT NULL CHECK (outcome IN ('SUCCESS', 'FAILURE', 'ANOMALY', 'CORRECTED')),
+                    lesson_learned TEXT NOT NULL,
+                    base_importance REAL NOT NULL CHECK (base_importance BETWEEN 0.0 AND 1.0),
+                    operational_salience REAL NOT NULL CHECK (operational_salience BETWEEN 0.0 AND 1.0),
+                    conversation_lineage_json TEXT NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT 'AGENT',
+                    decision_state_json TEXT,
+                    verbatim_trace_hash TEXT,
+                    confidence REAL DEFAULT 1.0 CHECK (confidence BETWEEN 0.0 AND 1.0)
+                );
+                CREATE INDEX IF NOT EXISTS idx_ep_event_time ON episodic_events(timestamp DESC);
+
+                CREATE TABLE IF NOT EXISTS episodic_people (
+                    person_id TEXT PRIMARY KEY,
+                    canonical_name TEXT NOT NULL UNIQUE,
+                    relationship_role TEXT NOT NULL CHECK (relationship_role IN ('USER', 'ENGINEER', 'REVIEWER', 'EXTERNAL_SYSTEM')),
+                    last_seen_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS episodic_event_people (
+                    event_id TEXT REFERENCES episodic_events(event_id) ON DELETE CASCADE,
+                    person_id REFERENCES episodic_people(person_id) ON DELETE CASCADE,
+                    PRIMARY KEY (event_id, person_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS episodic_links (
+                    source_event_id TEXT REFERENCES episodic_events(event_id) ON DELETE CASCADE,
+                    target_event_id TEXT REFERENCES episodic_events(event_id) ON DELETE CASCADE,
+                    link_type TEXT NOT NULL CHECK (link_type IN ('CAUSED_BY', 'RELATED_TO', 'SAME_PROJECT', 'FOLLOW_UP_TO')),
+                    PRIMARY KEY (source_event_id, target_event_id, link_type)
+                );
+
+                CREATE TABLE IF NOT EXISTS episodic_reinforcement (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT REFERENCES episodic_events(event_id) ON DELETE CASCADE,
+                    access_timestamp REAL NOT NULL,
+                    retrieval_reason TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ep_reinforce_lookup ON episodic_reinforcement(event_id);
+
+                CREATE TABLE IF NOT EXISTS episodic_contradictions (
+                    source_event_id TEXT REFERENCES episodic_events(event_id) ON DELETE CASCADE,
+                    contradicting_event_id TEXT REFERENCES episodic_events(event_id) ON DELETE CASCADE,
+                    contradiction_type TEXT NOT NULL,
+                    confidence REAL NOT NULL CHECK (confidence BETWEEN 0.0 AND 1.0),
+                    PRIMARY KEY (source_event_id, contradicting_event_id)
+                );
+
+                CREATE VIRTUAL TABLE IF NOT EXISTS episodic_events_fts USING fts5(
+                    gist_summary,
+                    verbatim_trace,
+                    content='episodic_events'
+                );
+                """
+            )
+
+            # 3. Trigger setup to keep legacy FTS and new FTS tables updated
+            conn.executescript(
+                """
                 DROP TRIGGER IF EXISTS trg_hm_episodes_ai;
                 DROP TRIGGER IF EXISTS trg_hm_episodes_ad;
                 DROP TRIGGER IF EXISTS trg_hm_episodes_au;
 
-                -- 4. Triggers to auto-sync FTS5 External Content Virtual Table
                 CREATE TRIGGER trg_hm_episodes_ai AFTER INSERT ON hm_episodes BEGIN
                     INSERT INTO hm_episodes_fts(rowid, content) VALUES (new.rowid, new.content);
                 END;
@@ -108,15 +195,50 @@ class EpisodicMemory:
                     INSERT INTO hm_episodes_fts(hm_episodes_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
                     INSERT INTO hm_episodes_fts(rowid, content) VALUES (new.rowid, new.content);
                 END;
+
+                DROP TRIGGER IF EXISTS trg_episodic_events_ai;
+                DROP TRIGGER IF EXISTS trg_episodic_events_ad;
+                DROP TRIGGER IF EXISTS trg_episodic_events_au;
+
+                CREATE TRIGGER trg_episodic_events_ai AFTER INSERT ON episodic_events BEGIN
+                    INSERT INTO episodic_events_fts(rowid, gist_summary, verbatim_trace)
+                    VALUES (new.rowid, new.gist_summary, new.verbatim_trace);
+                END;
+
+                CREATE TRIGGER trg_episodic_events_ad AFTER DELETE ON episodic_events BEGIN
+                    INSERT INTO episodic_events_fts(episodic_events_fts, rowid, gist_summary, verbatim_trace)
+                    VALUES ('delete', old.rowid, old.gist_summary, old.verbatim_trace);
+                END;
+
+                CREATE TRIGGER trg_episodic_events_au AFTER UPDATE OF gist_summary, verbatim_trace ON episodic_events BEGIN
+                    INSERT INTO episodic_events_fts(episodic_events_fts, rowid, gist_summary, verbatim_trace)
+                    VALUES ('delete', old.rowid, old.gist_summary, old.verbatim_trace);
+                    INSERT INTO episodic_events_fts(rowid, gist_summary, verbatim_trace)
+                    VALUES (new.rowid, new.gist_summary, new.verbatim_trace);
+                END;
                 """
             )
-            
-            # Sync FTS table if it has missed items
+
+            # Sync tables if empty
             fts_count = conn.execute("SELECT COUNT(*) AS c FROM hm_episodes_fts").fetchone()["c"]
             core_count = conn.execute("SELECT COUNT(*) AS c FROM hm_episodes").fetchone()["c"]
             if fts_count == 0 and core_count > 0:
                 conn.execute("INSERT INTO hm_episodes_fts(rowid, content) SELECT rowid, content FROM hm_episodes")
-            
+
+            v2_fts_count = conn.execute("SELECT COUNT(*) AS c FROM episodic_events_fts").fetchone()["c"]
+            v2_core_count = conn.execute("SELECT COUNT(*) AS c FROM episodic_events").fetchone()["c"]
+            if v2_fts_count == 0 and v2_core_count > 0:
+                conn.execute("INSERT INTO episodic_events_fts(rowid, gist_summary, verbatim_trace) SELECT rowid, gist_summary, verbatim_trace FROM episodic_events")
+
+            # Migration checks for new v2.1 fields
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(episodic_events)")}
+            if "decision_state_json" not in columns:
+                conn.execute("ALTER TABLE episodic_events ADD COLUMN decision_state_json TEXT")
+            if "verbatim_trace_hash" not in columns:
+                conn.execute("ALTER TABLE episodic_events ADD COLUMN verbatim_trace_hash TEXT")
+            if "confidence" not in columns:
+                conn.execute("ALTER TABLE episodic_events ADD COLUMN confidence REAL DEFAULT 1.0 CHECK (confidence BETWEEN 0.0 AND 1.0)")
+
             conn.commit()
 
     @classmethod
@@ -152,7 +274,7 @@ class EpisodicMemory:
     def stop_worker(cls) -> None:
         with cls._lock:
             cls._stop_event.set()
-            cls._embed_queue.put(("", "")) # Unblock loop
+            cls._embed_queue.put(("", ""))
             if cls._worker_thread is not None:
                 cls._worker_thread.join(timeout=2.0)
                 cls._worker_thread = None
@@ -164,13 +286,11 @@ class EpisodicMemory:
     def _worker_loop(cls) -> None:
         while not cls._stop_event.is_set():
             try:
-                # Retrieve from queue
                 episode_id, content = cls._embed_queue.get(timeout=1.0)
                 if not episode_id:
                     cls._embed_queue.task_done()
                     continue
                 
-                # Batch read others from queue to optimize embeddings
                 items = [(episode_id, content)]
                 while len(items) < 20:
                     try:
@@ -201,7 +321,6 @@ class EpisodicMemory:
 
     @classmethod
     def flush_embeddings(cls, timeout: float = 5.0) -> None:
-        """Forces the worker to finish processing the current queue contents (useful in tests)."""
         cls._embed_queue.join()
 
     # ----- CRUD Operations -----
@@ -209,23 +328,103 @@ class EpisodicMemory:
     @classmethod
     def create_episode(
         cls,
-        content: str,
-        importance: float,
-        category: str,
+        content: str = "",
+        importance: float = 0.5,
+        category: str = "PLANNING",
         session_id: str = "primary",
         tags: list[str] | None = None,
         pinned: int = 0,
-        source: Optional[str] = None
+        source: Optional[str] = None,
+        *,
+        episode_id: str | None = None,
+        event_type: str | None = None,
+        source_type: str = "DID",
+        title: str | None = None,
+        verbatim_trace: str | None = None,
+        gist_summary: str | None = None,
+        outcome: str = "SUCCESS",
+        lesson_learned: str = "",
+        operational_salience: float = 0.1,
+        conversation_lineage: list[str] | None = None,
+        created_by: str = "AGENT",
+        decision_state: dict[str, Any] | None = None
     ) -> str:
-        """Creates a new episodic memory record and queues it for semantic vector indexing."""
-        episode_id = str(uuid.uuid4())
-        tags_json = json.dumps(tags or [])
+        """Create a new episodic memory record, writing to episodic_events & legacy hm_episodes."""
+        event_id = str(uuid.uuid4())
         now = time.time()
 
-        # 1. Authoritative insert to SQLite
+        # Parse category/event_type mappings
+        if not event_type:
+            cat_upper = category.upper()
+            if cat_upper in {'PLANNING', 'IMPLEMENTATION', 'TESTING', 'BENCHMARK', 'INCIDENT', 'CRITICAL_RECOVERY'}:
+                event_type = cat_upper
+            elif category == "hce_candidate":
+                event_type = "PLANNING"
+            else:
+                event_type = "IMPLEMENTATION"
+
+        # Defaults for verbatim/gist/title
+        if not verbatim_trace:
+            verbatim_trace = content
+        if not gist_summary:
+            gist_summary = content
+        if not title:
+            title = content[:80] if content else "Untitled Event"
+
+        lineage_json = json.dumps(conversation_lineage or [])
+        tags_json = json.dumps(tags or [])
+
+        # Compute SHA256 verbatim trace hash
+        import hashlib
+        trace_bytes = (verbatim_trace or "").encode("utf-8")
+        trace_hash = hashlib.sha256(trace_bytes).hexdigest()
+
+        # Determine base confidence from source type reliability
+        reliability_map = {
+            "DID": 1.0,
+            "READ": 0.8,
+            "HEARD": 0.8,
+            "SIMULATED": 0.5,
+            "INFERRED": 0.7
+        }
+        base_confidence = reliability_map.get(source_type, 1.0)
+        decision_json = json.dumps(decision_state) if decision_state else None
+
         with cls._lock:
             conn = cls._get_sqlite_conn()
             try:
+                # Enforce parent episode check or create dynamic fallback
+                if episode_id:
+                    row = conn.execute("SELECT id FROM episodic_episodes WHERE id = ?", (episode_id,)).fetchone()
+                    if not row:
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO episodic_episodes (id, project_identifier, title, summary_gist, status, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, 'OPEN', ?, ?)
+                            """,
+                            (episode_id, session_id, f"Episode: {episode_id[:8]}", "Auto-generated episode boundary", now, now)
+                        )
+
+                # Insert to episodic_events
+                conn.execute(
+                    """
+                    INSERT INTO episodic_events (
+                        event_id, episode_id, timestamp, event_type, source_type, title,
+                        verbatim_trace, gist_summary, outcome, lesson_learned,
+                        base_importance, operational_salience, conversation_lineage_json, created_by,
+                        decision_state_json, verbatim_trace_hash, confidence
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event_id, episode_id, now, event_type, source_type, title,
+                        verbatim_trace, gist_summary, outcome, lesson_learned,
+                        float(importance), float(operational_salience), lineage_json, created_by,
+                        decision_json, trace_hash, base_confidence
+                    )
+                )
+
+                # Insert to legacy hm_episodes (backward compatibility)
                 conn.execute(
                     """
                     INSERT INTO hm_episodes (
@@ -234,8 +433,9 @@ class EpisodicMemory:
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                     """,
-                    (episode_id, session_id, content, importance, category, now, now, pinned, tags_json)
+                    (event_id, session_id, content or gist_summary, importance, category, now, now, pinned, tags_json)
                 )
+
                 conn.commit()
             except Exception as e:
                 conn.rollback()
@@ -248,69 +448,192 @@ class EpisodicMemory:
             from backend.core.memory_governance import MemoryGovernance
             effective_source = source or category or "chat"
             MemoryGovernance.log_provenance(
-                memory_id=episode_id,
+                memory_id=event_id,
                 memory_type="episodic",
                 source=effective_source,
-                created_by="episodic_layer",
+                created_by=created_by,
                 confidence=importance,
                 metadata={"category": category, "tags": tags or []}
             )
         except Exception as e:
-            log_event(f"episodic_memory: failed to log provenance for {episode_id}: {e}")
+            log_event(f"episodic_memory: failed to log provenance for {event_id}: {e}")
 
-        # 2. Queue for background Chroma vector indexing
+        # Queue for background Chroma vector indexing
         cls.start_worker()
-        cls._embed_queue.put((episode_id, content))
-        
-        return episode_id
+        cls._embed_queue.put((event_id, gist_summary))
+
+        return event_id
 
     @classmethod
     def get_episode(cls, episode_id: str) -> dict[str, Any] | None:
-        """Retrieves a single episode from SQLite, computing lazy decay on the fly."""
+        """Retrieves a single episode details from SQLite, checking episodic_events."""
         conn = cls._get_sqlite_conn()
         try:
-            row = conn.execute("SELECT * FROM hm_episodes WHERE id = ?", (episode_id,)).fetchone()
+            row = conn.execute(
+                """
+                SELECT e.*, h.session_id, h.pinned, h.last_recalled_at, h.recall_count, h.tags
+                FROM episodic_events e
+                JOIN hm_episodes h ON e.event_id = h.id
+                WHERE e.event_id = ?
+                """,
+                (episode_id,)
+            ).fetchone()
+            
             if not row:
-                return None
+                # Try legacy table fallback directly
+                row_legacy = conn.execute("SELECT * FROM hm_episodes WHERE id = ?", (episode_id,)).fetchone()
+                if not row_legacy:
+                    return None
+                record = dict(row_legacy)
+                record["tags"] = json.loads(record["tags"])
+                record["decay_score"] = cls._calculate_decay(
+                    record["importance"], record["last_recalled_at"], bool(record["pinned"])
+                )
+                return record
             
             record = dict(row)
-            record["tags"] = json.loads(record["tags"])
+            
+            # Verbatim Trace Hash Protection Verification
+            if record.get("verbatim_trace_hash"):
+                import hashlib
+                calc_hash = hashlib.sha256((record["verbatim_trace"] or "").encode("utf-8")).hexdigest()
+                if calc_hash != record["verbatim_trace_hash"]:
+                    log_event(f"SECURITY ANOMALY: Verbatim trace hash mismatch detected for event {episode_id}!")
+                    return None
+            
+            record["id"] = record["event_id"]
+            record["conversation_lineage"] = json.loads(record.pop("conversation_lineage_json", "[]"))
+            record["content"] = record["gist_summary"]
+            record["category"] = record["event_type"]
+            record["importance"] = record["base_importance"]
+            record["pinned"] = record.get("pinned") or 0
+            record["session_id"] = record.get("session_id") or "primary"
+            record["recall_count"] = record.get("recall_count") or 0
+            
+            # tags
+            tags_val = record.get("tags")
+            if tags_val:
+                try:
+                    record["tags"] = json.loads(tags_val)
+                except Exception:
+                    record["tags"] = []
+            else:
+                record["tags"] = []
+
+            # Calculate decay_score
+            last_recalled_at = record.get("last_recalled_at") or record["timestamp"]
             record["decay_score"] = cls._calculate_decay(
-                record["importance"], record["last_recalled_at"], bool(record["pinned"])
+                record["base_importance"],
+                last_recalled_at,
+                bool(record["pinned"])
             )
+            
+            # Fetch dynamic corroboration and contradiction counts for confidence calculation
+            contr_row = conn.execute(
+                "SELECT COUNT(*) FROM episodic_contradictions WHERE source_event_id = ? OR contradicting_event_id = ?",
+                (episode_id, episode_id)
+            ).fetchone()
+            contradiction_count = contr_row[0] if contr_row else 0
+
+            corr_row = conn.execute(
+                "SELECT COUNT(*) FROM episodic_links WHERE source_event_id = ? OR target_event_id = ?",
+                (episode_id, episode_id)
+            ).fetchone()
+            corroboration_count = corr_row[0] if corr_row else 0
+
+            reliability_map = {
+                "DID": 1.0,
+                "READ": 0.8,
+                "HEARD": 0.8,
+                "SIMULATED": 0.5,
+                "INFERRED": 0.7
+            }
+            source_reliability = reliability_map.get(record["source_type"], 1.0)
+            
+            time_elapsed = (time.time() - last_recalled_at) / 86400.0
+            record["confidence"] = max(0.0, min(1.0, 
+                source_reliability * (1.0 - 0.15 * contradiction_count) + 
+                0.05 * corroboration_count - 0.01 * time_elapsed
+            ))
+
+            # Deserialize decision state snapshot
+            ds_val = record.pop("decision_state_json", None)
+            if ds_val:
+                try:
+                    record["decision_state"] = json.loads(ds_val)
+                except Exception:
+                    record["decision_state"] = None
+            else:
+                record["decision_state"] = None
+
             return record
         finally:
             conn.close()
 
     @classmethod
     def update_episode(cls, episode_id: str, **kwargs) -> bool:
-        """Updates fields in SQLite. If content is updated, queues the vector index for updates."""
-        allowed_fields = {"session_id", "content", "importance", "category", "pinned", "tags"}
-        updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
-        if not updates:
+        """Updates fields in SQLite."""
+        allowed_v2 = {"episode_id", "title", "verbatim_trace", "gist_summary", "outcome", "lesson_learned", "base_importance", "operational_salience"}
+        updates_v2 = {k: v for k, v in kwargs.items() if k in allowed_v2}
+
+        # Legacy update support
+        allowed_legacy = {"session_id", "content", "importance", "category", "pinned", "tags"}
+        updates_legacy = {k: v for k, v in kwargs.items() if k in allowed_legacy}
+
+        if not updates_v2 and not updates_legacy:
             return False
 
-        if "tags" in updates:
-            updates["tags"] = json.dumps(updates["tags"])
+        # Map legacy inputs to v2 columns to keep tables synchronized
+        if "content" in kwargs:
+            if "gist_summary" not in updates_v2:
+                updates_v2["gist_summary"] = kwargs["content"]
+            if "verbatim_trace" not in updates_v2:
+                updates_v2["verbatim_trace"] = kwargs["content"]
+        if "importance" in kwargs and "base_importance" not in updates_v2:
+            updates_v2["base_importance"] = kwargs["importance"]
+        if "category" in kwargs and "event_type" not in updates_v2:
+            cat_upper = kwargs["category"].upper()
+            if cat_upper in {'PLANNING', 'IMPLEMENTATION', 'TESTING', 'BENCHMARK', 'INCIDENT', 'CRITICAL_RECOVERY'}:
+                updates_v2["event_type"] = cat_upper
 
-        set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
-        params = list(updates.values()) + [episode_id]
+        # Recalculate hash if verbatim_trace is updated
+        if "verbatim_trace" in updates_v2:
+            import hashlib
+            trace_val = updates_v2["verbatim_trace"] or ""
+            updates_v2["verbatim_trace_hash"] = hashlib.sha256(trace_val.encode("utf-8")).hexdigest()
 
+        updated = False
         with cls._lock:
             conn = cls._get_sqlite_conn()
             try:
-                cursor = conn.execute(f"UPDATE hm_episodes SET {set_clause} WHERE id = ?", params)
+                if updates_v2:
+                    set_clause = ", ".join(f"{k} = ?" for k in updates_v2.keys())
+                    params = list(updates_v2.values()) + [episode_id]
+                    cursor = conn.execute(f"UPDATE episodic_events SET {set_clause} WHERE event_id = ?", params)
+                    if cursor.rowcount > 0:
+                        updated = True
+
+                if updates_legacy:
+                    if "tags" in updates_legacy:
+                        updates_legacy["tags"] = json.dumps(updates_legacy["tags"])
+                    set_clause = ", ".join(f"{k} = ?" for k in updates_legacy.keys())
+                    params = list(updates_legacy.values()) + [episode_id]
+                    cursor = conn.execute(f"UPDATE hm_episodes SET {set_clause} WHERE id = ?", params)
+                    if cursor.rowcount > 0:
+                        updated = True
+
                 conn.commit()
-                updated = cursor.rowcount > 0
             except Exception as e:
                 conn.rollback()
                 raise e
             finally:
                 conn.close()
 
-        if updated and "content" in updates:
-            cls.start_worker()
-            cls._embed_queue.put((episode_id, updates["content"]))
+        if updated and ("gist_summary" in updates_v2 or "content" in updates_legacy):
+            content_to_embed = updates_v2.get("gist_summary") or updates_legacy.get("content")
+            if content_to_embed:
+                cls.start_worker()
+                cls._embed_queue.put((episode_id, content_to_embed))
 
         return updated
 
@@ -320,9 +643,10 @@ class EpisodicMemory:
         with cls._lock:
             conn = cls._get_sqlite_conn()
             try:
-                cursor = conn.execute("DELETE FROM hm_episodes WHERE id = ?", (episode_id,))
+                cursor1 = conn.execute("DELETE FROM episodic_events WHERE event_id = ?", (episode_id,))
+                cursor2 = conn.execute("DELETE FROM hm_episodes WHERE id = ?", (episode_id,))
                 conn.commit()
-                deleted = cursor.rowcount > 0
+                deleted = cursor1.rowcount > 0 or cursor2.rowcount > 0
             except Exception as e:
                 conn.rollback()
                 raise e
@@ -334,7 +658,7 @@ class EpisodicMemory:
                 collection = cls._get_chroma_collection()
                 collection.delete(ids=[episode_id])
             except Exception:
-                pass # Graceful fallback if vector index delete errors
+                pass
 
         return deleted
 
@@ -344,9 +668,6 @@ class EpisodicMemory:
     def _calculate_decay(cls, importance: float, last_recalled_at: float, pinned: bool) -> float:
         if pinned:
             return importance
-        
-        # Power-law / exponential decay based on time elapsed since last recall
-        # Half-life: 1 day (86400 seconds)
         time_elapsed = time.time() - last_recalled_at
         half_life = 86400.0
         decay_factor = 0.95 ** (time_elapsed / half_life)
@@ -359,40 +680,54 @@ class EpisodicMemory:
         words = re.findall(r"\w+", query)
         if not words:
             return ""
-        # Format as a prefix AND match, e.g., "word1"* AND "word2"*
-        # This completely prevents search syntax injection errors
         return " AND ".join(f'"{w}"*' for w in words)
 
     # ----- Retrieval & Hybrid Fusion -----
 
     @classmethod
-    def recall(cls, query: str, limit: int = 5, relevance_floor: float = 0.01) -> list[dict[str, Any]]:
-        """Hybrid Score-Fused Retrieval (FTS5 + Chroma Vector + RRF + Relevance Floor)."""
+    def recall(
+        cls,
+        query: str,
+        limit: int = 5,
+        relevance_floor: float = 0.35,
+        *,
+        source_types: list[str] | None = None,
+        session_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Hybrid Score-Fused Retrieval with read-only logs, decay, and Zeigarnik boost."""
         fts_hits: list[str] = []
         vector_hits: list[str] = []
+        
+        # Reality Tagging Firewall default
+        allowed_sources = source_types if source_types is not None else ["DID"]
 
         # 1. Lexical search via FTS5
         sanitized = cls._sanitize_fts_query(query)
         if sanitized:
             conn = cls._get_sqlite_conn()
             try:
-                rows = conn.execute(
-                    """
-                    SELECT e.id FROM hm_episodes e
-                    JOIN hm_episodes_fts f ON e.rowid = f.rowid
-                    WHERE f.hm_episodes_fts MATCH ?
-                    ORDER BY f.rank
-                    LIMIT ?
-                    """,
-                    (sanitized, limit * 3)
-                ).fetchall()
-                fts_hits = [r["id"] for r in rows]
+                placeholders = ", ".join("?" for _ in allowed_sources)
+                q_params = [sanitized] + allowed_sources
+                
+                stmt = f"""
+                    SELECT e.event_id FROM episodic_events e
+                    JOIN hm_episodes h ON e.event_id = h.id
+                    JOIN episodic_events_fts f ON e.rowid = f.rowid
+                    WHERE f.episodic_events_fts MATCH ? AND e.source_type IN ({placeholders})
+                """
+                if session_id:
+                    stmt += " AND (h.session_id = ? OR e.episode_id IN (SELECT id FROM episodic_episodes WHERE project_identifier = ?))"
+                    q_params.extend([session_id, session_id])
+                stmt += " ORDER BY f.rank LIMIT ?"
+                
+                rows = conn.execute(stmt, q_params + [limit * 3]).fetchall()
+                fts_hits = [r["event_id"] for r in rows]
             except Exception as e:
                 log_event(f"episodic_memory: FTS5 recall error: {e}")
             finally:
                 conn.close()
 
-        # 2. Semantic search via ChromaDB vector index
+        # 2. Semantic search via vector index
         try:
             collection = cls._get_chroma_collection()
             if collection.count() > 0:
@@ -404,80 +739,220 @@ class EpisodicMemory:
                 if results and results.get("ids") and results["ids"][0]:
                     for idx, vid in enumerate(results["ids"][0]):
                         dist = results["distances"][0][idx] if (results.get("distances") and len(results["distances"]) > 0) else 0.0
-                        if dist <= 1.2:
-                            vector_hits.append(str(vid))
+                        cosine_sim = max(0.0, min(1.0, 1.0 - dist / 2.0))
+                        
+                        # Apply semantic similarity floor to avoid noise/irrelevant crossovers
+                        if cosine_sim < 0.6:
+                            continue
+                        
+                        # Verify source type and session parameters in SQL
+                        conn = cls._get_sqlite_conn()
+                        try:
+                            placeholders = ", ".join("?" for _ in allowed_sources)
+                            stmt = f"""
+                                SELECT e.event_id FROM episodic_events e
+                                JOIN hm_episodes h ON e.event_id = h.id
+                                WHERE e.event_id = ? AND e.source_type IN ({placeholders})
+                            """
+                            params = [str(vid)] + allowed_sources
+                            if session_id:
+                                stmt += " AND (h.session_id = ? OR e.episode_id IN (SELECT id FROM episodic_episodes WHERE project_identifier = ?))"
+                                params.extend([session_id, session_id])
+                            row = conn.execute(stmt, params).fetchone()
+                            if row:
+                                vector_hits.append((str(vid), cosine_sim))
+                        finally:
+                            conn.close()
         except Exception as e:
             log_event(f"episodic_memory: Vector recall error: {e}")
 
-        # 3. Reciprocal Rank Fusion (RRF)
-        # Combine the lists. Constant k = 60 is standard.
+        # 3. Composite score mapping
+        semantic_scores = {vid: sim for vid, sim in vector_hits}
         rrf_scores: dict[str, float] = {}
         k = 60.0
 
         for rank, eid in enumerate(fts_hits):
             rrf_scores[eid] = rrf_scores.get(eid, 0.0) + (1.0 / (k + rank + 1))
 
-        for rank, eid in enumerate(vector_hits):
+        for rank, (eid, sim) in enumerate(vector_hits):
             rrf_scores[eid] = rrf_scores.get(eid, 0.0) + (1.0 / (k + rank + 1))
 
-        # Sort candidates by descending RRF score
         sorted_candidates = sorted(rrf_scores.items(), key=lambda kv: kv[1], reverse=True)
 
-        # 4. Fetch live records from SQLite (Authoritative check)
-        recalled_episodes: list[dict[str, Any]] = []
+        recalled_events: list[dict[str, Any]] = []
         accessed_ids: list[str] = []
 
         conn = cls._get_sqlite_conn()
         try:
             now = time.time()
-            for eid, rrf_score in sorted_candidates:
-                # Apply relevance floor
-                if rrf_score < relevance_floor:
-                    continue
+            
+            # Fetch average access count for RRF normalization
+            avg_access_row = conn.execute("SELECT AVG(c) FROM (SELECT COUNT(*) AS c FROM episodic_reinforcement GROUP BY event_id)").fetchone()
+            avg_access_count = float(avg_access_row[0]) if (avg_access_row and avg_access_row[0] is not None) else 1.0
+            if avg_access_count < 1.0:
+                avg_access_count = 1.0
 
-                # Query database
-                row = conn.execute("SELECT * FROM hm_episodes WHERE id = ?", (eid,)).fetchone()
+            for eid, rrf_score in sorted_candidates:
+                row = conn.execute(
+                    """
+                    SELECT e.*, ep.status AS episode_status, ep.project_identifier,
+                           h.session_id, h.pinned, h.last_recalled_at, h.recall_count, h.tags
+                    FROM episodic_events e
+                    LEFT JOIN episodic_episodes ep ON e.episode_id = ep.id
+                    JOIN hm_episodes h ON e.event_id = h.id
+                    WHERE e.event_id = ?
+                    """,
+                    (eid,)
+                ).fetchone()
+
                 if not row:
-                    # SQLite missing record - flag vector index discrepancy
-                    log_event(f"episodic_memory: consistency warning - vector index contains orphan ID {eid}")
                     continue
 
                 record = dict(row)
-                record["tags"] = json.loads(record["tags"])
-                record["rrf_score"] = rrf_score
-                record["decay_score"] = cls._calculate_decay(
-                    record["importance"], record["last_recalled_at"], bool(record["pinned"])
-                )
-                record["recall_count"] += 1
-                record["last_recalled_at"] = now
+                
+                # Verbatim Trace Hash Protection Verification
+                if record.get("verbatim_trace_hash"):
+                    import hashlib
+                    calc_hash = hashlib.sha256((record["verbatim_trace"] or "").encode("utf-8")).hexdigest()
+                    if calc_hash != record["verbatim_trace_hash"]:
+                        log_event(f"SECURITY ANOMALY: Verbatim trace hash mismatch detected for event {eid}! Excluding from retrieval.")
+                        continue
+                
+                record["id"] = record["event_id"]
+                record["conversation_lineage"] = json.loads(record.pop("conversation_lineage_json", "[]"))
 
-                recalled_episodes.append(record)
+                # Read-Only Event Invariant: access counts from episodic_reinforcement log
+                access_rows = conn.execute(
+                    "SELECT access_timestamp FROM episodic_reinforcement WHERE event_id = ? ORDER BY access_timestamp DESC",
+                    (eid,)
+                ).fetchall()
+                
+                access_count = len(access_rows)
+                last_access = access_rows[0]["access_timestamp"] if access_count > 0 else record["timestamp"]
+
+                # Decay calculation
+                time_elapsed = (now - last_access) / 86400.0
+                lambda_constant = 0.02 if (record["outcome"] == "FAILURE" or record["event_type"] == "INCIDENT") else 0.15
+                decay_factor = math.exp(-lambda_constant * time_elapsed)
+
+                # Zeigarnik effect (boost unresolved episodes)
+                status_boost = 0.25 if record.get("episode_status") == "OPEN" else 0.0
+
+                # Salience
+                salience_boost = 1.0 + record["operational_salience"]
+
+                # Calculated strength
+                strength = min(1.0, record["base_importance"] * decay_factor * salience_boost + status_boost)
+
+                # Reinforcement
+                reinforcement = math.log(1.0 + access_count) / math.log(1.0 + avg_access_count)
+
+                # Time relevance (linear 30-day window)
+                window_delta = 2592000.0
+                time_relevance = max(0.0, 1.0 - abs(now - record["timestamp"]) / window_delta)
+
+                semantic_sim = semantic_scores.get(eid, 0.5)
+
+                # Composite retrieval score
+                composite_score = (
+                    0.40 * semantic_sim +
+                    0.25 * record["base_importance"] +
+                    0.15 * min(1.0, reinforcement) +  # Cap reinforcement weight at 15% and reinforce term at 1.0
+                    0.20 * time_relevance
+                )
+
+                # Relevance Floor
+                if composite_score < relevance_floor:
+                    continue
+
+                record["decay_score"] = strength
+                record["rrf_score"] = rrf_score
+                record["composite_score"] = composite_score
+                record["access_count"] = access_count
+                record["last_recalled_at"] = last_access
+
+                # Mappings for legacy compatibility
+                record["content"] = record["gist_summary"]
+                record["category"] = record["event_type"]
+                record["importance"] = record["base_importance"]
+                record["pinned"] = record.get("pinned") or 0
+                record["session_id"] = record.get("session_id") or "primary"
+                record["recall_count"] = access_count + 1
+                
+                # Fetch dynamic corroboration and contradiction counts for confidence calculation
+                contr_row = conn.execute(
+                    "SELECT COUNT(*) FROM episodic_contradictions WHERE source_event_id = ? OR contradicting_event_id = ?",
+                    (eid, eid)
+                ).fetchone()
+                contradiction_count = contr_row[0] if contr_row else 0
+
+                corr_row = conn.execute(
+                    "SELECT COUNT(*) FROM episodic_links WHERE source_event_id = ? OR target_event_id = ?",
+                    (eid, eid)
+                ).fetchone()
+                corroboration_count = corr_row[0] if corr_row else 0
+
+                reliability_map = {
+                    "DID": 1.0,
+                    "READ": 0.8,
+                    "HEARD": 0.8,
+                    "SIMULATED": 0.5,
+                    "INFERRED": 0.7
+                }
+                source_reliability = reliability_map.get(record["source_type"], 1.0)
+                
+                time_elapsed_confidence = (time.time() - last_access) / 86400.0
+                record["confidence"] = max(0.0, min(1.0, 
+                    source_reliability * (1.0 - 0.15 * contradiction_count) + 
+                    0.05 * corroboration_count - 0.01 * time_elapsed_confidence
+                ))
+
+                # Deserialize decision state snapshot
+                ds_val = record.pop("decision_state_json", None)
+                if ds_val:
+                    try:
+                        record["decision_state"] = json.loads(ds_val)
+                    except Exception:
+                        record["decision_state"] = None
+                else:
+                    record["decision_state"] = None
+                
+                tags_val = record.get("tags")
+                if tags_val:
+                    try:
+                        record["tags"] = json.loads(tags_val)
+                    except Exception:
+                        record["tags"] = []
+                else:
+                    record["tags"] = []
+
+                recalled_events.append(record)
                 accessed_ids.append(eid)
 
-                if len(recalled_episodes) >= limit:
+                if len(recalled_events) >= limit:
                     break
 
-            # 5. Dynamic update of access parameters inside transaction
+            # Write access logs (Read-only event table logs)
             if accessed_ids:
-                placeholders = ", ".join("?" for _ in accessed_ids)
-                conn.execute(
-                    f"UPDATE hm_episodes SET last_recalled_at = ?, recall_count = recall_count + 1 WHERE id IN ({placeholders})",
-                    [now] + accessed_ids
-                )
+                for eid in accessed_ids:
+                    conn.execute(
+                        "INSERT INTO episodic_reinforcement (event_id, access_timestamp, retrieval_reason) VALUES (?, ?, ?)",
+                        (eid, now, f"recall: {query[:50]}")
+                    )
                 conn.commit()
+
         except Exception as e:
             conn.rollback()
             log_event(f"episodic_memory: query tracking update failed: {e}")
         finally:
             conn.close()
 
-        return recalled_episodes
+        return recalled_events
 
     # ----- Consistency GC -----
 
     @classmethod
     def run_vector_gc(cls) -> int:
-        """Finds and deletes any vector IDs in Chroma that are missing from SQLite."""
         orphans_purged = 0
         try:
             collection = cls._get_chroma_collection()
@@ -485,13 +960,11 @@ class EpisodicMemory:
             if count == 0:
                 return 0
 
-            # Get all IDs in the Chroma collection
             results = collection.get(include=[])
             chroma_ids = results.get("ids", [])
             if not chroma_ids:
                 return 0
 
-            # Batch verify against SQLite in chunks of 500
             chunk_size = 500
             conn = cls._get_sqlite_conn()
             try:
@@ -499,21 +972,23 @@ class EpisodicMemory:
                     chunk = chroma_ids[i:i+chunk_size]
                     placeholders = ", ".join("?" for _ in chunk)
                     
-                    # Fetch present IDs
-                    rows = conn.execute(
+                    # Fetch present IDs from the authoritative legacy table
+                    rows_legacy = conn.execute(
                         f"SELECT id FROM hm_episodes WHERE id IN ({placeholders})", chunk
                     ).fetchall()
-                    sqlite_present_ids = {r["id"] for r in rows}
+                    sqlite_present_ids = {r["id"] for r in rows_legacy}
 
-                    # Find orphans in this chunk
                     orphans = [cid for cid in chunk if cid not in sqlite_present_ids]
                     if orphans:
                         collection.delete(ids=orphans)
+                        orphan_placeholders = ", ".join("?" for _ in orphans)
+                        conn.execute(
+                            f"DELETE FROM episodic_events WHERE event_id IN ({orphan_placeholders})", orphans
+                        )
+                        conn.commit()
                         orphans_purged += len(orphans)
-                        log_event(f"episodic_memory: GC deleted {len(orphans)} orphan vectors from Chroma")
             finally:
                 conn.close()
-
         except Exception as e:
             log_event(f"episodic_memory: GC sweep failed: {e}")
 
@@ -530,7 +1005,6 @@ class EpisodicMemory:
 
     @classmethod
     def _get_query_embedding(cls, query: str) -> list[float]:
-        """Retrieve the query embedding, using a thread-safe local LRU cache if available."""
         with cls._lock:
             if query in cls._query_cache:
                 return cls._query_cache[query]
@@ -545,32 +1019,39 @@ class EpisodicMemory:
 
     @classmethod
     def archive_decayed_episodes(cls, threshold: float = 0.1) -> int:
-        """Archive strategy: moves unpinned episodes with computed decay_score < threshold to archive table."""
         archived_count = 0
         conn = cls._get_sqlite_conn()
         try:
-            rows = conn.execute("SELECT * FROM hm_episodes WHERE pinned = 0").fetchall()
+            # Query v2 tables
+            rows = conn.execute("SELECT * FROM episodic_events").fetchall()
             now = time.time()
             to_archive = []
 
             for row in rows:
-                decay = cls._calculate_decay(row["importance"], row["last_recalled_at"], False)
+                # Compute decay using access logs
+                access_rows = conn.execute(
+                    "SELECT access_timestamp FROM episodic_reinforcement WHERE event_id = ? ORDER BY access_timestamp DESC LIMIT 1",
+                    (row["event_id"],)
+                ).fetchone()
+                last_access = access_rows["access_timestamp"] if access_rows else row["timestamp"]
+                decay = cls._calculate_decay(row["base_importance"], last_access, False)
                 if decay < threshold:
                     to_archive.append(dict(row))
 
             if to_archive:
                 with cls._lock:
                     for item in to_archive:
-                        eid = item["id"]
+                        eid = item["event_id"]
                         conn.execute(
                             """
                             INSERT OR IGNORE INTO hm_episodes_archive (
                                 id, session_id, content, importance, category, created_at, archived_at, tags
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                            (eid, item["session_id"], item["content"], item["importance"],
-                             item["category"], item["created_at"], now, item["tags"])
+                            (eid, "primary", item["gist_summary"], item["base_importance"],
+                             item["event_type"], item["timestamp"], now, "[]")
                         )
+                        conn.execute("DELETE FROM episodic_events WHERE event_id = ?", (eid,))
                         conn.execute("DELETE FROM hm_episodes WHERE id = ?", (eid,))
 
                         try:
@@ -589,9 +1070,7 @@ class EpisodicMemory:
 
     @classmethod
     def _gc_scheduler_loop(cls) -> None:
-        """Background daemon scheduler that runs vector GC and archiving every 10 minutes (600s)."""
         while not cls._stop_event.is_set():
-            # Wait for 600s in 1s increments to stop quickly
             for _ in range(600):
                 if cls._stop_event.is_set():
                     break

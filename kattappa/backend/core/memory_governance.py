@@ -170,6 +170,39 @@ class MemoryGovernance:
                 conn.close()
 
     @classmethod
+    def log_provenance_direct(
+        cls,
+        cursor: sqlite3.Cursor,
+        memory_id: str,
+        memory_type: str,
+        source: str,
+        created_by: str,
+        confidence: float,
+        derived_from: Optional[list[str]] = None,
+        metadata_json: Optional[str] = None
+    ) -> None:
+        """Logs the origin and derivation lineage directly within an active SQLite transaction."""
+        now = time.time()
+        derived_json = json.dumps(derived_from or [])
+        meta_json = metadata_json or "{}"
+        
+        cursor.execute(
+            """
+            INSERT INTO hm_provenance (
+                id, memory_type, source, derived_from, created_by,
+                confidence, created_at, metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                confidence = excluded.confidence,
+                derived_from = excluded.derived_from,
+                metadata_json = excluded.metadata_json
+            """,
+            (memory_id, memory_type.strip().lower(), source.strip().lower(),
+             derived_json, created_by.strip().lower(), confidence, now, meta_json)
+        )
+
+    @classmethod
     def get_provenance(cls, memory_id: str) -> dict[str, Any] | None:
         """Retrieves lineage and origin details of a memory record."""
         conn = cls._get_sqlite_conn()

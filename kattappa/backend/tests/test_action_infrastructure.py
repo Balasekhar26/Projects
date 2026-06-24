@@ -53,6 +53,7 @@ def test_browser_action_classification(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_infra_read",
     }
     res_read = browser_node(state_read)
     assert res_read["approval_required"] is False
@@ -65,6 +66,7 @@ def test_browser_action_classification(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_infra_write",
     }
     res_write = browser_node(state_write)
     assert res_write["approval_required"] is True
@@ -77,6 +79,7 @@ def test_browser_action_classification(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_infra_pay",
     }
     res_pay = browser_node(state_pay)
     assert "strictly prohibited" in res_pay["result"].lower()
@@ -88,6 +91,7 @@ def test_browser_action_classification(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_infra_del",
     }
     res_del = browser_node(state_del)
     assert "strictly prohibited" in res_del["result"].lower()

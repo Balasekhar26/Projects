@@ -89,3 +89,18 @@ def cleanup_test_data():
     yield
     # Cleanup temp directory after test session finishes
     shutil.rmtree(test_data_dir, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def reset_all_schemas():
+    """Dynamically reset _schema_ensured flags in backend.core classes for full test isolation."""
+    import sys
+    for name, module in list(sys.modules.items()):
+        if name.startswith("backend.core"):
+            for attr_name in dir(module):
+                try:
+                    obj = getattr(module, attr_name)
+                    if isinstance(obj, type) and hasattr(obj, "_schema_ensured"):
+                        setattr(obj, "_schema_ensured", False)
+                except Exception:
+                    pass

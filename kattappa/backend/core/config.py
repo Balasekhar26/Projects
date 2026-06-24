@@ -104,7 +104,18 @@ def _detect_hardware_defaults_profile() -> tuple[str, str, str, str, str, int]:
         return "qwen3:4b", "mistral:latest", "qwen2.5-coder:3b", "mistral:latest", profile, budget
 
 
+_config_override = None
+
+
 def load_config() -> BackendConfig:
+    import sys
+    mod = sys.modules.get("backend.core.config")
+    if mod and mod.load_config is not load_config:
+        return mod.load_config()
+
+    if _config_override is not None:
+        return _config_override() if callable(_config_override) else _config_override
+
     data = _load_yaml()
     models = data.get("models", {})
     memory = data.get("memory", {})
@@ -176,4 +187,28 @@ def load_config() -> BackendConfig:
     )
 
 JARVIS_MODE = True
+
+
+_security_config_cached = None
+
+def load_security_config() -> dict:
+    global _security_config_cached
+    import copy
+    if _security_config_cached is not None:
+        return copy.deepcopy(_security_config_cached)
+
+    import yaml
+    config_path = ROOT / "backend" / "config" / "security_config.yaml"
+    if not config_path.exists():
+        config_path = BACKEND_ROOT / "config" / "security_config.yaml"
+    
+    if config_path.exists():
+        try:
+            _security_config_cached = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            _security_config_cached = {}
+    else:
+        _security_config_cached = {}
+        
+    return copy.deepcopy(_security_config_cached)
 

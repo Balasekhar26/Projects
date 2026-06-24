@@ -95,6 +95,13 @@ class MemoryAssembler:
             log_event(f"memory_assembler: strategic layer failed: {exc}")
             goal_hits = []
 
+        # Retrieve Decision Rationale layer (answers "why was X chosen?")
+        decision_hits: List[Dict[str, Any]] = []
+        try:
+            decision_hits = cls._query_decisions(query_text, limit)
+        except Exception as exc:
+            log_event(f"memory_assembler: decisions layer failed: {exc}")
+
         # Retrieve Layer 7 Relationship Memory (primary personalization)
         relationship_ctx: Dict[str, Any] = {}
         try:
@@ -130,10 +137,17 @@ class MemoryAssembler:
         except Exception as exc:
             log_event(f"memory_assembler: relationship memory layer failed: {exc}")
 
+        # Retrieve World Model context (causal entity graph, step 19)
+        world_model_hits: List[Dict[str, Any]] = []
+        try:
+            world_model_hits = cls._query_world_model(query_text, limit)
+        except Exception as exc:
+            log_event(f"memory_assembler: world model layer failed: {exc}")
+
         # RRF fusion across facts and episodes in their respective lists.
         fused_facts, fused_episodes = cls._fuse(semantic_hits, episodic_hits, limit)
 
-        total_hits = len(semantic_hits) + len(episodic_hits) + len(procedural_hits) + len(goal_hits)
+        total_hits = len(semantic_hits) + len(episodic_hits) + len(procedural_hits) + len(goal_hits) + len(decision_hits) + len(world_model_hits)
         if relationship_ctx:
             total_hits += len(relationship_ctx.get("preferences", [])) + len(relationship_ctx.get("active_goals", []))
 
@@ -143,7 +157,9 @@ class MemoryAssembler:
             "episodes": fused_episodes,
             "actions": procedural_hits,
             "goals": goal_hits,
+            "decisions": decision_hits,
             "relationship_memory": relationship_ctx,
+            "world_model": world_model_hits,
             "total_hits": total_hits,
         }
 
@@ -202,6 +218,44 @@ class MemoryAssembler:
             return results
         except Exception as exc:
             log_event(f"memory_assembler: strategic goals query failed: {exc}")
+            return []
+
+    @classmethod
+    def _query_decisions(
+        cls,
+        query_text: str,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """Delegate to StrategicMemory.query_decisions(); return [] on any error.
+
+        Surfaces decision rationale records relevant to the query so that
+        questions like "why are we using SQLite?" surface the recorded reason.
+        """
+        try:
+            from backend.core.strategic_memory import StrategicMemory
+            return StrategicMemory.query_decisions(query_text, limit=limit)
+        except Exception as exc:
+            log_event(f"memory_assembler: decisions query failed: {exc}")
+            return []
+
+    @classmethod
+    def _query_world_model(
+        cls,
+        query_text: str,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """Surface world model entities relevant to the query with confidence and causal provenance.
+
+        Delegates to WorldModel.query_world_context() which applies keyword
+        matching plus 1-hop causal-edge expansion. Each result includes
+        belief_states (confidence records) and causal_log (episode-linked
+        change history) so downstream components can reason about causality.
+        """
+        try:
+            from backend.core.world_model import WorldModel
+            return WorldModel.query_world_context(query_text, limit=limit)
+        except Exception as exc:
+            log_event(f"memory_assembler: world model query failed: {exc}")
             return []
 
     # ---------- RRF Fusion ----------

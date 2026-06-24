@@ -296,4 +296,15 @@ def load_policies(raw: Mapping[str, Mapping[str, Any]]) -> PolicyEngine:
 
 
 # Module-level shared engine over the default policy table.
-DEFAULT_POLICY_ENGINE = PolicyEngine()
+sec_config = {}
+try:
+    from backend.core.config import load_security_config
+    sec_config = load_security_config()
+except Exception:
+    pass
+
+raw_policies = sec_config.get("execution_policies") or sec_config.get("execution_policy")
+if raw_policies:
+    DEFAULT_POLICY_ENGINE = load_policies(raw_policies)
+else:
+    DEFAULT_POLICY_ENGINE = PolicyEngine()

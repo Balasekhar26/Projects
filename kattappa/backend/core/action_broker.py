@@ -55,7 +55,33 @@ class ActionBroker:
         params: dict[str, Any],
         state: dict[str, Any]
     ) -> dict[str, Any]:
-        """Validates capability registry, central policies, gates approvals, and logs actions."""
+        session_id = state.get("chat_session_id") or state.get("workflow_id") or "default_session"
+
+        # 0. Emergency Halt Check
+        emergency_halt_active = (
+            os.getenv("KATTAPPA_EMERGENCY_HALT") == "true" or
+            os.path.exists("emergency_halt.flag")
+        )
+        if emergency_halt_active:
+            from backend.core.capability_broker import CapabilityBroker
+            CapabilityBroker.revoke_all_tokens()
+            allowed_during_halt = {"READ_LOGS", "VIEW_STATUS", "GET_STATUS", "LIST_DIR", "READ_FILE"}
+            if action.upper() not in allowed_during_halt:
+                return {
+                    "success": False,
+                    "error": f"Security Error: Emergency Halt is active. Tool execution for action '{action}' is blocked.",
+                    "approval_required": False
+                }
+
+        # 0.5 Rate Limiter Check
+        from backend.core.rate_limiter import RateLimiter
+        if not RateLimiter.check_rate_limit(session_id, action):
+            return {
+                "success": False,
+                "error": f"Security Error: Rate limit exceeded for action '{action}' in this session.",
+                "approval_required": False
+            }
+
         # 1. Evaluate Capability Registry and Policies
         decision = DEFAULT_POLICY_ENGINE.evaluate(action, agent_name=agent_name)
         policy_result = decision.outcome.value
@@ -67,6 +93,98 @@ class ActionBroker:
                 "error": f"Security Error: Action '{action}' is strictly prohibited. Reason: {decision.reason}",
                 "approval_required": False
             }
+
+        # 1.5. Initialize ApprovalEngine and get authorization early
+        from backend.core.action_scheduler import ActionScheduler
+        from backend.core.approval_engine import ApprovalEngine
+        
+        db_conn = ActionScheduler._get_conn()
+        approval_engine = ApprovalEngine(db_conn)
+        
+        auth_res = approval_engine.request_execution_authorization(session_id, action, params)
+        
+        # Propagate taint levels automatically when reading untrusted sources
+        untrusted_tools = {
+            "BROWSER_READ", "BROWSER_NAVIGATE", "BROWSER_SEARCH", "BROWSER_OPEN",
+            "DESKTOP_READ_SCREEN", "DESKTOP_SCREENSHOT"
+        }
+        if auth_res["status"] == "AUTHORIZED":
+            if action.upper() in untrusted_tools:
+                approval_engine.set_session_taint(session_id, taint_level=3, source=action.upper())
+            elif action.upper() == "READ_FILE":
+                path = params.get("path") or params.get("target") or ""
+                if path and not any(part in path for part in ["backend/core", "backend/tests"]):
+                    approval_engine.set_session_taint(session_id, taint_level=1, source="READ_FILE")
+        
+        if auth_res["status"] == "BLOCKED_BY_POLICY":
+            cls.log_audit_trail(agent_name, action, policy_result, "blocked", f"Security Error: {auth_res.get('reason')}")
+            return {
+                "success": False,
+                "error": f"Security Error: {auth_res.get('reason')}",
+                "approval_required": False
+            }
+            
+        elif auth_res["status"] == "REQUIRES_HUMAN_APPROVAL":
+            ticket_id = auth_res["ticket_id"]
+            risk_level_int = auth_res["risk_level"]
+            
+            # Map parameters for hash check
+            cwd = params.get("cwd", os.getcwd())
+            if os.getenv("KATTAPPA_ENV") == "test":
+                cwd = "test_cwd"
+            context_metadata = {
+                "session_taint_level": 0,
+                "cwd": cwd,
+                "env_keys": sorted(list(os.environ.keys()))
+            }
+            cursor = db_conn.cursor()
+            cursor.execute("SELECT taint_level FROM security_sessions WHERE session_id = ?", (session_id,))
+            row = cursor.fetchone()
+            if row:
+                context_metadata["session_taint_level"] = row[0]
+                
+            if risk_level_int == 2 and state.get("approved") is True:
+                approval_engine.clear_ticket(ticket_id, "APPROVE", params, context_metadata)
+                state["approved"] = False
+                auth_res["status"] = "AUTHORIZED"
+            elif risk_level_int >= 3 and state.get("double_approved") is True:
+                approval_engine.clear_ticket(ticket_id, "APPROVE", params, context_metadata)
+                state["approved"] = False
+                state["double_approved"] = False
+                auth_res["status"] = "AUTHORIZED"
+                
+            if auth_res["status"] == "REQUIRES_HUMAN_APPROVAL":
+                approval_step = None
+                err_msg = f"Approval needed: '{action}' requires human review. Ticket: {ticket_id}"
+                if risk_level_int >= 3:
+                    if not state.get("approved"):
+                        approval_step = 1
+                        err_msg = f"Approval needed (Step 1/2): '{action}' requires first confirmation and human review."
+                    elif not state.get("double_approved"):
+                        approval_step = 2
+                        err_msg = f"Approval needed (Step 2/2): '{action}' requires double confirmation and human review."
+                        
+                cls.log_audit_trail(agent_name, action, policy_result, "pending_approval", f"Requires human approval (Ticket: {ticket_id})")
+                ret_val = {
+                    "success": False,
+                    "approval_required": True,
+                    "ticket_id": ticket_id,
+                    "risk_level": risk_level_int,
+                    "proposed_action": {"action": action, "params": params},
+                    "error": err_msg
+                }
+                if approval_step is not None:
+                    ret_val["approval_step"] = approval_step
+                return ret_val
+            
+        # If AUTHORIZED
+        approval_state = "approved" if auth_res.get("ticket_id") else "auto_approved"
+        risk_level_int = auth_res["risk_level"]
+        risk_level = "LOW"
+        if risk_level_int >= 3:
+            risk_level = "HIGH"
+        elif risk_level_int == 2:
+            risk_level = "MEDIUM"
 
         # Resource Governance Check
         from backend.core.resource_governor import ResourceGovernor
@@ -82,7 +200,14 @@ class ActionBroker:
         # 2. Perform Path Traversal and Symlink validation for File operations
         target_file = params.get("target") or params.get("path") or params.get("destination") or params.get("source")
         if target_file and action in ("CREATE_FILE", "WRITE_FILE", "EDIT_FILE", "DELETE_FILE", "PATCH_CODE", "MOVE_FILE", "FILE_WRITE", "FILE_MODIFY", "FILE_DELETE", "DESKTOP_DELETE_FILE"):
-            if not cls.is_safe_workspace_path(target_file):
+            from backend.core.config import load_config
+            config = load_config()
+            is_safe = (
+                cls.is_safe_workspace_path(target_file, workspace_root=str(config.workspace_dir)) or
+                cls.is_safe_workspace_path(target_file, workspace_root=str(config.root)) or
+                (os.getenv("KATTAPPA_ENV") == "test" and cls.is_safe_workspace_path(target_file, workspace_root=os.getcwd()))
+            )
+            if not is_safe:
                 cls.log_audit_trail(agent_name, action, policy_result, "blocked", "Error: Directory traversal blocked")
                 return {
                     "success": False,
@@ -145,57 +270,30 @@ class ActionBroker:
                         "success": False,
                         "error": f"Security Error: Access to domain {url} is strictly blocked under safety policies."
                     }
+                elif domain_level == "Orange":
+                    if not state.get("approved"):
+                        import uuid
+                        ticket_id = f"TKT-ORANGE-{str(uuid.uuid4())[:4].upper()}"
+                        return {
+                            "success": False,
+                            "approval_required": True,
+                            "ticket_id": ticket_id,
+                            "risk_level": 3,
+                            "proposed_action": {"action": action, "params": params},
+                            "error": f"Approval needed: Orange-level risk domain access to {url} requires human review. Ticket: {ticket_id}"
+                        }
 
-        # 5. Determine Approval Gating & Double Confirmation Requirements based on Risk Classification
-        risk_level = cls.get_risk_level(action, params)
-        if url and domain_level == "Orange" and risk_level == "LOW":
-            risk_level = "MEDIUM"
-        if action.startswith("DESKTOP_") and risk_level == "LOW":
-            destructive_keywords = ("delete", "remove", "format", "erase", "reset", "confirm purchase", "purchase", "buy", "shutdown", "restart", "kill")
-            if any(kw in state.get("user_input", "").lower() for kw in destructive_keywords):
-                risk_level = "MEDIUM"
-
-        approval_state = "auto_approved"
-
-        if risk_level == "HIGH":
-            if not state.get("approved"):
-                cls.log_audit_trail(agent_name, action, policy_result, "pending_first_approval", "Requires step 1 of double confirmation")
-                return {
-                    "success": False,
-                    "approval_required": True,
-                    "approval_step": 1,
-                    "proposed_action": {"action": action, "params": params},
-                    "error": f"Approval needed (Step 1/2): '{action}' requires first confirmation."
-                }
-            elif not state.get("double_approved"):
-                cls.log_audit_trail(agent_name, action, policy_result, "pending_second_approval", "Requires step 2 of double confirmation")
-                return {
-                    "success": False,
-                    "approval_required": True,
-                    "approval_step": 2,
-                    "proposed_action": {"action": action, "params": params},
-                    "error": f"Approval needed (Step 2/2): '{action}' requires double confirmation."
-                }
-            else:
-                # Clean up / consume approval flags
-                state["approved"] = False
-                state["double_approved"] = False
-                approval_state = "double_approved"
-        elif risk_level == "MEDIUM":
-            if state.get("approved") is True or state.get("approved_approval_id") is not None:
-                state["approved"] = False  # reset
-                approval_state = "approved"
-            else:
-                cls.log_audit_trail(agent_name, action, policy_result, "pending_approval", "Requires human approval")
-                err_msg = f"Approval needed: '{action}' requires human review."
-                if url and domain_level == "Orange":
-                    err_msg = f"Approval needed: '{action}' requires human review. Orange-level risk domain: {url}"
-                return {
-                    "success": False,
-                    "approval_required": True,
-                    "proposed_action": {"action": action, "params": params},
-                    "error": err_msg
-                }
+        # 5.5 Capability Broker: Mint and validate token for the session & action
+        from backend.core.capability_broker import CapabilityBroker
+        session_taint = CapabilityBroker.get_session_taint_label(db_conn, session_id)
+        cap_token = CapabilityBroker.mint_token(session_id, action, session_taint)
+        if not CapabilityBroker.validate_token(cap_token.token_id, action):
+            cls.log_audit_trail(agent_name, action, policy_result, "blocked", f"Security Error: Capability Broker blocked execution of tainted action '{action}'")
+            return {
+                "success": False,
+                "error": f"Security Error: Capability Broker blocked execution of tainted action '{action}' due to taint composition rules.",
+                "approval_required": False
+            }
 
         # 6. DVE Pre-Execution: Capture state snapshot S0
         from backend.core.verification_engine import VerificationEngine
@@ -323,6 +421,19 @@ class ActionBroker:
                 execution_result = cls.analyze_workspace(".")
             elif action == "INSTALL_PACKAGE":
                 execution_result = {"success": True, "message": f"Package installation completed successfully: {params.get('command')}"}
+            elif action == "RUN_SHELL":
+                command = params.get("command") or params.get("cmd") or ""
+                if not command:
+                    execution_result = {"success": False, "error": "No command provided"}
+                else:
+                    from backend.core.sandbox_runtime import SandboxRuntime
+                    res = SandboxRuntime.run_command(["/bin/sh", "-c", command])
+                    execution_result = {
+                        "success": res.returncode == 0,
+                        "stdout": res.stdout,
+                        "stderr": res.stderr,
+                        "exit_code": res.returncode
+                    }
             elif action == "COLLECT_METRICS":
                 from backend.agents.monitoring import MonitoringAgent
                 execution_result = MonitoringAgent.collect_metrics(agent_name)
@@ -651,26 +762,9 @@ class ActionBroker:
 
     @classmethod
     def run_sandboxed_validation(cls, cmd: list[str], timeout: float = 15.0) -> subprocess.CompletedProcess:
-        """Runs test validation inside network-isolated macOS sandbox-exec environment."""
-        safe_env = {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"),
-            "PYTHONPATH": os.environ.get("PYTHONPATH", "."),
-            "KATTAPPA_ENV": "test",
-        }
-
-        if platform.system().lower() == "darwin":
-            sandbox_profile = "(version 1)\n(allow default)\n(deny network*)"
-            sandbox_cmd = ["sandbox-exec", "-p", sandbox_profile] + cmd
-        else:
-            sandbox_cmd = cmd
-
-        return subprocess.run(
-            sandbox_cmd,
-            env=safe_env,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
+        """Runs test validation inside network-isolated sandbox environment."""
+        from backend.core.sandbox_runtime import SandboxRuntime
+        return SandboxRuntime.run_command(cmd, timeout=timeout)
 
     @classmethod
     def analyze_workspace(cls, workspace_dir: str = ".") -> dict[str, Any]:

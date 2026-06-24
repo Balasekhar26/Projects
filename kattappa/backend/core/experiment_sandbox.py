@@ -34,7 +34,8 @@ class ExperimentManager:
                 break
             cwd = cwd.parent
         else:
-            cwd = Path("/Users/alwaysdesigns/Documents/Codex/2026-06-14/balasekhar26-ult-translator-https-github-com/work/ult-translator")
+            from backend.core.config import load_config
+            cwd = load_config().root.parent
             
         return subprocess.run(
             ["git"] + args,

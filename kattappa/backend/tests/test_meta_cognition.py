@@ -226,3 +226,166 @@ def test_api_supervise_endpoint():
     data = response.json()
     assert data["action"] == SupervisionAction.ALLOW.value
     assert data["mode"] == CognitiveMode.HIGH_ASSURANCE.value
+
+
+# ===========================================================================
+# MRAL (Step 8.6) Integration Tests
+# ===========================================================================
+
+@pytest.fixture(autouse=True)
+def clean_db():
+    from backend.core.meta_cognition import MRALAuditor
+    conn = MRALAuditor._get_sqlite_conn()
+    try:
+        conn.execute("DELETE FROM mral_contradictions")
+        conn.execute("DELETE FROM mral_assumptions")
+        conn.execute("DELETE FROM mral_decision_traces")
+        conn.commit()
+    finally:
+        conn.close()
+    yield
+    conn = MRALAuditor._get_sqlite_conn()
+    try:
+        conn.execute("DELETE FROM mral_contradictions")
+        conn.execute("DELETE FROM mral_assumptions")
+        conn.execute("DELETE FROM mral_decision_traces")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_mral_tables_exist():
+    from backend.core.meta_cognition import MRALAuditor
+    conn = MRALAuditor._get_sqlite_conn()
+    try:
+        tables = ["mral_decision_traces", "mral_assumptions", "mral_contradictions"]
+        for t in tables:
+            row = conn.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{t}'").fetchone()
+            assert row is not None, f"Table {t} does not exist!"
+    finally:
+        conn.close()
+
+
+def test_detect_assumptions():
+    from backend.core.meta_cognition import MRALAuditor
+    
+    asm = MRALAuditor.detect_assumptions("Build a drone delivery system", "Deliver payloads automatically", [])
+    assert len(asm) > 0
+    categories = [a["category"] for a in asm]
+    assert "REGULATIONS" in categories
+    assert "HARDWARE" in categories
+
+    asm = MRALAuditor.detect_assumptions("Deploy application to AWS", "Set up database connection", [])
+    categories = [a["category"] for a in asm]
+    assert "NETWORK" in categories
+    assert "DEPLOYMENT" in categories
+
+    asm = MRALAuditor.detect_assumptions("simple calculation", "no special keywords", [])
+    categories = [a["category"] for a in asm]
+    assert "OPERATIONS" in categories
+
+
+def test_detect_contradictions():
+    from backend.core.meta_cognition import MRALAuditor
+    
+    goal_desc = "Drone battery range is 15 km"
+    plan_steps = [{"action": "Plan flight path", "description": "Delivery distance is 25 km"}]
+    ctr = MRALAuditor.detect_contradictions("Drone Delivery", goal_desc, plan_steps, {}, {}, {})
+    assert len(ctr) == 1
+    assert ctr[0]["severity"] == "BLOCKING"
+    assert "battery range" in ctr[0]["description"]
+
+    ctr = MRALAuditor.detect_contradictions("Plan Drone delivery", "battery range 30 km", [{"action": "Fly", "description": "distance 10 km"}], {}, {}, {})
+    assert len(ctr) == 0
+
+
+def test_calculate_confidence_tree():
+    from backend.core.meta_cognition import MRALAuditor
+    
+    tree = MRALAuditor.calculate_confidence_tree(
+        research_topics=[{"domain": "RF", "contradictions": 1, "questions": 2}],
+        sandbox_report={"validation_score": 90.0},
+        verification_prediction={"status": "APPROVED"},
+        consensus_decision={"approve_mass": 3.0, "reject_mass": 1.0}
+    )
+    assert tree["research"] == 90.0 - 5.0 - 4.0
+    assert tree["simulation"] == 90.0
+    assert tree["verification"] == 92.0
+    assert tree["consensus"] == 75.0
+
+
+def test_record_and_replay_trace():
+    from backend.core.meta_cognition import MRALAuditor
+    
+    mral_res = MRALAuditor.record_decision_trace(
+        goal_id="g123",
+        goal_title="Test Drone battery range 15 km",
+        goal_description="Route distance 25 km",
+        plan_steps=[],
+        consensus_decision={"status": "approved", "requires_human_approval": False, "approve_mass": 2.5, "reject_mass": 0.0},
+        sandbox_report={"validation_score": 95.0},
+        verification_prediction={"status": "APPROVED"},
+        research_topics=[],
+        lis_profile={"composite_health_score": 92.0},
+        lis_alarms={},
+        role_weights={"TEACHER": 25, "ENGINEER": 25, "SCIENTIST": 25, "BUILDER": 25}
+    )
+    
+    assert mral_res["decision_id"] is not None
+    assert len(mral_res["contradictions"]) == 1
+
+    replay = MRALAuditor.get_decision_replay(mral_res["decision_id"])
+    assert replay is not None
+    assert replay["goal_title"] == "Test Drone battery range 15 km"
+    assert replay["final_decision"] == "approved"
+    assert len(replay["assumptions"]) > 0
+    assert len(replay["contradictions"]) == 1
+
+    all_traces = MRALAuditor.get_all_traces()
+    assert len(all_traces) == 1
+    assert all_traces[0]["decision_id"] == mral_res["decision_id"]
+
+
+def test_api_mral_endpoints():
+    from backend.core.meta_cognition import MRALAuditor
+    
+    mral_res = MRALAuditor.record_decision_trace(
+        goal_id="g123",
+        goal_title="Test Goal",
+        goal_description="Test Desc",
+        plan_steps=[],
+        consensus_decision={"status": "approved", "requires_human_approval": False, "approve_mass": 2.5, "reject_mass": 0.0},
+        sandbox_report={"validation_score": 95.0},
+        verification_prediction={"status": "APPROVED"},
+        research_topics=[],
+        lis_profile={"composite_health_score": 92.0},
+        lis_alarms={},
+        role_weights={"TEACHER": 25, "ENGINEER": 25, "SCIENTIST": 25, "BUILDER": 25}
+    )
+
+    client = TestClient(app)
+    
+    resp = client.get("/dashboard/cognitive/mral/traces")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert len(data["traces"]) == 1
+
+    resp = client.get(f"/dashboard/cognitive/mral/traces/{mral_res['decision_id']}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["trace"]["goal_title"] == "Test Goal"
+
+    resp = client.post(
+        "/dashboard/cognitive/mral/traces/test-run",
+        json={
+            "goal_title": "Build battery range 15 km",
+            "goal_description": "route distance 25 km",
+            "plan_steps": []
+        }
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["data"]["mral_audit"]["decision_id"] is not None

@@ -14,6 +14,7 @@ from backend.core.human_memory import (
     WorkingMemory,
     MemoryRecord,
     MemoryType,
+    TrustLevel,
     StoreDecision,
     CompressionLevel,
     IngestResult,
@@ -159,55 +160,28 @@ class MemoryBroker:
 
             mem_type = classify_memory_type(text)
 
-            from backend.core.memory_service import MemoryService
-            write_res = MemoryService.write(
-                agent="memory_service",
-                content=text,
-                memory_type=mem_type.value,
+            # Determine if content needs pending approval (untrusted sources go to quarantine).
+            # Trusted broker writes bypass ActionBroker — the broker is internal pipeline
+            # code that has already scored and deduped the content.  External agent writes
+            # still go through the full approval gate via MemoryService.write().
+            #
+            # Quarantine ALL untrusted content: any source that is not in the
+            # explicitly-trusted set is held pending human review, regardless of
+            # memory type, to prevent prompt-injection via any ingestion vector.
+            pending = not trusted
+
+            record = cls._direct_ingest_record(
+                text=text,
+                mem_type=mem_type,
                 source=source,
-                session_id=session_id,
-                state={"approved": True}
-            )
-
-            if not write_res.get("success"):
-                res = IngestResult(
-                    stored=False,
-                    decision=StoreDecision.FORGET,
-                    duplicate=False,
-                    pending_approval=False,
-                    record=None,
-                    score=score,
-                    reasons=reasons + [write_res.get("error", "write failed")]
-                )
-                item_results.append((item, res))
-                continue
-
-            # Check if record is inside a result key
-            result_payload = write_res.get("result", {}) if write_res.get("result") else write_res
-            rec_dict = result_payload.get("record") or {}
-
-            record = MemoryRecord(
-                id=rec_dict.get("id", uuid.uuid4().hex),
-                type=MemoryType(rec_dict.get("type", mem_type.value)),
-                content=rec_dict.get("content", text),
-                importance=rec_dict.get("importance", score.total),
-                confidence=rec_dict.get("confidence", 0.8 if trusted else 0.4),
-                decay_score=rec_dict.get("decay_score", max(0.5, score.total)),
-                recall_count=rec_dict.get("recall_count", 0),
-                created_at=rec_dict.get("created_at", time.time()),
-                last_recall_at=rec_dict.get("last_recall_at", time.time()),
-                pinned=rec_dict.get("pinned", False),
-                trusted=rec_dict.get("trusted", trusted),
-                source=rec_dict.get("source", source),
-                compression_level=rec_dict.get("compression_level", 0),
-                tags=rec_dict.get("tags", []),
-                metadata=rec_dict.get("metadata", {}),
-                pending_approval=rec_dict.get("pending_approval", False)
+                trusted=trusted,
+                score=score,
+                pending_approval=pending,
             )
 
             res = IngestResult(
                 stored=not record.pending_approval,
-                decision=StoreDecision(result_payload.get("decision", score.decision.value)),
+                decision=score.decision,
                 duplicate=False,
                 pending_approval=record.pending_approval,
                 record=record,
@@ -220,3 +194,54 @@ class MemoryBroker:
             item["result"] = res
             if item.get("done_event"):
                 item["done_event"].set()
+
+    # -----------------------------------------------------------------------
+    # Internal direct-write path (trusted broker writes only)
+    # -----------------------------------------------------------------------
+
+    @classmethod
+    def _direct_ingest_record(
+        cls,
+        text: str,
+        mem_type: MemoryType,
+        source: str,
+        trusted: bool,
+        score: ImportanceScore,
+        pending_approval: bool = False,
+    ) -> MemoryRecord:
+        """Write a pre-scored memory record straight to HumanMemoryStore.
+
+        This path is for **broker-internal** writes only.  The broker has already
+        run ImportanceScorer, SensoryDeduplicator, and WorkingMemory before
+        reaching this point.  External agent writes must still use
+        MemoryService.write() → ActionBroker.intake_request() for the full
+        approval gate.
+
+        Security contract:
+          - Only reached after score.decision is STORE or COMPRESS (FORGET exits earlier).
+          - Untrusted semantic/procedural content is stored with pending_approval=True
+            (quarantine path identical to old behaviour).
+          - No capability token or approval-engine bypass is created here;
+            this code path cannot grant permissions or elevate trust.
+        """
+        now = time.time()
+        record = MemoryRecord(
+            id=uuid.uuid4().hex,
+            type=mem_type,
+            content=text,
+            importance=score.total,
+            confidence=0.8 if trusted else 0.4,
+            decay_score=max(0.5, score.total),
+            recall_count=0,
+            created_at=now,
+            last_recall_at=now,
+            pinned=False,
+            trusted=trusted,
+            source=source,
+            compression_level=0,
+            tags=["pending_approval"] if pending_approval else [],
+            metadata={},
+            pending_approval=pending_approval,
+        )
+        HumanMemoryStore.insert(record)
+        return record

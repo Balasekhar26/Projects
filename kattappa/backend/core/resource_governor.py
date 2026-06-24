@@ -28,7 +28,12 @@ class ResourceGovernor:
     AUDIO_DURATION_LIMIT_SECONDS = 30.0
     AUDIO_SIZE_LIMIT_BYTES = 5 * 1024 * 1024  # 5 MB
     CONCURRENT_VOICE_SESSIONS_LIMIT = 2
-    
+
+    # Human Attention Budget — finite interrupt budget per rolling hour.
+    # Prevents the scheduler from overwhelming the user with escalations.
+    ATTENTION_TOKEN_LIMIT: int = 10          # max attention-requiring actions per hour
+    ATTENTION_TOKEN_WINDOW_SECS: float = 3600.0  # rolling window (1 hour)
+
     MEMORY_MAX_RECORDS = 10_000
     MEMORY_MAX_BYTES_PER_AGENT = 5 * 1024 * 1024  # 5 MB
     MEMORY_MAX_WRITES_PER_MINUTE = 60
@@ -49,6 +54,14 @@ class ResourceGovernor:
                     data["memory_writes_this_minute"] = 0
                 if "memory_write_window_start" not in data:
                     data["memory_write_window_start"] = 0.0
+                if "attention_tokens_reserved" not in data:
+                    data["attention_tokens_reserved"] = 0
+                if "attention_tokens_consumed" not in data:
+                    data["attention_tokens_consumed"] = 0
+                if "reserved_cpu_percent" not in data:
+                    data["reserved_cpu_percent"] = 0.0
+                if "reserved_ram_mb" not in data:
+                    data["reserved_ram_mb"] = 0.0
                 return data
         except Exception:
             pass
@@ -62,7 +75,13 @@ class ResourceGovernor:
             "memory_records": 0,
             "memory_bytes_used": {},
             "memory_writes_this_minute": 0,
-            "memory_write_window_start": 0.0
+            "memory_write_window_start": 0.0,
+            "attention_tokens_used": 0,
+            "attention_tokens_reserved": 0,
+            "attention_tokens_consumed": 0,
+            "attention_window_start": 0.0,
+            "reserved_cpu_percent": 0.0,
+            "reserved_ram_mb": 0.0,
         }
 
     @classmethod
@@ -87,7 +106,13 @@ class ResourceGovernor:
                 "memory_records": 0,
                 "memory_bytes_used": {},
                 "memory_writes_this_minute": 0,
-                "memory_write_window_start": 0.0
+                "memory_write_window_start": 0.0,
+                "attention_tokens_used": 0,
+                "attention_tokens_reserved": 0,
+                "attention_tokens_consumed": 0,
+                "attention_window_start": 0.0,
+                "reserved_cpu_percent": 0.0,
+                "reserved_ram_mb": 0.0,
             })
 
     @classmethod
@@ -100,6 +125,10 @@ class ResourceGovernor:
         cpu_usage = psutil.cpu_percent(interval=None)
         ram_available = psutil.virtual_memory().available / (1024 * 1024)
         
+        consumed_attn = int(data.get("attention_tokens_consumed", 0))
+        reserved_attn = int(data.get("attention_tokens_reserved", 0))
+        available_attn = max(0, cls.ATTENTION_TOKEN_LIMIT - consumed_attn - reserved_attn)
+
         return {
             "system_cpu_percent": cpu_usage,
             "system_cpu_limit": cls.CPU_LIMIT_PERCENT,
@@ -122,7 +151,15 @@ class ResourceGovernor:
             "memory_bytes_used": data.get("memory_bytes_used", {}),
             "memory_limit_bytes_per_agent": cls.MEMORY_MAX_BYTES_PER_AGENT,
             "memory_writes_this_minute": data.get("memory_writes_this_minute", 0),
-            "memory_limit_writes_per_minute": cls.MEMORY_MAX_WRITES_PER_MINUTE
+            "memory_limit_writes_per_minute": cls.MEMORY_MAX_WRITES_PER_MINUTE,
+            "attention_tokens_used": consumed_attn,
+            "attention_tokens_reserved": reserved_attn,
+            "attention_tokens_consumed": consumed_attn,
+            "attention_token_limit": cls.ATTENTION_TOKEN_LIMIT,
+            "attention_tokens_remaining": available_attn,
+            "attention_tokens_available": available_attn,
+            "reserved_cpu_percent": data.get("reserved_cpu_percent", 0.0),
+            "reserved_ram_mb": data.get("reserved_ram_mb", 0.0),
         }
 
     @classmethod
@@ -322,4 +359,117 @@ class ResourceGovernor:
         with cls._lock:
             data = cls._load()
             data["concurrent_voice_sessions"] = max(0, data.get("concurrent_voice_sessions", 0) - 1)
+            cls._save(data)
+
+    # ------------------------------------------------------------------
+    # Resource Reservations
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def reserve_resources(cls, cpu_percent: float, ram_mb: float) -> None:
+        with cls._lock:
+            data = cls._load()
+            data["reserved_cpu_percent"] = data.get("reserved_cpu_percent", 0.0) + cpu_percent
+            data["reserved_ram_mb"] = data.get("reserved_ram_mb", 0.0) + ram_mb
+            cls._save(data)
+
+    @classmethod
+    def release_resources(cls, cpu_percent: float, ram_mb: float) -> None:
+        with cls._lock:
+            data = cls._load()
+            data["reserved_cpu_percent"] = max(0.0, data.get("reserved_cpu_percent", 0.0) - cpu_percent)
+            data["reserved_ram_mb"] = max(0.0, data.get("reserved_ram_mb", 0.0) - ram_mb)
+            cls._save(data)
+
+    @classmethod
+    def sync_reservations(cls, cpu_percent: float, ram_mb: float) -> None:
+        with cls._lock:
+            data = cls._load()
+            data["reserved_cpu_percent"] = cpu_percent
+            data["reserved_ram_mb"] = ram_mb
+            cls._save(data)
+
+    # ------------------------------------------------------------------
+    # Human Attention Token Budget
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _refresh_attention_window(cls, data: dict) -> dict:
+        """Reset the attention token counter if the rolling window has expired."""
+        now = time.time()
+        window_start = data.get("attention_window_start", 0.0)
+        if now - window_start >= cls.ATTENTION_TOKEN_WINDOW_SECS:
+            data["attention_tokens_consumed"] = 0
+            data["attention_tokens_used"] = 0
+            data["attention_window_start"] = now
+        return data
+
+    @classmethod
+    def check_attention_budget(cls, cost: int = 1) -> bool:
+        """Return True if the attention budget can absorb ``cost`` more tokens.
+
+        Automatically resets the counter if the rolling window has expired.
+        Thread-safe.
+        """
+        with cls._lock:
+            data = cls._refresh_attention_window(cls._load())
+            consumed = int(data.get("attention_tokens_consumed", 0))
+            reserved = int(data.get("attention_tokens_reserved", 0))
+            return (consumed + reserved + cost) <= cls.ATTENTION_TOKEN_LIMIT
+
+    @classmethod
+    def reserve_attention_tokens(cls, cost: int = 1) -> bool:
+        """Reserve ``cost`` attention tokens for an in-flight action."""
+        with cls._lock:
+            data = cls._refresh_attention_window(cls._load())
+            consumed = int(data.get("attention_tokens_consumed", 0))
+            reserved = int(data.get("attention_tokens_reserved", 0))
+            if consumed + reserved + cost > cls.ATTENTION_TOKEN_LIMIT:
+                return False
+            data["attention_tokens_reserved"] = reserved + cost
+            cls._save(data)
+            return True
+
+    @classmethod
+    def charge_attention_tokens(cls, cost: int = 1) -> bool:
+        """Deduct ``cost`` attention tokens directly (Compatibility/fallback)."""
+        with cls._lock:
+            data = cls._refresh_attention_window(cls._load())
+            consumed = int(data.get("attention_tokens_consumed", 0))
+            if consumed + cost > cls.ATTENTION_TOKEN_LIMIT:
+                return False
+            data["attention_tokens_consumed"] = consumed + cost
+            data["attention_tokens_used"] = consumed + cost
+            cls._save(data)
+            return True
+
+    @classmethod
+    def release_and_consume_attention_tokens(cls, cost: int, consume: bool = True) -> None:
+        """Release reserved attention tokens, and optionally mark them consumed."""
+        with cls._lock:
+            data = cls._load()
+            reserved = int(data.get("attention_tokens_reserved", 0))
+            data["attention_tokens_reserved"] = max(0, reserved - cost)
+            if consume:
+                consumed = int(data.get("attention_tokens_consumed", 0))
+                data["attention_tokens_consumed"] = consumed + cost
+                data["attention_tokens_used"] = consumed + cost
+            cls._save(data)
+
+    @classmethod
+    def sync_attention_reservations(cls, tokens: int) -> None:
+        with cls._lock:
+            data = cls._load()
+            data["attention_tokens_reserved"] = tokens
+            cls._save(data)
+
+    @classmethod
+    def reset_attention_tokens(cls) -> None:
+        """Force-reset the attention token counter (e.g. on session start or admin override)."""
+        with cls._lock:
+            data = cls._load()
+            data["attention_tokens_used"] = 0
+            data["attention_tokens_consumed"] = 0
+            data["attention_tokens_reserved"] = 0
+            data["attention_window_start"] = time.time()
             cls._save(data)

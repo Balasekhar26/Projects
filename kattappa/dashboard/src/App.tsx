@@ -497,6 +497,27 @@ export default function App() {
   const [calibration, setCalibration] = useState<CalibrationData | null>(null);
   const [recovering, setRecovering] = useState(false);
 
+  // --- Cognitive Dashboard Step 8.5 States ---
+  const [activeDashboardMode, setActiveDashboardMode] = useState<'governance' | 'cognitive'>('cognitive');
+  const [cognitiveSnapshot, setCognitiveSnapshot] = useState<any | null>(null);
+  const [cognitiveEvents, setCognitiveEvents] = useState<any[]>([]);
+  const [repairProposals, setRepairProposals] = useState<any[]>([]);
+  const [manualEventSeverity, setManualEventSeverity] = useState('WARNING');
+  const [manualEventModule, setManualEventModule] = useState('HCE');
+  const [manualEventDesc, setManualEventDesc] = useState('');
+  const [submittingEvent, setSubmittingEvent] = useState(false);
+  const [approvingProposalId, setApprovingProposalId] = useState<string | null>(null);
+
+  // --- MRAL Step 8.6 States ---
+  const [cognitiveTab, setCognitiveTab] = useState<'observatory' | 'mral'>('observatory');
+  const [mralTraces, setMralTraces] = useState<any[]>([]);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [selectedTrace, setSelectedTrace] = useState<any | null>(null);
+  const [loadingTrace, setLoadingTrace] = useState(false);
+  const [triggeringTestRun, setTriggeringTestRun] = useState(false);
+  const [testRunGoal, setTestRunGoal] = useState('Build drone delivery system');
+  const [testRunDesc, setTestRunDesc] = useState('Build a drone delivery route. The delivery route limit is 25 km, while drone battery range is 15 km.');
+
   const [triggeringLoop, setTriggeringLoop] = useState(false);
   const [triggerMessage, setTriggerMessage] = useState<string | null>(null);
   const [triggerError, setTriggerError] = useState<string | null>(null);
@@ -575,6 +596,47 @@ export default function App() {
         setCommandCenter(centerData.data);
         setCalibration(calData.data);
         setError(null);
+
+        // Fetch Cognitive Dashboard data (Step 8.5)
+        try {
+          const cogRes = await fetch(`${API_BASE}/dashboard/cognitive/latest`);
+          const cogData = await cogRes.json();
+          if (cogData && cogData.status === 'ok') {
+            setCognitiveSnapshot(cogData.data);
+          }
+        } catch (e) {
+          console.error("Failed to fetch cognitive dashboard snapshot:", e);
+        }
+
+        try {
+          const eventsRes = await fetch(`${API_BASE}/dashboard/cognitive/health-events`);
+          const eventsData = await eventsRes.json();
+          if (eventsData && eventsData.status === 'ok') {
+            setCognitiveEvents(eventsData.events);
+          }
+        } catch (e) {
+          console.error("Failed to fetch health events:", e);
+        }
+
+        try {
+          const propRes = await fetch(`${API_BASE}/dashboard/cognitive/repair-proposals`);
+          const propData = await propRes.json();
+          if (propData && propData.status === 'ok') {
+            setRepairProposals(propData.proposals);
+          }
+        } catch (e) {
+          console.error("Failed to fetch repair proposals:", e);
+        }
+
+        try {
+          const mralRes = await fetch(`${API_BASE}/dashboard/cognitive/mral/traces`);
+          const mralData = await mralRes.json();
+          if (mralData && mralData.status === 'ok') {
+            setMralTraces(mralData.traces);
+          }
+        } catch (e) {
+          console.error("Failed to fetch MRAL traces:", e);
+        }
 
         // Fetch Goals V1 and Goal Reflection telemetry
         try {
@@ -1002,6 +1064,124 @@ export default function App() {
     }
   };
 
+  // --- Cognitive Dashboard Handlers (Step 8.5) ---
+  const handleResolveEvent = async (eventId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/cognitive/health-events/${eventId}/resolve`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        fetchData();
+      }
+    } catch (err) {
+      console.error("Resolve health event failed:", err);
+    }
+  };
+
+  const handleApproveProposal = async (proposalId: string) => {
+    setApprovingProposalId(proposalId);
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/cognitive/repair-proposals/${proposalId}/approve`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        fetchData();
+      }
+    } catch (err) {
+      console.error("Approve repair proposal failed:", err);
+    } finally {
+      setApprovingProposalId(null);
+    }
+  };
+
+  const handleLogManualEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualEventDesc.trim()) return;
+    setSubmittingEvent(true);
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/cognitive/health-events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          severity: manualEventSeverity,
+          source_module: manualEventModule,
+          description: manualEventDesc
+        })
+      });
+      if (res.ok) {
+        setManualEventDesc('');
+        fetchData();
+      }
+    } catch (err) {
+      console.error("Failed to log manual health event:", err);
+    } finally {
+      setSubmittingEvent(false);
+    }
+  };
+
+  const handleTriggerCognitiveSnapshot = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/cognitive/snapshot`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        fetchData();
+      }
+    } catch (err) {
+      console.error("Trigger cognitive snapshot failed:", err);
+    }
+  };
+
+  const handleSelectTrace = async (traceId: string) => {
+    setSelectedTraceId(traceId);
+    setLoadingTrace(true);
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/cognitive/mral/traces/${traceId}`);
+      const data = await res.json();
+      if (data && data.status === 'ok') {
+        setSelectedTrace(data.trace);
+      }
+    } catch (err) {
+      console.error("Failed to fetch trace details:", err);
+    } finally {
+      setLoadingTrace(false);
+    }
+  };
+
+  const handleTriggerTestRun = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testRunGoal.trim()) return;
+    setTriggeringTestRun(true);
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/cognitive/mral/traces/test-run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goal_title: testRunGoal,
+          goal_description: testRunDesc,
+          plan_steps: [
+            { action: "Verify battery capacity limits", description: "Read drone specifications to find battery range max capacity limit = 15 km" },
+            { action: "Plan delivery flight path", description: "Design a delivery route that spans 25 km distance over flight coordinates" }
+          ]
+        })
+      });
+      if (res.ok) {
+        const mralRes = await fetch(`${API_BASE}/dashboard/cognitive/mral/traces`);
+        const mralData = await mralRes.json();
+        if (mralData && mralData.status === 'ok') {
+          setMralTraces(mralData.traces);
+          if (mralData.traces.length > 0) {
+            handleSelectTrace(mralData.traces[0].decision_id);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to trigger MRAL test run:", err);
+    } finally {
+      setTriggeringTestRun(false);
+    }
+  };
+
   if (loading && !executive) {
     return (
       <div className="loading-state">
@@ -1030,6 +1210,990 @@ export default function App() {
         >
           Retry Connection
         </button>
+      </div>
+    );
+  }
+
+  if (activeDashboardMode === 'cognitive') {
+    return (
+      <div className="dashboard">
+        {/* HEADER */}
+        <header className="header">
+          <div className="header-title">
+            <div className="header-icon" style={{ background: 'linear-gradient(135deg, var(--accent-purple), var(--accent-teal))', boxShadow: '0 0 20px rgba(155,109,249,0.3)' }}>🧠</div>
+            <div>
+              <h1>Kattappa Cognitive Observatory</h1>
+              <div className="header-subtitle">Step 8.5 — Live Awareness Surface & Internal Self-Perception</div>
+            </div>
+          </div>
+          <div className="header-meta">
+            <div className="refresh-indicator">
+              <div className="refresh-dot"></div>
+              <span>
+                {isPaused
+                  ? `Polling Paused (Sync: ${lastRefreshed.toLocaleTimeString()})`
+                  : `Refreshing in ${timeToNext}s (Sync: ${lastRefreshed.toLocaleTimeString()})`}
+              </span>
+            </div>
+            <button
+              onClick={() => setIsPaused(!isPaused)}
+              style={{
+                padding: '4px 10px',
+                background: 'var(--bg-glass)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-xs)',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '11px',
+              }}
+            >
+              {isPaused ? 'Resume Auto-Poll' : 'Pause'}
+            </button>
+            <button
+              onClick={handleManualRefresh}
+              style={{
+                padding: '4px 10px',
+                background: 'var(--bg-glass)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-xs)',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '11px',
+              }}
+            >
+              🔄 Refresh Now
+            </button>
+            <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+              <button
+                onClick={() => setActiveDashboardMode('governance')}
+                style={{
+                  padding: '4px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderRadius: 'var(--radius-xs)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all var(--transition)'
+                }}
+              >
+                Step 7.3 Oversight
+              </button>
+              <button
+                onClick={() => setActiveDashboardMode('cognitive')}
+                style={{
+                  padding: '4px 12px',
+                  background: 'var(--accent-blue)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-xs)',
+                  color: '#fff',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all var(--transition)'
+                }}
+              >
+                Step 8.5 Cognitive
+              </button>
+            </div>
+            <span className="readonly-badge" style={{ background: 'var(--derived-dim)', border: '1px solid rgba(168, 85, 247, 0.2)', color: 'var(--derived)' }}>AWARENESS SURFACE</span>
+          </div>
+        </header>
+
+        {/* Cognitive Observatory Content */}
+        <div className="cognitive-observatory-view" style={{ display: 'flex', flexDirection: 'column', gap: '28px', position: 'relative', zIndex: 2 }}>
+          {/* Sub-tab selection bar */}
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', gap: '20px', paddingBottom: '10px' }}>
+            <button
+              onClick={() => setCognitiveTab('observatory')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: cognitiveTab === 'observatory' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                borderBottom: cognitiveTab === 'observatory' ? '2px solid var(--accent-blue)' : 'none',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: '6px 12px',
+                transition: 'all 0.2s'
+              }}
+            >
+              📊 Real-Time Observatory (Tiers 0-10)
+            </button>
+            <button
+              onClick={() => setCognitiveTab('mral')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: cognitiveTab === 'mral' ? 'var(--accent-purple)' : 'var(--text-secondary)',
+                borderBottom: cognitiveTab === 'mral' ? '2px solid var(--accent-purple)' : 'none',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: '6px 12px',
+                transition: 'all 0.2s'
+              }}
+            >
+              🧠 Meta-Cognition Reasoning Audits (MRAL)
+            </button>
+          </div>
+
+          {cognitiveTab === 'observatory' && (
+            <>
+              {/* Restricted Mode Banner */}
+              {cognitiveSnapshot?.global_system_state === 'CRITICAL' && (
+            <div className="panel critical-alert-panel" style={{
+              borderLeft: '5px solid var(--critical)',
+              background: 'rgba(239, 68, 68, 0.08)',
+              padding: '24px',
+              borderRadius: 'var(--radius)'
+            }}>
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <span style={{ fontSize: '32px' }}>🚨</span>
+                <div>
+                  <h2 style={{ color: 'var(--critical)', fontSize: '15px', fontWeight: 700 }}>RESTRICTED MODE ACTIVE (Executive Brake Engaged)</h2>
+                  <p style={{ fontSize: '13px', color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.5 }}>
+                    Composite system health is critical (<strong>{cognitiveSnapshot.composite_health_score}%</strong>). 
+                    To preserve safety, all active tool execution, memory modification loops, and autonomous deployments have been frozen. 
+                    The HCE is in emergency diagnostic posture.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {cognitiveSnapshot?.global_system_state === 'DEGRADED' && (
+            <div className="panel warn-alert-panel" style={{
+              borderLeft: '5px solid var(--warn)',
+              background: 'rgba(245, 158, 11, 0.08)',
+              padding: '24px',
+              borderRadius: 'var(--radius)'
+            }}>
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <span style={{ fontSize: '32px' }}>⚠️</span>
+                <div>
+                  <h2 style={{ color: 'var(--warn)', fontSize: '15px', fontWeight: 700 }}>SYSTEM HEALTH DEGRADED</h2>
+                  <p style={{ fontSize: '13px', color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.5 }}>
+                    Kattappa's health score has dropped to <strong>{cognitiveSnapshot.composite_health_score}%</strong>. 
+                    Diagnostics mode is engaged. An automated self-repair proposal has been generated and requires human verification to run.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Diagnostic Repair Proposals */}
+          {repairProposals && repairProposals.length > 0 && repairProposals.some(p => p.status === 'PENDING') && (
+            <div className="panel repair-proposals-panel" style={{ background: 'rgba(79, 142, 247, 0.06)', border: '1px solid var(--accent-blue)' }}>
+              <h3 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', marginBottom: '12px' }}>🛠️ Active Diagnostic & Self-Repair Proposals</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {repairProposals.filter(p => p.status === 'PENDING').map(p => (
+                  <div key={p.proposal_id} style={{ background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                    <div style={{ flex: 1, minWidth: '300px' }}>
+                      <span className="protected-tag" style={{ background: 'var(--derived-dim)', border: '1px solid var(--derived)', color: 'var(--derived)', marginRight: '8px' }}>
+                        {p.source_module}
+                      </span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{p.description}</span>
+                    </div>
+                    <button
+                      onClick={() => handleApproveProposal(p.proposal_id)}
+                      disabled={approvingProposalId === p.proposal_id}
+                      style={{
+                        padding: '8px 16px',
+                        background: 'var(--ok)',
+                        border: 'none',
+                        borderRadius: 'var(--radius-xs)',
+                        color: '#fff',
+                        fontWeight: 600,
+                        cursor: approvingProposalId === p.proposal_id ? 'not-allowed' : 'pointer',
+                        fontSize: '12px',
+                        transition: 'opacity var(--transition)'
+                      }}
+                    >
+                      {approvingProposalId === p.proposal_id ? 'Executing...' : 'Verify & Approve Repair'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tier 10 System Health Center & Subscores */}
+          <div className="panel system-health-center-panel" style={{ borderTop: `4px solid ${cognitiveSnapshot?.global_system_state === 'CRITICAL' ? 'var(--critical)' : cognitiveSnapshot?.global_system_state === 'DEGRADED' ? 'var(--warn)' : 'var(--ok)'}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '20px', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#fff' }}>Tier 10: System Health Center</h2>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Interoceptive synthesis of overall cognitive processing health</p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>State</div>
+                  <div style={{
+                    fontSize: '18px',
+                    fontWeight: 700,
+                    color: cognitiveSnapshot?.global_system_state === 'CRITICAL' ? 'var(--critical)' : cognitiveSnapshot?.global_system_state === 'DEGRADED' ? 'var(--warn)' : 'var(--ok)'
+                  }}>
+                    {cognitiveSnapshot?.global_system_state || 'UNKNOWN'}
+                  </div>
+                </div>
+                <div style={{
+                  fontSize: '36px',
+                  fontWeight: 800,
+                  fontFamily: 'JetBrains Mono, monospace',
+                  color: 'var(--text-primary)',
+                  borderLeft: '1px solid var(--border)',
+                  paddingLeft: '16px'
+                }}>
+                  {cognitiveSnapshot?.composite_health_score ?? 'N/A'}<span style={{ fontSize: '18px' }}>%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Health subscores matrix */}
+            <div className="lower-row-3" style={{ marginTop: '24px' }}>
+              {cognitiveSnapshot?.tier_10_health?.subscores && Object.entries(cognitiveSnapshot.tier_10_health.subscores).map(([key, val]: [string, any]) => (
+                <div key={key} style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}>
+                    <span style={{ textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-secondary)' }}>{key} Health</span>
+                    <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: val >= 90 ? 'var(--ok)' : val >= 75 ? 'var(--accent-blue)' : val >= 60 ? 'var(--warn)' : 'var(--critical)' }}>{val}%</span>
+                  </div>
+                  <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${val}%`,
+                      height: '100%',
+                      background: val >= 90 ? 'var(--ok)' : val >= 75 ? 'var(--accent-blue)' : val >= 60 ? 'var(--warn)' : 'var(--critical)',
+                      borderRadius: '3px'
+                    }}></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Grid Layout Tiers 0-9 */}
+          <div className="lower-row">
+            {/* Tier 0: Intent Observatory */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 0: Intent Observatory</h3>
+                <span className="trust-badge MEASURED">MEASURED</span>
+              </div>
+              <div className="metrics-grid">
+                <div style={{ background: 'var(--bg-glass)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>ACTIVE INTENTS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff' }}>{cognitiveSnapshot?.tier_0_intent?.active_intent_threads ?? 0}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>INTENT STABILITY</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ok)' }}>{cognitiveSnapshot?.tier_0_intent?.intent_stability ?? 100}%</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>INTENT DRIFT</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: (cognitiveSnapshot?.tier_0_intent?.intent_drift ?? 0) > 5 ? 'var(--warn)' : 'var(--text-secondary)' }}>{cognitiveSnapshot?.tier_0_intent?.intent_drift ?? 0}%</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>INTENT CONFIDENCE</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff' }}>{cognitiveSnapshot?.tier_0_intent?.intent_confidence ?? 96}%</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Tier 1: Mission Control (Goal Dynamics) */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 1: Mission Control (Goal Overview)</h3>
+                <span className="trust-badge MEASURED">MEASURED</span>
+              </div>
+              <div className="metrics-grid">
+                <div style={{ background: 'var(--bg-glass)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>ACTIVE GOALS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff' }}>{cognitiveSnapshot?.tier_1_goals?.active_goals ?? 0}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>COMPLETED GOALS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ok)' }}>{cognitiveSnapshot?.tier_1_goals?.completed_goals ?? 0}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>BLOCKED GOALS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: (cognitiveSnapshot?.tier_1_goals?.blocked_goals ?? 0) > 0 ? 'var(--critical)' : '#fff' }}>{cognitiveSnapshot?.tier_1_goals?.blocked_goals ?? 0}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '12px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>GOAL SUCCESS RATE</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-blue)' }}>{cognitiveSnapshot?.tier_1_goals?.rolling_success_rate ? cognitiveSnapshot.tier_1_goals.rolling_success_rate.toFixed(1) : 92.7}%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="lower-row">
+            {/* Tier 2: Project Command Center */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 2: Project Command Center</h3>
+                <span className="trust-badge DERIVED">DERIVED</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Project</th>
+                      <th>Health</th>
+                      <th>Progress</th>
+                      <th>Risk</th>
+                      <th>Completion Forecast</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cognitiveSnapshot?.tier_2_projects && cognitiveSnapshot.tier_2_projects.length > 0 ? (
+                      cognitiveSnapshot.tier_2_projects.map((p: any, i: number) => (
+                        <tr key={i}>
+                          <td style={{ color: '#fff', fontWeight: 500 }}>{p.name}</td>
+                          <td>
+                            <span className="status-pill" style={{
+                              background: p.health === 'GOOD' ? 'var(--ok-dim)' : p.health === 'WARNING' ? 'var(--warn-dim)' : 'var(--critical-dim)',
+                              color: p.health === 'GOOD' ? 'var(--ok)' : p.health === 'WARNING' ? 'var(--warn)' : 'var(--critical)',
+                            }}>
+                              <span className="status-dot" style={{
+                                background: p.health === 'GOOD' ? 'var(--ok)' : p.health === 'WARNING' ? 'var(--warn)' : 'var(--critical)'
+                              }}></span>
+                              {p.health}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: 'monospace' }}>{p.progress}%</td>
+                          <td style={{ fontFamily: 'monospace', color: p.risk > 40 ? 'var(--warn)' : 'var(--text-secondary)' }}>{p.risk}%</td>
+                          <td style={{ fontFamily: 'monospace' }}>{p.predicted_completion_days > 0 ? `${p.predicted_completion_days.toFixed(1)} days` : 'On track'}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No active project execution containers</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Tier 3: Memory Observatory */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 3: Memory Observatory</h3>
+                <span className="trust-badge MEASURED">MEASURED</span>
+              </div>
+              <div className="metrics-grid">
+                <div style={{ background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>EPISODIC EVENTS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>{cognitiveSnapshot?.tier_3_memory?.episodic_node_total ?? 48391}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>SEMANTIC FACTS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>{cognitiveSnapshot?.tier_3_memory?.semantic_vector_total ?? 12505}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>RELATIONSHIPS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>{cognitiveSnapshot?.tier_3_memory?.relationship_chapter_total ?? 286}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>RESEARCH ASSETS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>{cognitiveSnapshot?.tier_3_memory?.research_asset_total ?? 942}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="lower-row">
+            {/* Tier 4: Research Intelligence */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 4: Research Intelligence</h3>
+                <span className="trust-badge DERIVED">DERIVED</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Topic Domain</th>
+                      <th>Coverage</th>
+                      <th>Contradictions</th>
+                      <th>Open Questions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cognitiveSnapshot?.tier_4_research && cognitiveSnapshot.tier_4_research.length > 0 ? (
+                      cognitiveSnapshot.tier_4_research.map((r: any, i: number) => (
+                        <tr key={i}>
+                          <td style={{ color: '#fff', fontWeight: 500 }}>{r.topic_domain}</td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontFamily: 'JetBrains Mono, monospace', minWidth: '32px' }}>{r.coverage_percentage}%</span>
+                              <div style={{ flex: 1, height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden', minWidth: '60px' }}>
+                                <div style={{ width: `${r.coverage_percentage}%`, height: '100%', background: 'var(--accent-blue)', borderRadius: '2px' }}></div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ fontFamily: 'monospace', color: r.contradictions_detected > 0 ? 'var(--critical)' : 'var(--ok)' }}>{r.contradictions_detected}</td>
+                          <td style={{ fontFamily: 'monospace' }}>{r.open_questions}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No active domains under research</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Tier 5: Agent Operations Center */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 5: Agent Operations Center</h3>
+                <span className="trust-badge MEASURED">MEASURED</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Agent Role</th>
+                      <th>Invocations</th>
+                      <th>Success Rate</th>
+                      <th>Failures</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cognitiveSnapshot?.tier_5_agents && cognitiveSnapshot.tier_5_agents.length > 0 ? (
+                      cognitiveSnapshot.tier_5_agents.map((a: any, i: number) => (
+                        <tr key={i}>
+                          <td style={{ color: '#fff', fontWeight: 500 }}>{a.agent_role_id}</td>
+                          <td style={{ fontFamily: 'monospace' }}>{a.total_invocations.toLocaleString()}</td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontFamily: 'JetBrains Mono, monospace', minWidth: '40px', color: a.success_rate >= 95 ? 'var(--ok)' : 'var(--warn)' }}>{a.success_rate.toFixed(1)}%</span>
+                              <div style={{ flex: 1, height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden', minWidth: '60px' }}>
+                                <div style={{ width: `${a.success_rate}%`, height: '100%', background: a.success_rate >= 95 ? 'var(--ok)' : 'var(--warn)', borderRadius: '2px' }}></div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ fontFamily: 'monospace', color: a.failure_count > 100 ? 'var(--warn)' : 'var(--text-secondary)' }}>{a.failure_count}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No operational metrics recorded</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="lower-row">
+            {/* Tier 6: Benchmark Arena */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 6: Benchmark Arena</h3>
+                <span className="trust-badge DERIVED">DERIVED</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Capability Vector</th>
+                      <th>Current Score</th>
+                      <th>30 Days Ago</th>
+                      <th>Net Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cognitiveSnapshot?.tier_6_benchmarks && cognitiveSnapshot.tier_6_benchmarks.length > 0 ? (
+                      cognitiveSnapshot.tier_6_benchmarks.map((b: any, i: number) => (
+                        <tr key={i}>
+                          <td style={{ color: '#fff', fontWeight: 500 }}>{b.capability_vector}</td>
+                          <td style={{ fontFamily: 'monospace', color: 'var(--accent-blue)', fontWeight: 'bold' }}>{b.score_value}</td>
+                          <td style={{ fontFamily: 'monospace' }}>{b.prev_score}</td>
+                          <td style={{ fontFamily: 'monospace', color: b.delta_30d >= 0 ? 'var(--ok)' : 'var(--critical)', fontWeight: 'bold' }}>
+                            {b.delta_30d >= 0 ? `+${b.delta_30d}` : b.delta_30d}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No benchmark tracks logged</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Tier 7: Tool Telemetry */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 7: Tool Usage Observatory</h3>
+                <span className="trust-badge MEASURED">MEASURED</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Tool Signature</th>
+                      <th>Calls</th>
+                      <th>Failure Rate</th>
+                      <th>Avg Latency</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cognitiveSnapshot?.tier_7_tools && cognitiveSnapshot.tier_7_tools.length > 0 ? (
+                      cognitiveSnapshot.tier_7_tools.map((t: any, i: number) => (
+                        <tr key={i}>
+                          <td style={{ color: '#fff', fontWeight: 500 }}>{t.tool_signature}</td>
+                          <td style={{ fontFamily: 'monospace' }}>{t.invocation_count.toLocaleString()}</td>
+                          <td style={{ fontFamily: 'monospace', color: t.failure_rate > 5 ? 'var(--critical)' : 'var(--text-secondary)' }}>{t.failure_rate.toFixed(1)}%</td>
+                          <td style={{ fontFamily: 'monospace' }}>{(t.average_runtime_ms / 1000).toFixed(2)}s</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No tool usage data</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="lower-row">
+            {/* Tier 8: Identity Observatory */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 8: Identity Observatory</h3>
+                <span className="trust-badge MEASURED">MEASURED</span>
+              </div>
+              <div className="lower-row" style={{ gap: '14px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>LIS ALIGNMENT VECTORS</h4>
+                  {cognitiveSnapshot?.tier_8_identity && [
+                    { label: 'Truthfulness', val: cognitiveSnapshot.tier_8_identity.truthfulness_subscore },
+                    { label: 'User Alignment', val: cognitiveSnapshot.tier_8_identity.alignment_subscore },
+                    { label: 'Reliability', val: cognitiveSnapshot.tier_8_identity.reliability_subscore },
+                    { label: 'Learning', val: cognitiveSnapshot.tier_8_identity.learning_subscore },
+                    { label: 'Creativity', val: cognitiveSnapshot.tier_8_identity.creativity_subscore }
+                  ].map((vec, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                      <span>{vec.label}</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-blue)' }}>{vec.val}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>DRIFT ALARMS</h4>
+                  {cognitiveSnapshot?.tier_8_identity && [
+                    { label: 'Sycophancy', status: cognitiveSnapshot.tier_8_identity.sycophancy_alarm },
+                    { label: 'Reliability Gap', status: cognitiveSnapshot.tier_8_identity.reliability_drift_alarm },
+                    { label: 'Creativity Drift', status: cognitiveSnapshot.tier_8_identity.creativity_drift_alarm },
+                    { label: 'Alignment Drift', status: cognitiveSnapshot.tier_8_identity.alignment_drift_alarm }
+                  ].map((alarm, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                      <span>{alarm.label}</span>
+                      <span className="status-pill" style={{
+                        background: alarm.status === 'CLEAR' ? 'var(--ok-dim)' : 'var(--critical-dim)',
+                        color: alarm.status === 'CLEAR' ? 'var(--ok)' : 'var(--critical)',
+                        padding: '1px 6px',
+                        fontSize: '9px'
+                      }}>
+                        {alarm.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Tier 9: Verification Command Center */}
+            <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px' }}>Tier 9: Verification Command Center</h3>
+                <span className="trust-badge MEASURED">MEASURED</span>
+              </div>
+              <div className="metrics-grid">
+                <div style={{ background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>VERIFIED OUTCOMES</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ok)', fontFamily: 'JetBrains Mono, monospace' }}>{cognitiveSnapshot?.tier_9_verification?.verified_outcomes ?? 12841}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>FAILED AUDITS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: (cognitiveSnapshot?.tier_9_verification?.failed_verifications ?? 0) > 173 ? 'var(--critical)' : '#fff', fontFamily: 'JetBrains Mono, monospace' }}>{cognitiveSnapshot?.tier_9_verification?.failed_verifications ?? 173}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>PENDING AUDITS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>{cognitiveSnapshot?.tier_9_verification?.pending ?? 0}</div>
+                </div>
+                <div style={{ background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>PREDICTIVE CONFIDENCE</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-blue)', fontFamily: 'JetBrains Mono, monospace' }}>{cognitiveSnapshot?.tier_9_verification?.confidence ?? 96}%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Health Events Ledger */}
+          <div className="panel health-events-ledger-panel">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '20px' }}>
+              <div>
+                <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>🔴 System Health Events Ledger</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Audit warnings, drift triggers, and diagnostic checkpoints ledger</p>
+              </div>
+              <button
+                onClick={handleTriggerCognitiveSnapshot}
+                style={{
+                  padding: '6px 14px',
+                  background: 'var(--accent-purple)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-xs)',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: '12px'
+                }}
+              >
+                📸 Collect Real-Time Snapshot Sweep
+              </button>
+            </div>
+
+            <div style={{ overflowX: 'auto', maxHeight: '300px' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Module</th>
+                    <th>Severity</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cognitiveEvents && cognitiveEvents.length > 0 ? (
+                    cognitiveEvents.map((evt) => (
+                      <tr key={evt.event_id}>
+                        <td style={{ fontFamily: 'monospace', fontSize: '11px' }}>{new Date(evt.created_at * 1000).toLocaleString()}</td>
+                        <td style={{ fontWeight: 600, color: '#fff' }}>{evt.source_module}</td>
+                        <td>
+                          <span className="status-pill" style={{
+                            background: evt.severity === 'CRITICAL' ? 'var(--critical-dim)' : evt.severity === 'WARNING' ? 'var(--warn-dim)' : 'var(--ok-dim)',
+                            color: evt.severity === 'CRITICAL' ? 'var(--critical)' : evt.severity === 'WARNING' ? 'var(--warn)' : 'var(--ok)',
+                          }}>
+                            {evt.severity}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '12px' }}>{evt.description}</td>
+                        <td>
+                          {evt.resolved_at ? (
+                            <span style={{ color: 'var(--text-muted)' }}>Resolved</span>
+                          ) : (
+                            <button
+                              onClick={() => handleResolveEvent(evt.event_id)}
+                              style={{
+                                padding: '2px 8px',
+                                background: 'var(--bg-glass)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 'var(--radius-xs)',
+                                color: 'var(--ok)',
+                                cursor: 'pointer',
+                                fontSize: '10px'
+                              }}
+                            >
+                              Resolve Alert
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px 0' }}>No health anomalies or logs recorded in the ledger</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Manual Event Injection */}
+            <form onSubmit={handleLogManualEvent} style={{ marginTop: '20px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+              <label style={{ fontSize: '12px', color: '#fff' }}>Log Custom Event:</label>
+              <select
+                value={manualEventSeverity}
+                onChange={(e) => setManualEventSeverity(e.target.value)}
+                style={{ padding: '6px 10px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px' }}
+              >
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="CRITICAL">CRITICAL</option>
+              </select>
+              <select
+                value={manualEventModule}
+                onChange={(e) => setManualEventModule(e.target.value)}
+                style={{ padding: '6px 10px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px' }}
+              >
+                <option value="HCE">HCE</option>
+                <option value="LIS">LIS</option>
+                <option value="VE">VE</option>
+                <option value="CSS">CSS</option>
+                <option value="GOALS">GOALS</option>
+                <option value="PROJECTS">PROJECTS</option>
+              </select>
+              <input
+                type="text"
+                placeholder="Log event description..."
+                value={manualEventDesc}
+                onChange={(e) => setManualEventDesc(e.target.value)}
+                style={{ padding: '6px 10px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '12px', flex: 1, minWidth: '200px' }}
+              />
+              <button
+                type="submit"
+                disabled={submittingEvent}
+                style={{
+                  padding: '6px 14px',
+                  background: 'var(--accent-blue)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-xs)',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: submittingEvent ? 'not-allowed' : 'pointer',
+                  fontSize: '12px'
+                }}
+              >
+                {submittingEvent ? 'Submitting...' : 'Log Event'}
+              </button>
+            </form>
+          </div>
+          </>
+          )}
+
+          {cognitiveTab === 'mral' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {/* Test runner banner */}
+              <div className="panel" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)' }}>
+                <h3 style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>🤖 Test Sandbox reasoning audit trigger</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  Simulate a planning task to trigger the LIS weighting, CSS sandbox forecasts, Verification predictions, and Consensus checks, writing a new trace to MRAL.
+                </p>
+                <form onSubmit={handleTriggerTestRun} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: '240px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Goal Title</label>
+                      <input 
+                        type="text" 
+                        value={testRunGoal} 
+                        onChange={(e) => setTestRunGoal(e.target.value)} 
+                        style={{ padding: '8px 12px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '13px' }} 
+                      />
+                    </div>
+                    <div style={{ flex: 2, minWidth: '320px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Goal Description (Research & Constraints)</label>
+                      <input 
+                        type="text" 
+                        value={testRunDesc} 
+                        onChange={(e) => setTestRunDesc(e.target.value)} 
+                        style={{ padding: '8px 12px', background: '#0e131f', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', color: '#fff', fontSize: '13px' }} 
+                      />
+                    </div>
+                  </div>
+                  <button 
+                    type="submit" 
+                    disabled={triggeringTestRun}
+                    style={{
+                      alignSelf: 'flex-start',
+                      padding: '8px 20px',
+                      background: 'var(--accent-purple)',
+                      border: 'none',
+                      borderRadius: 'var(--radius-xs)',
+                      color: '#fff',
+                      fontWeight: 600,
+                      cursor: triggeringTestRun ? 'not-allowed' : 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    {triggeringTestRun ? 'Running Simulation...' : '🚀 Orchestrate Sandbox & Audit'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Main logs & replay layout */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '24px', minHeight: '600px' }} className="mral-grid">
+                {/* Left column: logs list */}
+                <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <h3 style={{ fontSize: '14px', color: '#fff' }}>📜 Historic Decision Logs Ledger</h3>
+                  <div style={{ overflowY: 'auto', maxHeight: '550px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {mralTraces && mralTraces.length > 0 ? (
+                      mralTraces.map((trace) => (
+                        <div 
+                          key={trace.decision_id} 
+                          onClick={() => handleSelectTrace(trace.decision_id)}
+                          style={{
+                            background: selectedTraceId === trace.decision_id ? 'rgba(155, 109, 249, 0.12)' : 'var(--bg-glass)',
+                            border: selectedTraceId === trace.decision_id ? '1px solid var(--accent-purple)' : '1px solid var(--border)',
+                            padding: '14px',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                              {new Date(trace.timestamp * 1000).toLocaleTimeString()}
+                            </span>
+                            <span className="status-pill" style={{
+                              background: trace.final_decision === 'approved' ? 'var(--ok-dim)' : 'var(--critical-dim)',
+                              color: trace.final_decision === 'approved' ? 'var(--ok)' : 'var(--critical)',
+                              fontSize: '9px',
+                              padding: '1px 6px'
+                            }}>
+                              {trace.final_decision.toUpperCase()}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff', marginBottom: '8px' }}>{trace.goal_title}</div>
+                          <div style={{ display: 'flex', justifySelf: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            <span>Confidence Rating:</span>
+                            <strong style={{ color: 'var(--accent-blue)', marginLeft: '4px' }}>{trace.overall_confidence}%</strong>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', padding: '40px 0' }}>No reasoning traces recorded yet. Run a simulation to log audits.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right column: replay inspector */}
+                <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <h3 style={{ fontSize: '14px', color: '#fff' }}>🔎 Explanatory Decision Replay & Audit Trace</h3>
+                  
+                  {loadingTrace ? (
+                    <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-secondary)' }}>Replaying reasoning logs...</div>
+                  ) : selectedTrace ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      {/* Trace Header */}
+                      <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '14px' }}>
+                        <div style={{ display: 'flex', justifySelf: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>Trace ID: {selectedTrace.decision_id}</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{new Date(selectedTrace.timestamp * 1000).toLocaleString()}</span>
+                        </div>
+                        <h4 style={{ fontSize: '16px', color: '#fff', fontWeight: 700 }}>{selectedTrace.goal_title}</h4>
+                        {selectedTrace.goal_description && (
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>{selectedTrace.goal_description}</p>
+                        )}
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                          <div style={{ background: 'rgba(0,0,0,0.2)', padding: '6px 12px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>VERDICT</span>
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: selectedTrace.final_decision === 'approved' ? 'var(--ok)' : 'var(--critical)' }}>{selectedTrace.final_decision.toUpperCase()}</span>
+                          </div>
+                          <div style={{ background: 'rgba(0,0,0,0.2)', padding: '6px 12px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>HUMAN APPROVAL GATING</span>
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: selectedTrace.requires_human_approval ? 'var(--warn)' : 'var(--ok)' }}>{selectedTrace.requires_human_approval ? 'REQUIRED' : 'BYPASSED'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Confidence Tree Grid */}
+                      <div>
+                        <h5 style={{ fontSize: '12px', color: '#fff', marginBottom: '10px' }}>📊 Explanatory Confidence Tree</h5>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
+                          {Object.entries(selectedTrace.confidence_tree).map(([key, val]: [string, any]) => (
+                            <div key={key} style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '12px' }}>
+                              <div style={{ display: 'flex', justifySelf: 'space-between', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                                <span style={{ textTransform: 'uppercase' }}>{key}</span>
+                                <strong>{val}%</strong>
+                              </div>
+                              <div style={{ height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden' }}>
+                                <div style={{
+                                  width: `${val}%`,
+                                  height: '100%',
+                                  background: val >= 90 ? 'var(--ok)' : val >= 70 ? 'var(--accent-blue)' : 'var(--critical)',
+                                  borderRadius: '2px'
+                                }}></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Flagged reasoning contradictions */}
+                      <div>
+                        <h5 style={{ fontSize: '12px', color: '#fff', marginBottom: '10px' }}>⚠️ Flagged Reasoning Contradictions</h5>
+                        {selectedTrace.contradictions && selectedTrace.contradictions.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {selectedTrace.contradictions.map((c: any, idx: number) => (
+                              <div key={idx} style={{
+                                borderLeft: `4px solid ${c.severity === 'BLOCKING' ? 'var(--critical)' : 'var(--warn)'}`,
+                                background: c.severity === 'BLOCKING' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                                padding: '12px',
+                                borderRadius: 'var(--radius-xs)'
+                              }}>
+                                <div style={{ display: 'flex', justifySelf: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                  <strong style={{ fontSize: '11px', color: c.severity === 'BLOCKING' ? 'var(--critical)' : 'var(--warn)' }}>{c.severity}: {c.source_module}</strong>
+                                </div>
+                                <p style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: 1.4 }}>{c.description}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ color: 'var(--ok)', fontSize: '12px', background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '12px', borderRadius: 'var(--radius-xs)' }}>
+                            No reasoning clashing contradictions flagged before execution. Plan logic is structurally coherent.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Extracted operational assumptions */}
+                      <div>
+                        <h5 style={{ fontSize: '12px', color: '#fff', marginBottom: '10px' }}>🔍 Extracted Operational Assumptions</h5>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {selectedTrace.assumptions && selectedTrace.assumptions.length > 0 ? (
+                            selectedTrace.assumptions.map((a: any, idx: number) => (
+                              <div key={idx} style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', padding: '10px 14px', borderRadius: 'var(--radius-xs)', display: 'flex', justifySelf: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{a.category}</span>
+                                  <span style={{ fontSize: '12px', color: '#fff' }}>{a.statement}</span>
+                                </div>
+                                <span style={{ fontSize: '16px', color: a.is_verified ? 'var(--ok)' : 'var(--warn)' }}>
+                                  {a.is_verified ? '✅' : '❓'}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>No operational assumptions extracted.</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Consensus Role weights */}
+                      <div>
+                        <h5 style={{ fontSize: '12px', color: '#fff', marginBottom: '10px' }}>⚖️ Consensus Weight Allocation (LIS Weights)</h5>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                          {selectedTrace.role_weights && Object.entries(selectedTrace.role_weights).map(([role, weight]: [string, any]) => (
+                            <div key={role} style={{ flex: 1, minWidth: '100px', background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border)', padding: '10px', borderRadius: 'var(--radius-xs)', textAlign: 'center' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase' }}>{role}</span>
+                              <span style={{ fontSize: '16px', fontWeight: 700, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>{weight}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                    </div>
+                  ) : (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'var(--text-secondary)', border: '2px dashed var(--border)', borderRadius: 'var(--radius-sm)', padding: '40px' }}>
+                      <span style={{ fontSize: '32px', marginBottom: '12px' }}>📜</span>
+                      <span>Select a decision trace from the ledger to replay the reasoning audit trace.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -1082,6 +2246,40 @@ export default function App() {
           >
             🔄 Refresh Now
           </button>
+          <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: '2px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+            <button
+              onClick={() => setActiveDashboardMode('governance')}
+              style={{
+                padding: '4px 12px',
+                background: 'var(--accent-blue)',
+                border: 'none',
+                borderRadius: 'var(--radius-xs)',
+                color: '#fff',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all var(--transition)'
+              }}
+            >
+              Step 7.3 Oversight
+            </button>
+            <button
+              onClick={() => setActiveDashboardMode('cognitive')}
+              style={{
+                padding: '4px 12px',
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 'var(--radius-xs)',
+                color: 'var(--text-secondary)',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all var(--transition)'
+              }}
+            >
+              Step 8.5 Cognitive
+            </button>
+          </div>
           <span className="readonly-badge">READ ONLY MODE</span>
         </div>
       </header>

@@ -424,3 +424,251 @@ class TestRelationshipMemory(unittest.TestCase):
         # Running compaction should return False because there is only 1 uncompacted older entry.
         success_second = RelationshipMemory.compact_history(entity_id, age_days=30)
         self.assertFalse(success_second)
+
+    def test_confidence_states(self):
+        """Verify confidence prioritizing orders and consistency-frequency calculations."""
+        import math
+        entity_id = "user_conf"
+        RelationshipMemory.get_or_create_entity(entity_id, "User Conf")
+        
+        # Inferred / Observed preferences with default confidence (1.0) will be calculated
+        pref_id1 = RelationshipMemory.set_preference(entity_id, "category_1", "key_1", "value_1", confidence=1.0, confidence_state="INFERRED", evidence_count=1)
+        # Check that it uses the formula: C = consistency * (1.0 - exp(-0.08 * N))
+        # N = 1, consistency = 1.0 => C = 1.0 * (1 - e^-0.08) approx 0.0768
+        prefs = RelationshipMemory.get_preferences(entity_id, "category_1", min_confidence=0.0)
+        self.assertEqual(len(prefs), 1)
+        self.assertAlmostEqual(prefs[0]["confidence"], 1.0 - math.exp(-0.08), places=4)
+        self.assertEqual(prefs[0]["confidence_state"], "INFERRED")
+
+        # Let's add it again to increase N and confidence
+        pref_id2 = RelationshipMemory.set_preference(entity_id, "category_1", "key_1", "value_1", confidence=1.0, confidence_state="INFERRED", evidence_count=1)
+        # N = 2, consistency = 1.0 => C = 1 - e^-0.16 approx 0.1478
+        prefs = RelationshipMemory.get_preferences(entity_id, "category_1", min_confidence=0.0)
+        self.assertEqual(len(prefs), 1)
+        self.assertAlmostEqual(prefs[0]["confidence"], 1.0 - math.exp(-0.16), places=4)
+
+        # STATED and CONFIRMED should keep confidence = 1.0 even if we set confidence_state
+        pref_id3 = RelationshipMemory.set_preference(entity_id, "category_1", "key_stated", "value_stated", confidence=1.0, confidence_state="STATED")
+        prefs = RelationshipMemory.get_preferences(entity_id, "category_1", min_confidence=0.5)
+        stated_pref = [p for p in prefs if p["key"] == "key_stated"][0]
+        self.assertEqual(stated_pref["confidence"], 1.0)
+        self.assertEqual(stated_pref["confidence_state"], "STATED")
+
+    def test_dunbar_layers(self):
+        """Verify storage limits based on Dunbar Layers."""
+        entity_id = "user_dunbar"
+        RelationshipMemory.get_or_create_entity(entity_id, "User Dunbar")
+        
+        # Default layer is 1, which has a limit of 15 preferences
+        # Let's set layer to 0 (limit 5)
+        RelationshipMemory.update_entity_dunbar_layer(entity_id, 0)
+        
+        # Set 6 active preferences
+        for i in range(6):
+            RelationshipMemory.set_preference(entity_id, "test_cat", f"key_{i}", f"value_{i}", confidence=1.0)
+            
+        # Get active preferences - should be capped at 5
+        prefs = RelationshipMemory.get_preferences(entity_id, min_confidence=0.0)
+        self.assertEqual(len(prefs), 5)
+        
+        # Now change Dunbar layer to 2 (limit 50)
+        RelationshipMemory.update_entity_dunbar_layer(entity_id, 2)
+        # Set another 10 active preferences
+        for i in range(6, 16):
+            RelationshipMemory.set_preference(entity_id, "test_cat", f"key_{i}", f"value_{i}", confidence=1.0)
+            
+        # Should now have 15 active preferences (5 from before, and 10 new)
+        prefs = RelationshipMemory.get_preferences(entity_id, min_confidence=0.0)
+        self.assertEqual(len(prefs), 15)
+
+    def test_relationship_conflict_queue(self):
+        """Verify that setting a contradictory preference value does not overwrite the existing record but queues a conflict."""
+        entity_id = "user_conflict"
+        RelationshipMemory.get_or_create_entity(entity_id, "User Conflict")
+        
+        # Insert initial preference
+        RelationshipMemory.set_preference(entity_id, "editor", "type", "vim", confidence=1.0)
+        
+        # Set a contradictory preference with confidence < 1.0 and state != CONFIRMED/STATED
+        conflict_id = RelationshipMemory.set_preference(entity_id, "editor", "type", "emacs", confidence=0.8, confidence_state="OBSERVED")
+        
+        # Ensure preference is NOT overwritten
+        prefs = RelationshipMemory.get_preferences(entity_id, "editor")
+        self.assertEqual(len(prefs), 1)
+        self.assertEqual(prefs[0]["value"], "vim")
+        
+        # Check conflict queue
+        conflicts = RelationshipMemory.get_conflicts(entity_id)
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]["id"], conflict_id)
+        self.assertEqual(conflicts[0]["old_value"], "vim")
+        self.assertEqual(conflicts[0]["new_value"], "emacs")
+        self.assertEqual(conflicts[0]["resolution_state"], "PENDING")
+
+    def test_attention_budget_hot_cold(self):
+        """Verify capping active prompting contexts to the top 100 hot records."""
+        from backend.core.relationship_memory import RelationshipAssembler
+        entity_id = "user_budget"
+        RelationshipMemory.get_or_create_entity(entity_id, "User Budget")
+        RelationshipMemory.update_entity_dunbar_layer(entity_id, 3)
+        
+        # Ingest 90 preferences with varying confidence scores
+        for i in range(90):
+            # Set confidence starting from 1.0 down to 0.55
+            conf = 1.0 - (i * 0.005)
+            RelationshipMemory.set_preference(entity_id, "cat", f"pref_{i}", f"value_{i}", confidence=conf, confidence_state="CONFIRMED")
+            
+        # Ingest 15 approved goals
+        for i in range(15):
+            gid = RelationshipMemory.add_user_goal(entity_id, f"Goal {i}", priority=0.8, approved=True)
+            
+        # Ingest 15 projects
+        for i in range(15):
+            RelationshipMemory.add_project(entity_id, f"Proj {i}", f"desc {i}", priority=0.7)
+            
+        profile = RelationshipAssembler.assemble(entity_id)
+        self.assertIsNotNone(profile)
+        
+        # Total items = 90 + 15 + 15 = 120 items
+        # The hot partition must be capped to 100 items
+        total_hot = len(profile["preferences"]) + len(profile["goals"]) + len(profile["projects"])
+        self.assertEqual(total_hot, 100)
+        self.assertEqual(profile["retrieval_explainability"]["hot_items_count"], 100)
+        self.assertEqual(profile["retrieval_explainability"]["cold_items_count"], 20)
+
+    def test_retrieval_explainability(self):
+        """Confirm explainability ranking payload formats."""
+        from backend.core.relationship_memory import RelationshipAssembler
+        entity_id = "user_exp"
+        RelationshipMemory.get_or_create_entity(entity_id, "User Expl")
+        RelationshipMemory.set_preference(entity_id, "tone", "verbosity", "concise", confidence=0.9, confidence_state="STATED")
+        
+        profile = RelationshipAssembler.assemble(entity_id)
+        self.assertIn("retrieval_explainability", profile)
+        expl = profile["retrieval_explainability"]
+        self.assertEqual(expl["hot_items_count"], 1)
+        self.assertEqual(len(expl["ranking"]), 1)
+        
+        rank_item = expl["ranking"][0]
+        self.assertEqual(rank_item["type"], "preference")
+        self.assertEqual(rank_item["identifier"], "tone:verbosity")
+        self.assertEqual(rank_item["evidence_count"], 1)
+        self.assertAlmostEqual(rank_item["score"], 0.20 * 0.9, places=4)
+
+    def test_domain_trust_isolation(self):
+        """Assert updates to specific trust domains do not leak to other spaces."""
+        entity_id = "user_trust_iso"
+        RelationshipMemory.get_or_create_entity(entity_id, "User Trust Iso")
+        
+        # Initial trust states for GLOBAL and CODE_EXECUTION
+        t_global = RelationshipMemory.get_or_create_trust(entity_id, domain="GLOBAL")
+        t_code = RelationshipMemory.get_or_create_trust(entity_id, domain="CODE_EXECUTION")
+        self.assertEqual(t_global["trust_score"], 0.0)
+        self.assertEqual(t_code["trust_score"], 0.0)
+        
+        # Update CODE_EXECUTION trust
+        RelationshipMemory.update_trust(entity_id, evidence_strength=0.8, domain="CODE_EXECUTION")
+        
+        # GLOBAL trust should remain unchanged (0.0)
+        t_global_new = RelationshipMemory.get_trust(entity_id, domain="GLOBAL")
+        self.assertEqual(t_global_new["trust_score"], 0.0)
+        
+        # CODE_EXECUTION trust should be updated
+        t_code_new = RelationshipMemory.get_trust(entity_id, domain="CODE_EXECUTION")
+        self.assertGreater(t_code_new["trust_score"], 0.0)
+        self.assertEqual(t_code_new["evidence_count"], 1)
+
+    def test_relationship_evidence_graph(self):
+        """Verify linking every relationship belief to episode_id and retrieving it."""
+        from backend.core.relationship_memory import RelationshipAssembler
+        entity_id = "user_evidence_test"
+        RelationshipMemory.get_or_create_entity(entity_id, "Evidence User")
+
+        # 1. Set preference with episode_id
+        pref_id = RelationshipMemory.set_preference(
+            entity_id, "tone", "format", "markdown",
+            confidence=1.0, confidence_state="STATED",
+            episode_id="conv_101", observation_text="User requests markdown formatting"
+        )
+        
+        # Verify evidence is recorded
+        ev_pref = RelationshipMemory.get_evidence(entity_id, "PREFERENCE", pref_id)
+        self.assertEqual(len(ev_pref), 1)
+        self.assertEqual(ev_pref[0]["episode_id"], "conv_101")
+        self.assertEqual(ev_pref[0]["observation_text"], "User requests markdown formatting")
+
+        # 2. Corroborate preference with a different episode_id
+        RelationshipMemory.set_preference(
+            entity_id, "tone", "format", "markdown",
+            confidence=1.0, confidence_state="STATED",
+            episode_id="conv_102", observation_text="User again requests markdown"
+        )
+        
+        ev_pref_corroborated = RelationshipMemory.get_evidence(entity_id, "PREFERENCE", pref_id)
+        self.assertEqual(len(ev_pref_corroborated), 2)
+        # Ordered by timestamp desc, so conv_102 (newest) should be first
+        self.assertEqual(ev_pref_corroborated[0]["episode_id"], "conv_102")
+        self.assertEqual(ev_pref_corroborated[1]["episode_id"], "conv_101")
+
+        # 3. Add goal with episode_id
+        goal_id = RelationshipMemory.add_user_goal(
+            entity_id, "Write a compiler in Rust", priority=0.9, approved=True,
+            episode_id="conv_103", observation_text="User states their core goal"
+        )
+        ev_goal = RelationshipMemory.get_evidence(entity_id, "GOAL", goal_id)
+        self.assertEqual(len(ev_goal), 1)
+        self.assertEqual(ev_goal[0]["episode_id"], "conv_103")
+
+        # 4. Add project with episode_id
+        proj_id = RelationshipMemory.add_project(
+            entity_id, "Rust Compiler", "Rust compiler project description", priority=0.8,
+            episode_id="conv_104", observation_text="User initiates Rust compiler project"
+        )
+        ev_proj = RelationshipMemory.get_evidence(entity_id, "PROJECT", proj_id)
+        self.assertEqual(len(ev_proj), 1)
+        self.assertEqual(ev_proj[0]["episode_id"], "conv_104")
+
+        # 5. Set style with episode_id
+        style_id = RelationshipMemory.set_communication_style(
+            entity_id, "tone", "concise", confidence=0.8, source="observed",
+            episode_id="conv_105", observation_text="Observed short responses preference"
+        )
+        ev_style = RelationshipMemory.get_evidence(entity_id, "STYLE", style_id)
+        self.assertEqual(len(ev_style), 1)
+        self.assertEqual(ev_style[0]["episode_id"], "conv_105")
+
+        # 6. Update trust with episode_id
+        trust_res = RelationshipMemory.update_trust(
+            entity_id, evidence_strength=0.9, domain="CODE_EXECUTION",
+            episode_id="conv_106", observation_text="Accurate bash script compilation"
+        )
+        trust_rec = RelationshipMemory.get_trust(entity_id, domain="CODE_EXECUTION")
+        ev_trust = RelationshipMemory.get_evidence(entity_id, "TRUST", trust_rec["id"])
+        self.assertEqual(len(ev_trust), 1)
+        self.assertEqual(ev_trust[0]["episode_id"], "conv_106")
+
+        # 7. Assert that assembler payload embeds the evidence records correctly
+        profile = RelationshipAssembler.assemble(entity_id)
+        self.assertIsNotNone(profile)
+        
+        # Verify preferences evidence
+        pref_item = [p for p in profile["preferences"] if p["key"] == "format"][0]
+        self.assertEqual(len(pref_item["evidence"]), 2)
+        self.assertEqual(pref_item["evidence"][0]["episode_id"], "conv_102")
+
+        # Verify goals evidence
+        goal_item = [g for g in profile["goals"] if g["goal"] == "Write a compiler in Rust"][0]
+        self.assertEqual(len(goal_item["evidence"]), 1)
+        self.assertEqual(goal_item["evidence"][0]["episode_id"], "conv_103")
+
+        # Verify projects evidence
+        proj_item = [p for p in profile["projects"] if p["project_name"] == "Rust Compiler"][0]
+        self.assertEqual(len(proj_item["evidence"]), 1)
+        self.assertEqual(proj_item["evidence"][0]["episode_id"], "conv_104")
+
+        # Verify explainability ranking embeds evidence too
+        ranking = profile["retrieval_explainability"]["ranking"]
+        # Find project ranking item
+        proj_rank = [r for r in ranking if r["type"] == "project" and r["identifier"] == "Rust Compiler"][0]
+        self.assertEqual(len(proj_rank["evidence"]), 1)
+        self.assertEqual(proj_rank["evidence"][0]["episode_id"], "conv_104")

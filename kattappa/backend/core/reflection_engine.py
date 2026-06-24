@@ -7,6 +7,7 @@ Also contains Phase 4 JSON-based reflection manager for backward compatibility a
 from __future__ import annotations
 
 import json
+import sqlite3
 import re
 import threading
 import time
@@ -18,7 +19,7 @@ from typing import Any, Dict, Optional
 from backend.core.model_router import ask_model
 from backend.core.logger import log_event
 from backend.core.reflection_memory import ReflectionMemory
-from backend.core.config import runtime_data_root
+from backend.core.config import load_config, runtime_data_root
 
 
 def _path() -> Path:
@@ -211,6 +212,20 @@ class ReflectionEngine:
             log_event(f"reflection_engine: LLM analysis failed: {exc}. Falling back to deterministic proposal.")
             return cls._create_fallback_reflection(sig, source_window_days)
 
+            ref_id = ReflectionMemory.propose_reflection(
+                category=category,
+                problem=problem,
+                cause=cause,
+                improvement=improvement,
+                confidence=confidence,
+                source_window_days=source_window_days
+            )
+            return ref_id
+            
+        except Exception as exc:
+            log_event(f"reflection_engine: LLM analysis failed: {exc}. Falling back to deterministic proposal.")
+            return cls._create_fallback_reflection(sig, source_window_days)
+
     @classmethod
     def _create_fallback_reflection(cls, sig_data: dict, source_window_days: int) -> str:
         """Deterministic partial-capture fallback when LLM schema generation fails."""
@@ -226,6 +241,559 @@ class ReflectionEngine:
             confidence=0.6,
             source_window_days=source_window_days
         )
+
+    # =========================================================================
+    # STEP 12: SELF-REFLECTION ANALYTICAL ENGINE
+    # =========================================================================
+
+    @staticmethod
+    def calculate_wilson_score_interval(successes: int, total: int) -> tuple[float, float]:
+        """RF1 Defense: Compute Wilson score interval bounds mathematically for 95% confidence level."""
+        if total <= 0:
+            return 0.0, 0.0
+        z = 1.96  # 95% confidence level
+        p_hat = successes / total
+        denominator = 1 + (z**2 / total)
+        center = p_hat + (z**2 / (2 * total))
+        spread = z * ((p_hat * (1 - p_hat) / total) + (z**2 / (4 * total**2)))**0.5
+        lower = (center - spread) / denominator
+        upper = (center + spread) / denominator
+        return max(0.0, lower), min(1.0, upper)
+
+    @classmethod
+    def filter_protected_core_violations(cls, domain: str, statement: str) -> bool:
+        """RF5 Verification: Checks if a hypothesis touches security/authority domains."""
+        # Check domain constraint explicitly
+        _PROTECTED_DOMAINS = {
+            "security", "authority", "approval", "permissions", 
+            "capability_management", "risk_management", "identity_verification"
+        }
+        if domain in _PROTECTED_DOMAINS:
+            return True
+        # Regex safety backup
+        _FORBIDDEN_PATTERNS = re.compile(
+            r"(bypass|reduce|disable|auto-approve|lower|elevate|modify|override)\s+"
+            r"(gate|security|approval|permission|policy|capability|broker|ledger|risk|auth)",
+            re.IGNORECASE
+        )
+        if _FORBIDDEN_PATTERNS.search(statement):
+            return True
+        return False
+
+    @classmethod
+    def compile_daily_reflection(cls) -> dict[str, Any]:
+        """Q1-Q4 Self-Reflection Loop. Aggregates data and creates report."""
+        conn = ReflectionMemory._get_sqlite_conn()
+        cursor = conn.cursor()
+        today = time.strftime("%Y-%m-%d")
+        
+        try:
+            # 1. Total opportunities vs observed counts (Selection Bias checks)
+            cursor.execute("SELECT COUNT(*) FROM hm_reflection_observations WHERE outcome = 'UNKNOWN'")
+            unknowns_count = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM hm_reflection_observations")
+            total_logged = cursor.fetchone()[0]
+            # Mock or check unobserved interactions
+            unobserved_count = unknowns_count
+            # If selection bias is high, mark warning flag
+            bias_warning = (unobserved_count / max(1, total_logged)) > 0.30
+
+            report_payload = {
+                "period": "daily",
+                "date": today,
+                "evidence_window": {
+                    "total_interactions_logged": total_logged,
+                    "unobserved_interactions": unobserved_count,
+                    "selection_bias_warning": bias_warning
+                },
+                "successes": [],
+                "failures": [],
+                "repeated_patterns": [],
+                "improvement_hypotheses": [],
+                "rejected_recommendations": [],
+                "drift_alarms": []
+            }
+
+            # Q1 / Q2: Evaluate rates of successes vs failures
+            # RF4 Echo Chamber check: ignore observations matching reflection_engine sources
+            cursor.execute(
+                """
+                SELECT domain, action_type,
+                       SUM(CASE WHEN outcome = 'SUCCESS' THEN 1 ELSE 0 END),
+                       COUNT(*)
+                FROM hm_reflection_observations
+                WHERE context_json NOT LIKE '%"source": "reflection_engine"%'
+                  AND context_json NOT LIKE '%"provenance": "reflection_engine"%'
+                GROUP BY domain, action_type
+                """
+            )
+            for domain, action, successes, total in cursor.fetchall():
+                lower, upper = cls.calculate_wilson_score_interval(successes, total)
+                rate = successes / total
+                entry = {
+                    "domain": domain,
+                    "action_type": action,
+                    "success_rate": round(rate, 2),
+                    "total_opportunities": total,
+                    "confidence_interval": [round(lower, 2), round(upper, 2)]
+                }
+                if rate >= 0.75:
+                    report_payload["successes"].append(entry)
+                else:
+                    report_payload["failures"].append(entry)
+
+            # Q3: Extract Repeated friction patterns (independent-session count >= 2)
+            cursor.execute(
+                """
+                SELECT pattern_signature, description, total_occurrences, success_rate, independent_sessions_count
+                FROM hm_reflection_patterns
+                WHERE total_occurrences >= 3
+                """
+            )
+            for sig, desc, total, rate, sessions in cursor.fetchall():
+                report_payload["repeated_patterns"].append({
+                    "signature": sig,
+                    "description": desc,
+                    "occurrences": total,
+                    "opportunities": total, # default matching opportunities
+                    "independent_sessions": sessions
+                })
+
+            # Check sycophancy drift alarm: if total observed user corrections is 0 across 50+ interactions
+            if total_logged >= 50:
+                cursor.execute("SELECT COUNT(*) FROM hm_reflection_observations WHERE outcome = 'USER_CORRECTION'")
+                corrections = cursor.fetchone()[0]
+                if corrections == 0:
+                    alarm_desc = "Sycophancy alert: 0 user corrections observed across 50+ sessions."
+                    ReflectionMemory.raise_drift_alert("SYCOPHANCY_DRIFT", 0.8, alarm_desc)
+                    report_payload["drift_alarms"].append(alarm_desc)
+
+            # Q4: Improvement Hypotheses
+            # Fetch unverified hypotheses
+            cursor.execute(
+                "SELECT id, domain, statement, predicted_metric_change, confidence_lower_bound, confidence_upper_bound "
+                "FROM hm_reflection_hypotheses WHERE status = 'pending'"
+            )
+            for hyp_id, domain, statement, predicted, lower, upper in cursor.fetchall():
+                # Enforce Protected-Core isolation
+                if cls.filter_protected_core_violations(domain, statement):
+                    report_payload["rejected_recommendations"].append({
+                        "hypothesis_id": hyp_id,
+                        "proposal": statement,
+                        "reason": f"PROTECTED_CORE_VIOLATION: Proposal targets protected domain '{domain}' or attempts security bypass."
+                    })
+                    continue
+
+                report_payload["improvement_hypotheses"].append({
+                    "hypothesis_id": hyp_id,
+                    "proposal": statement,
+                    "prediction": predicted,
+                    "confidence_interval": [round(lower, 2), round(upper, 2)],
+                    "verification_required": True
+                })
+
+            # Write compiled report
+            report_id = f"RPT-{uuid.uuid4().hex[:8].upper()}"
+            cursor.execute(
+                """
+                INSERT INTO hm_reflection_reports
+                    (id, execution_date, interactions_count, serialized_report_json, review_status)
+                VALUES (?, ?, ?, ?, 'pending')
+                """,
+                (report_id, today, total_logged, json.dumps(report_payload))
+            )
+            conn.commit()
+            return report_payload
+        finally:
+            conn.close()
+
+    # =========================================================================
+    # STEP 12: DOUBLE-GATED PROMOTION GATE
+    # =========================================================================
+
+    @classmethod
+    def verify_hypothesis(cls, hyp_id: str, success: bool) -> bool:
+        """Independent Verification Gate: updates the verified status based on evidence."""
+        conn = ReflectionMemory._get_sqlite_conn()
+        cursor = conn.cursor()
+        try:
+            row = conn.execute("SELECT status FROM hm_reflection_hypotheses WHERE id = ?", (hyp_id,)).fetchone()
+            if not row or row["status"] != "pending":
+                return False
+            status = "verified" if success else "rejected"
+            cursor.execute(
+                "UPDATE hm_reflection_hypotheses SET is_verified = ?, status = ? WHERE id = ?",
+                (int(success), status, hyp_id)
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    @classmethod
+    def verify_hypothesis_with_held_out_evidence(cls, hyp_id: str) -> tuple[bool, dict[str, Any]]:
+        """Verification pipeline: evaluates hypothesis against held-out evidence (collected post-proposal)."""
+        hyp = ReflectionMemory.get_hypothesis(hyp_id)
+        if not hyp:
+            return False, {"error": "Hypothesis not found"}
+        if hyp["status"] != "pending":
+            return False, {"error": f"Hypothesis status is {hyp['status']}, not pending"}
+
+        cutoff = hyp.get("evidence_cutoff_timestamp")
+        if cutoff is None:
+            cutoff = hyp["created_at"]
+
+        conn = ReflectionMemory._get_sqlite_conn()
+        cursor = conn.cursor()
+        try:
+            # Query observations collected strictly AFTER cutoff timestamp
+            # Filter out reflection-derived observations to prevent echo chambers
+            cursor.execute(
+                """
+                SELECT outcome, COUNT(*) as cnt
+                FROM hm_reflection_observations
+                WHERE domain = ? 
+                  AND timestamp > ?
+                  AND context_json NOT LIKE '%"source": "reflection_engine"%'
+                  AND context_json NOT LIKE '%"provenance": "reflection_engine"%'
+                GROUP BY outcome
+                """,
+                (hyp["domain"], cutoff)
+            )
+            rows = cursor.fetchall()
+            stats = {"SUCCESS": 0, "FAILURE": 0, "USER_CORRECTION": 0, "UNKNOWN": 0}
+            for row in rows:
+                stats[row["outcome"]] = row["cnt"]
+
+            successes = stats["SUCCESS"]
+            failures = stats["FAILURE"] + stats["USER_CORRECTION"]
+            unknowns = stats["UNKNOWN"]
+            total = successes + failures + unknowns
+
+            if total < 3:
+                return False, {
+                    "status": "insufficient_evidence",
+                    "total_trials": total,
+                    "successes": successes,
+                    "failures": failures,
+                    "unknowns": unknowns
+                }
+
+            lower, upper = cls.calculate_wilson_score_interval(successes, total)
+            rate = successes / total
+
+            # Target: lower bound of Wilson score interval is >= 0.50 or success_rate is >= 0.70
+            success = (lower >= 0.50) or (rate >= 0.70)
+            cls.verify_hypothesis(hyp_id, success=success)
+
+            return success, {
+                "status": "verified" if success else "rejected",
+                "total_trials": total,
+                "successes": successes,
+                "failures": failures,
+                "unknowns": unknowns,
+                "success_rate": round(rate, 2),
+                "confidence_interval": [round(lower, 2), round(upper, 2)]
+            }
+        finally:
+            conn.close()
+
+    @classmethod
+    def approve_hypothesis(cls, hyp_id: str, reviewer_id: str) -> bool:
+        """Independent Approval Gate: human reviewer signs off on the hypothesis."""
+        conn = ReflectionMemory._get_sqlite_conn()
+        cursor = conn.cursor()
+        try:
+            row = conn.execute("SELECT status, is_verified, domain, statement FROM hm_reflection_hypotheses WHERE id = ?", (hyp_id,)).fetchone()
+            if not row:
+                return False
+            
+            # Transition to approved, but do not promote until is_verified is also 1
+            cursor.execute("UPDATE hm_reflection_hypotheses SET is_approved = 1 WHERE id = ?", (hyp_id,))
+            
+            # Double-Gate promotion check
+            if row["is_verified"] == 1:
+                cls._promote_to_semantic_memory(cursor, hyp_id, row["statement"], reviewer_id)
+                
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    @classmethod
+    def _promote_to_semantic_memory(cls, cursor: sqlite3.Cursor, hyp_id: str, statement: str, reviewer_id: str) -> None:
+        """Promotes the verified + approved hypothesis into semantic memory."""
+        cursor.execute("UPDATE hm_reflection_hypotheses SET status = 'promoted' WHERE id = ?", (hyp_id,))
+        
+        # Map lesson to semantic node
+        from backend.core.semantic_memory import SemanticMemory
+        node_id = str(uuid.uuid4())
+        now = time.time()
+        
+        # Enforce RF4: node source is tagged 'reflection_engine' to prevent echo chambers
+        cursor.execute(
+            """
+            INSERT INTO hm_semantic_nodes
+                (id, concept, description, confidence, evidence_count, source_episode_ids, provenance, created_at, updated_at, status)
+            VALUES (?, 'reflection_observation', ?, 0.85, 2, '[]', 'reflection_engine', ?, ?, 'verified')
+            """,
+            (node_id, statement, now, now)
+        )
+        
+        # Provenance logged
+        from backend.core.memory_governance import MemoryGovernance
+        MemoryGovernance.log_provenance_direct(
+            cursor=cursor,
+            memory_id=node_id,
+            memory_type="semantic",
+            source="reflection_engine",
+            created_by=reviewer_id,
+            confidence=0.85,
+            derived_from=[hyp_id],
+            metadata_json=json.dumps({"origin": "reflection_engine", "promoted_hypothesis_id": hyp_id})
+        )
+
+    @classmethod
+    def consolidate_episodic_memories(cls) -> list[str]:
+        """Step 12: Reflection & Memory Consolidation Engine.
+        
+        Scans episodic events, groups them into clusters (by project or common keyword tokens),
+        calculates success rates, applies the Wilson Score Interval gate, enforces safety and rate limits,
+        and promotes qualifying patterns to Strategic Memory as draft INFERRED goals.
+        """
+        from backend.core.strategic_memory import StrategicMemory
+        
+        # 1. Fetch all episodic events
+        conn = ReflectionMemory._get_sqlite_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT event_id, episode_id, title, gist_summary, verbatim_trace, outcome, lesson_learned, base_importance, source_type
+                FROM episodic_events
+                """
+            )
+            rows = cursor.fetchall()
+        except sqlite3.OperationalError as e:
+            # Handle case where tables are not initialized yet
+            log_event(f"ConsolidationEngine: sqlite error fetching episodic events: {e}")
+            return []
+        finally:
+            conn.close()
+
+        if not rows:
+            return []
+
+        # 2. Cluster events by project_identifier and keyword tokens
+        clusters = {}
+        for row in rows:
+            event = dict(row)
+            project_id = None
+            if event["episode_id"]:
+                conn = ReflectionMemory._get_sqlite_conn()
+                try:
+                    p_row = conn.execute("SELECT project_identifier FROM episodic_episodes WHERE id = ?", (event["episode_id"],)).fetchone()
+                    if p_row:
+                        project_id = p_row["project_identifier"]
+                finally:
+                    conn.close()
+            
+            # Key 1: project-based clustering
+            if project_id:
+                clusters.setdefault(f"project:{project_id}", []).append(event)
+            
+            # Key 2: token/keyword based clustering
+            text = (event["gist_summary"] or "") + " " + (event["title"] or "") + " " + (event["lesson_learned"] or "")
+            tokens = _tokens(text)
+            STOP_WORDS = {"the", "and", "for", "with", "this", "that", "from", "setup", "error", "failed", "system", "your", "were", "what", "then", "their", "when", "will"}
+            for tok in tokens:
+                if len(tok) >= 4 and tok not in STOP_WORDS:
+                    clusters.setdefault(f"keyword:{tok}", []).append(event)
+
+        # 3. Check current day's promotions limit
+        one_day_ago = time.time() - 86400
+        conn = ReflectionMemory._get_sqlite_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM hm_strategic_goals
+                WHERE created_at > ?
+                  AND status = 'draft'
+                  AND trust_level = 'TRUST_UNVERIFIED'
+                  AND approved_by_user = 0
+                  AND goal LIKE '%[INFERRED]%'
+                """,
+                (one_day_ago,)
+            )
+            promotions_today = cursor.fetchone()[0]
+        except Exception as e:
+            log_event(f"Error checking promotions rate limit: {e}")
+            promotions_today = 0
+        finally:
+            conn.close()
+
+        promoted_goal_ids = []
+        promoted_event_sets = []
+
+        # 4. Evaluate each cluster
+        sorted_clusters = sorted(clusters.items(), key=lambda item: len(item[1]), reverse=True)
+        processed_statements = set()
+
+        for cluster_name, cluster_events in sorted_clusters:
+            # Enforce Minimum Evidence Count = 3
+            if len(cluster_events) < 3:
+                continue
+
+            # Calculate successes vs failures
+            successes = sum(1 for e in cluster_events if e["outcome"] in ("SUCCESS", "CORRECTED"))
+            total = len(cluster_events)
+
+            # Statistical Gate (Wilson Score Interval Lower Bound >= 0.50)
+            lower, upper = cls.calculate_wilson_score_interval(successes, total)
+            if lower < 0.50:
+                continue
+
+            # Rate limit check: max 5 promotions per day
+            if promotions_today + len(promoted_goal_ids) >= 5:
+                log_event("ConsolidationEngine: Promotion rate limit reached (max 5 per day). Skipping further promotions.")
+                break
+
+            # Prevent promoting redundant clusters containing similar/same evidence
+            event_ids_set = set(e["event_id"] for e in cluster_events)
+            is_redundant = False
+            for promoted_set in promoted_event_sets:
+                overlap = len(event_ids_set & promoted_set)
+                if overlap / len(event_ids_set) >= 0.75:
+                    is_redundant = True
+                    break
+            if is_redundant:
+                continue
+
+            # Formulate the principle statement
+            lessons = [e["lesson_learned"] for e in cluster_events if e.get("lesson_learned")]
+            titles = [e["title"] for e in cluster_events if e.get("title")]
+            unique_lessons = []
+            for l in lessons:
+                if l and l not in unique_lessons:
+                    unique_lessons.append(l)
+
+            statement = ""
+            if unique_lessons:
+                prompt = (
+                    f"Synthesize a clear, actionable strategic principle (a rule or guideline) from the following lessons learned:\n"
+                    + "\n".join(f"- {l}" for l in unique_lessons) +
+                    f"\n\nRespond with a single concise sentence summarizing the principle."
+                )
+                try:
+                    statement = ask_model(prompt, role="coder").strip()
+                    if statement.startswith("```"):
+                        lines = statement.splitlines()
+                        if len(lines) > 2:
+                            statement = "\n".join(lines[1:-1]).strip()
+                except Exception:
+                    pass
+
+            if not statement or len(statement) < 10:
+                # Fallback deterministic formulation
+                statement = f"Consolidated principle for {cluster_name}: " + "; ".join(unique_lessons[:3])
+
+            # De-duplicate identical/similar statements within this run
+            norm_statement = " ".join(statement.strip().lower().split())
+            if norm_statement in processed_statements:
+                continue
+            processed_statements.add(norm_statement)
+
+            # Safety Gate: check for protected core violations
+            if cls.filter_protected_core_violations("planning", statement):
+                log_event(f"ConsolidationEngine: Rejected candidate due to protected core violation: {statement}")
+                continue
+
+            # Promote to Strategic Memory as DRAFT INFERRED goal
+            evidence_nodes = [e["event_id"] for e in cluster_events]
+            goal_id = StrategicMemory.promote_strategic_principle(
+                statement=statement,
+                evidence_nodes=evidence_nodes,
+                confidence=lower
+            )
+            promoted_goal_ids.append(goal_id)
+            promoted_event_sets.append(event_ids_set)
+            log_event(f"ConsolidationEngine: Successfully promoted principle '{statement}' to Goal {goal_id}")
+
+        return promoted_goal_ids
+
+    # =========================================================================
+    # STEP 13: PLANNING & GOAL EXECUTION INTEGRATION
+    # =========================================================================
+
+    @classmethod
+    def analyze_plan_performance_and_propose_adaptation(cls) -> list[str]:
+        """Step 13: Analysis of plan blueprints in goal_memory.db to propose read-only goal adaptations."""
+        config = load_config()
+        # Connect to sibling database goal_memory.db
+        db_path = config.sqlite_path.parent / "goal_memory.db"
+        if not db_path.exists():
+            return []
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        created_proposal_ids = []
+        try:
+            # Query blueprints with high replan counts or thrashing states
+            rows = conn.execute(
+                """
+                SELECT blueprint_id, linked_goal_id, total_replans, blueprint_status
+                FROM plan_blueprints
+                WHERE total_replans > 2
+                   OR blueprint_status IN ('INFEASIBLE', 'RESOURCE_UNAVAILABLE', 'VALUE_CONFLICT', 'STALE_ASSUMPTIONS')
+                """
+            ).fetchall()
+
+            for r in rows:
+                goal_id = r["linked_goal_id"]
+                bp_id = r["blueprint_id"]
+                replans = r["total_replans"]
+                status = r["blueprint_status"]
+
+                # Propose adaptation suggestions
+                if replans > 2:
+                    action = "PAUSE"
+                    reason = f"Plan blueprint {bp_id} thrashed: replanned {replans} times."
+                elif status == "VALUE_CONFLICT":
+                    action = "ABANDON"
+                    reason = f"Plan blueprint {bp_id} conflict detected: Value alignment checks failed."
+                elif status == "RESOURCE_UNAVAILABLE":
+                    action = "DELAY"
+                    reason = f"Plan blueprint {bp_id} resource constraints: delay recommended."
+                else:
+                    action = "RE-ROUTE"
+                    reason = f"Plan blueprint {bp_id} marked as {status}. Structural plan re-routing required."
+
+                # Verify if a pending proposal for this goal already exists to prevent duplicate spamming
+                prop_exists = False
+                existing_props = ReflectionMemory.list_goal_adaptation_proposals(status="pending")
+                for ep in existing_props:
+                    if ep["goal_id"] == goal_id and ep["suggested_action"] == action:
+                        prop_exists = True
+                        break
+
+                if not prop_exists:
+                    # Look up hypothesis id if any
+                    hyp_id = None
+                    prop_id = ReflectionMemory.add_goal_adaptation_proposal(
+                        hypothesis_id=hyp_id,
+                        goal_id=goal_id,
+                        suggested_action=action,
+                        reason=reason
+                    )
+                    created_proposal_ids.append(prop_id)
+        except Exception as e:
+            log_event(f"reflection_engine: failed to analyze plan performance: {e}")
+        finally:
+            conn.close()
+
+        return created_proposal_ids
 
     # --- Phase 4 JSON-Backed Observation Persistence and Management ---
 

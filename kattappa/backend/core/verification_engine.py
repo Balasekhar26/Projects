@@ -6,6 +6,8 @@ import json
 import re
 import uuid
 import hashlib
+import sqlite3
+import threading
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -610,3 +612,585 @@ class VerificationEngine:
     @classmethod
     def clear_rollback_stack(cls) -> None:
         cls._save_rollback_stack([])
+
+    # ----- Layer 4: Action-Level Database-Backed Verification Engine -----
+
+    _lock = threading.Lock()
+    _schema_ensured = False
+
+    _criterion_registry: dict[str, Callable[[dict[str, Any], dict[str, Any]], bool]] = {
+        "READ_FILE": lambda params, result: result.get("content") is not None if isinstance(result, dict) else False,
+        "WRITE_FILE": lambda params, result: result.get("success") is True if isinstance(result, dict) else False,
+        "FILE_WRITE": lambda params, result: result.get("success") is True if isinstance(result, dict) else False,
+        "BROWSER_SEARCH": lambda params, result: len(result.get("results", [])) > 0 if (isinstance(result, dict) and isinstance(result.get("results"), list)) else False,
+        "RUN_SHELL": lambda params, result: result.get("exit_code") == 0 if isinstance(result, dict) else False,
+    }
+
+    @classmethod
+    def register_criterion(cls, action: str, fn: Callable[[dict[str, Any], dict[str, Any]], bool]) -> None:
+        """Register a custom success criterion function for a given action name."""
+        cls._criterion_registry[action.upper()] = fn
+
+    @classmethod
+    def _get_sqlite_conn(cls) -> sqlite3.Connection:
+        from backend.core.config import load_config
+        config = load_config()
+        config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path = config.sqlite_path.parent / "goal_memory.db"
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        with cls._lock:
+            if not cls._schema_ensured:
+                cls._ensure_schema(conn)
+                cls._schema_ensured = True
+        return conn
+
+    @classmethod
+    def _ensure_schema(cls, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verification_reports (
+                report_id       TEXT PRIMARY KEY,
+                queue_id        TEXT,
+                action          TEXT NOT NULL,
+                agent_name      TEXT NOT NULL,
+                verdict         TEXT NOT NULL,          -- VERIFIED | PARTIAL | REFUTED | SKIPPED
+                structural_pass INTEGER NOT NULL,
+                criterion_pass  INTEGER NOT NULL,
+                confidence      REAL NOT NULL,          -- 0.0–1.0
+                evidence_json   TEXT NOT NULL DEFAULT '{}',
+                failure_reason  TEXT,
+                created_at      REAL NOT NULL,
+                retractable     INTEGER NOT NULL DEFAULT 1
+            );
+            """
+        )
+        conn.commit()
+
+    @classmethod
+    def verify_result(
+        cls,
+        queue_id: str,
+        action: str,
+        agent_name: str,
+        params: dict[str, Any],
+        result: Any
+    ) -> dict[str, Any]:
+        """Perform structural and semantic verification on action output, persisting the report."""
+        action_upper = action.upper()
+        structural_pass = 0
+        criterion_pass = 0
+        failure_reason = None
+
+        # 1. Structural pass
+        if isinstance(result, dict):
+            if result.get("success") is True:
+                structural_pass = 1
+            else:
+                failure_reason = result.get("error") or "Action result success field is False"
+        else:
+            failure_reason = f"Invalid result format: {type(result)}"
+
+        # 2. Criterion pass
+        if structural_pass == 1:
+            criterion_fn = cls._criterion_registry.get(action_upper)
+            if criterion_fn:
+                try:
+                    if criterion_fn(params, result):
+                        criterion_pass = 1
+                    else:
+                        failure_reason = f"Criterion evaluation failed for {action_upper}"
+                except Exception as e:
+                    failure_reason = f"Criterion evaluation exception: {e}"
+            else:
+                criterion_pass = 1  # Default pass if no criteria registered
+        else:
+            criterion_pass = 0
+
+        # 3. Confidence score & verdict
+        if structural_pass == 1 and criterion_pass == 1:
+            confidence = 1.0
+            verdict = "VERIFIED"
+        elif structural_pass == 1:
+            confidence = 0.5
+            verdict = "PARTIAL"
+        else:
+            confidence = 0.0
+            verdict = "REFUTED"
+
+        report_id = f"vr_{uuid.uuid4().hex[:8]}"
+        now = time.time()
+
+        conn = cls._get_sqlite_conn()
+        try:
+            # Check for retraction of conflicting reports
+            target = params.get("target") or params.get("path") or params.get("destination")
+            if target:
+                rows = conn.execute(
+                    "SELECT report_id, evidence_json FROM verification_reports WHERE verdict IN ('VERIFIED', 'PASS') AND retractable = 1 AND action = ?",
+                    (action_upper,)
+                ).fetchall()
+                for r in rows:
+                    try:
+                        old_ev = json.loads(r["evidence_json"])
+                        old_params = old_ev.get("params", {})
+                        old_target = old_params.get("target") or old_params.get("path") or old_params.get("destination")
+                        if old_target == target:
+                            new_v = "SUPERSEDED" if verdict in ("VERIFIED", "PASS") else "RETRACTED"
+                            conn.execute(
+                                """
+                                UPDATE verification_reports
+                                SET verdict = ?, confidence = 0.5, failure_reason = ?
+                                WHERE report_id = ?
+                                """,
+                                (new_v, f"Updated due to subsequent conflicting verification (queue_id={queue_id})", r["report_id"])
+                            )
+                    except Exception:
+                        pass
+
+            # Insert report
+            evidence_json = json.dumps({
+                "params": params,
+                "result": result
+            })
+
+            conn.execute(
+                """
+                INSERT INTO verification_reports (
+                    report_id, queue_id, action, agent_name, verdict,
+                    structural_pass, criterion_pass, confidence, evidence_json,
+                    failure_reason, created_at, retractable
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                """,
+                (
+                    report_id, queue_id, action_upper, agent_name, verdict,
+                    structural_pass, criterion_pass, confidence, evidence_json,
+                    failure_reason, now
+                )
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        return {
+            "report_id": report_id,
+            "queue_id": queue_id,
+            "action": action_upper,
+            "agent_name": agent_name,
+            "verdict": verdict,
+            "structural_pass": bool(structural_pass),
+            "criterion_pass": bool(criterion_pass),
+            "confidence": confidence,
+            "failure_reason": failure_reason,
+            "created_at": now
+        }
+
+    @classmethod
+    def get_report(cls, report_id: str) -> dict[str, Any] | None:
+        """Retrieve a specific verification report."""
+        conn = cls._get_sqlite_conn()
+        try:
+            row = conn.execute("SELECT * FROM verification_reports WHERE report_id = ?", (report_id,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    @classmethod
+    def get_reports_for_action(cls, queue_id: str) -> list[dict[str, Any]]:
+        """Retrieve all verification reports associated with a queue_id."""
+        conn = cls._get_sqlite_conn()
+        try:
+            rows = conn.execute("SELECT * FROM verification_reports WHERE queue_id = ? ORDER BY created_at DESC", (queue_id,)).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    @classmethod
+    def retract_report(cls, report_id: str, reason: str) -> bool:
+        """Retract a report, setting the verdict to RETRACTED and setting confidence to 0.5."""
+        conn = cls._get_sqlite_conn()
+        try:
+            row = conn.execute("SELECT retractable, verdict FROM verification_reports WHERE report_id = ?", (report_id,)).fetchone()
+            if not row:
+                return False
+            if not row["retractable"]:
+                return False
+
+            conn.execute(
+                """
+                UPDATE verification_reports
+                SET verdict = 'RETRACTED', confidence = 0.5, failure_reason = ?
+                WHERE report_id = ?
+                """,
+                (f"Retracted: {reason}", report_id)
+            )
+            conn.commit()
+            cls._log_audit("ve", "RETRACT_REPORT", "REPORT_RETRACTED", f"Report {report_id} retracted. Reason: {reason}")
+            return True
+        finally:
+            conn.close()
+
+    @classmethod
+    def get_verdicts_summary(cls) -> dict[str, int]:
+        """Aggregate report verdict counts for Cognitive Dashboard Tier 9."""
+        conn = cls._get_sqlite_conn()
+        try:
+            rows = conn.execute(
+                "SELECT verdict, COUNT(*) as c FROM verification_reports GROUP BY verdict"
+            ).fetchall()
+            summary = {
+                "VERIFIED": 0, "PARTIAL": 0, "REFUTED": 0, "SKIPPED": 0,
+                "RETRACTED": 0, "SUPERSEDED": 0, "PASS": 0, "FAIL": 0
+            }
+            for r in rows:
+                v = r["verdict"]
+                if v in summary:
+                    summary[v] = r["c"]
+            return summary
+        finally:
+            conn.close()
+
+
+# =============================================================================
+# Step 8.5 — Goal-level Verification Engine (VE) Core
+# =============================================================================
+
+class VerificationState(str, Enum):
+    VERIFIED     = "VERIFIED"
+    PARTIAL      = "PARTIAL"
+    FAILED       = "FAILED"
+    UNVERIFIABLE = "UNVERIFIABLE"
+    CONTRADICTED = "CONTRADICTED"
+
+
+@dataclass(frozen=True)
+class GoalVerificationReport:
+    """Read-only attestation package holding outcomes of the verification pipeline."""
+    goal_id: str
+    state: VerificationState
+    confidence_score: float
+    criteria_checked: dict[str, bool]
+    constraints_checked: dict[str, Any]
+    audit_passed: bool
+    evidence_summary: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "goal_id": self.goal_id,
+            "state": self.state.value,
+            "confidence_score": self.confidence_score,
+            "criteria_checked": self.criteria_checked,
+            "constraints_checked": self.constraints_checked,
+            "audit_passed": self.audit_passed,
+            "evidence_summary": self.evidence_summary,
+        }
+
+
+class EvidenceEngine:
+    """Evidence Engine (Rule 3) — Gathers files, logs, and API status packages.
+
+    Never executes mutating operations. Verifier != Executor (Rule 1).
+    """
+
+    @classmethod
+    def collect(
+        cls,
+        file_paths: list[str] | None = None,
+        log_check_events: list[str] | None = None,
+        api_responses: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        evidence = {
+            "files": {},
+            "logs": [],
+            "api_responses": api_responses or [],
+            "timestamp": time.time(),
+        }
+
+        if file_paths:
+            for path in file_paths:
+                exists = os.path.exists(path)
+                file_info = {"exists": exists}
+                if exists:
+                    try:
+                        file_info["size"] = os.path.getsize(path)
+                        # Checksum calculation of small files
+                        if file_info["size"] < 10 * 1024 * 1024:
+                            with open(path, "rb") as f:
+                                file_info["checksum"] = hashlib.md5(f.read()).hexdigest()
+                            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                                file_info["content"] = f.read(50 * 1024)  # first 50KB preview
+                    except Exception as e:
+                        file_info["error"] = str(e)
+                evidence["files"][path] = file_info
+
+        if log_check_events:
+            for ev in log_check_events:
+                evidence["logs"].append({
+                    "event": ev,
+                    "timestamp": time.time(),
+                })
+
+        return evidence
+
+
+class SuccessCriteriaEngine:
+    """Success Criteria Engine — Evaluates goal requirements checklist independently."""
+
+    @classmethod
+    def evaluate(cls, criteria: dict[str, Any], evidence: dict[str, Any]) -> dict[str, bool]:
+        results = {}
+        for key, expected_val in criteria.items():
+            # Check file presence
+            if key.startswith("file_exists:"):
+                path = key.split("file_exists:", 1)[1].strip()
+                file_info = evidence.get("files", {}).get(path, {})
+                results[key] = file_info.get("exists", False) == bool(expected_val)
+
+            # Check file substring presence
+            elif key.startswith("file_contains:"):
+                parts = key.split("file_contains:", 1)[1].split("->", 1)
+                path = parts[0].strip()
+                substr = parts[1].strip() if len(parts) > 1 else str(expected_val)
+                file_info = evidence.get("files", {}).get(path, {})
+                content = file_info.get("content", "")
+                results[key] = substr in content
+
+            # Check API status
+            elif key.startswith("api_status:"):
+                endpoint = key.split("api_status:", 1)[1].strip()
+                resps = evidence.get("api_responses", [])
+                found = False
+                for r in resps:
+                    if r.get("endpoint") == endpoint:
+                        found = (r.get("status_code") == expected_val)
+                        break
+                results[key] = found
+
+            # Check log event trigger
+            elif key.startswith("log_event:"):
+                event_name = key.split("log_event:", 1)[1].strip()
+                results[key] = any(event_name in str(l) for l in evidence.get("logs", []))
+
+            else:
+                # Generic fallback comparison
+                results[key] = False
+
+        return results
+
+
+class ConstraintEngine:
+    """Constraint Engine — Evaluates resources, safety paths, and boundary budgets."""
+
+    @classmethod
+    def validate(cls, constraints: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+        results = {}
+
+        # Time constraint check
+        time_spent = evidence.get("time_spent_seconds", 0.0)
+        max_time = constraints.get("max_time_seconds")
+        if max_time is not None:
+            results["time_limit"] = {
+                "passed": time_spent <= max_time,
+                "details": f"Spent {time_spent:.1f}s (Limit {max_time:.1f}s)"
+            }
+
+        # Budget constraint check
+        cost = evidence.get("cost_tokens", 0)
+        max_cost = constraints.get("max_cost_tokens")
+        if max_cost is not None:
+            results["cost_limit"] = {
+                "passed": cost <= max_cost,
+                "details": f"Spent {cost} tokens (Limit {max_cost} tokens)"
+            }
+
+        # Safety boundary checks
+        safety_passed = True
+        safety_details = []
+        for path in evidence.get("files", {}).keys():
+            try:
+                from backend.core.action_broker import ActionBroker
+                safe = ActionBroker.is_safe_workspace_path(path)
+            except Exception:
+                safe = True
+            if not safe:
+                safety_passed = False
+                safety_details.append(f"Unsafe path detected: {path}")
+
+        results["safety_limit"] = {
+            "passed": safety_passed,
+            "details": "; ".join(safety_details) if safety_details else "All files in safe paths"
+        }
+
+        return results
+
+
+class AuditEngine:
+    """Audit Engine — Independent checks for fabrication, sufficiency, and contradictions."""
+
+    @classmethod
+    def audit(
+        cls,
+        evidence: dict[str, Any],
+        criteria_results: dict[str, bool],
+        constraint_results: dict[str, Any]
+    ) -> dict[str, Any]:
+        issues = []
+
+        # 1. Sufficiency check
+        if not criteria_results:
+            issues.append("Sufficiency warning: Zero criteria evaluated.")
+
+        # 2. Contradiction detection
+        for file_path, file_info in evidence.get("files", {}).items():
+            if not file_info.get("exists", False):
+                if file_info.get("size", 0) > 0 or "content" in file_info:
+                    issues.append(f"Contradictory evidence: File '{file_path}' reported non-existent but has size or content.")
+            elif file_info.get("size", 0) == 0 and len(file_info.get("content", "")) > 0:
+                issues.append(f"Contradictory evidence: File '{file_path}' has size 0 but non-empty content preview.")
+
+        # 3. Fabrication/Tampering check
+        for file_path, file_info in evidence.get("files", {}).items():
+            if file_info.get("exists", False):
+                checksum = file_info.get("checksum", "")
+                if checksum == "d41d8cd98f00b204e9800998ecf8427e" and file_info.get("size", 0) > 0:
+                    issues.append(f"Fabrication warning: File '{file_path}' has non-zero size but empty MD5 checksum.")
+
+        passed = len(issues) == 0
+        return {
+            "passed": passed,
+            "issues": issues,
+            "details": "Audit successful" if passed else f"Audit flags: {'; '.join(issues)}"
+        }
+
+
+class ConfidenceEngine:
+    """Confidence Engine — Scores outcome packages between [0.0, 1.0]."""
+
+    @classmethod
+    def score(
+        cls,
+        criteria_results: dict[str, bool],
+        constraint_results: dict[str, Any],
+        audit_result: dict[str, Any]
+    ) -> float:
+        if not criteria_results:
+            return 0.0
+
+        # Base success score
+        passed_criteria = sum(1 for v in criteria_results.values() if v)
+        total_criteria = len(criteria_results)
+        score = passed_criteria / total_criteria
+
+        # Penalty deductions
+        for c in constraint_results.values():
+            if not c.get("passed", True):
+                if "safety" in str(c.get("details", "")).lower() or "unsafe" in str(c.get("details", "")).lower():
+                    return 0.0  # safety failure results in zero confidence
+                score -= 0.20
+
+        if not audit_result.get("passed", True):
+            score -= 0.40
+
+        return max(0.0, min(1.0, round(score, 2)))
+
+
+class GoalVerificationEngine:
+    """Goal Verification Engine — Pipeline orchestrator linking verified outcome trust back to HCE."""
+
+    @classmethod
+    def verify_goal(
+        cls,
+        goal_id: str,
+        evidence_params: dict[str, Any],
+        success_criteria: dict[str, Any],
+        constraints: dict[str, Any] | None = None
+    ) -> GoalVerificationReport:
+        # 1. Collect evidence package
+        file_paths = evidence_params.get("file_paths")
+        log_check_events = evidence_params.get("log_check_events")
+        api_responses = evidence_params.get("api_responses")
+
+        evidence = EvidenceEngine.collect(file_paths, log_check_events, api_responses)
+        evidence["time_spent_seconds"] = evidence_params.get("time_spent_seconds", 0.0)
+        evidence["cost_tokens"] = evidence_params.get("cost_tokens", 0)
+
+        # 2. Success criteria checkers
+        criteria_results = SuccessCriteriaEngine.evaluate(success_criteria, evidence)
+
+        # 3. Constraint checking
+        constraints = constraints or {}
+        constraint_results = ConstraintEngine.validate(constraints, evidence)
+
+        # 4. Independent audit
+        audit_res = AuditEngine.audit(evidence, criteria_results, constraint_results)
+
+        # 5. Score confidence
+        score = ConfidenceEngine.score(criteria_results, constraint_results, audit_res)
+
+        # 6. Resolve verification state
+        issues = audit_res.get("issues", [])
+        has_contradictions = any("contradictory" in issue.lower() for issue in issues)
+        safety_failed = not constraint_results.get("safety_limit", {}).get("passed", True)
+
+        if has_contradictions:
+            state = VerificationState.CONTRADICTED
+        elif safety_failed:
+            state = VerificationState.FAILED
+        elif not criteria_results:
+            state = VerificationState.UNVERIFIABLE
+        elif score >= 0.90 and audit_res.get("passed", True):
+            state = VerificationState.VERIFIED
+        elif score >= 0.50:
+            state = VerificationState.PARTIAL
+        else:
+            state = VerificationState.FAILED
+
+        # 7. Update HCE trust metrics (Rule: verified outcomes update trust score)
+        cls._update_hce_trust(goal_id, state)
+
+        return GoalVerificationReport(
+            goal_id=goal_id,
+            state=state,
+            confidence_score=score,
+            criteria_checked=criteria_results,
+            constraints_checked=constraint_results,
+            audit_passed=audit_res.get("passed", True),
+            evidence_summary=audit_res.get("details", "")
+        )
+
+    @classmethod
+    def _update_hce_trust(cls, goal_id: str, state: VerificationState) -> None:
+        """Resolution helper to link verified outcomes back to relationship metrics in HCE."""
+        try:
+            from backend.core.goal_memory import GoalMemory
+            from backend.core.personal_project_manager import PersonalProjectManager
+            from backend.core.human_conversation_engine import HCEStore, TrustRecoveryEngine
+
+            conn = GoalMemory._get_sqlite_conn()
+            row = conn.execute("SELECT project_id FROM projects WHERE linked_goal_id = ?", (goal_id,)).fetchone()
+            conn.close()
+
+            if row:
+                project_id = row["project_id"]
+                proj = PersonalProjectManager.get_project(project_id)
+                if proj:
+                    user_entity_id = proj.get("user_entity_id") or proj.get("entity_id")
+                    if user_entity_id:
+                        rel = HCEStore.get_relationship_by_entity(user_entity_id)
+                        if rel:
+                            rel_id = rel["relationship_id"]
+                            if state == VerificationState.VERIFIED:
+                                # Successful verification increases relationship trust score
+                                metrics = HCEStore.get_metrics(rel_id)
+                                if metrics:
+                                    new_trust = min(100.0, metrics["trust_score"] + 2.0)
+                                    HCEStore.update_metrics(rel_id, trust_score=new_trust)
+                            elif state in (VerificationState.FAILED, VerificationState.CONTRADICTED):
+                                # Failure decreases trust score
+                                TrustRecoveryEngine.record_error(rel_id)
+        except Exception:
+            pass
+

@@ -84,6 +84,82 @@ class ReflectionMemory:
                     FOREIGN KEY (source_reflection_id) REFERENCES hm_reflections(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_hm_guardrails_active ON hm_guardrails(active);
+
+                -- ============================================================
+                -- STEP 12: SELF-REFLECTION TABLES
+                -- ============================================================
+                CREATE TABLE IF NOT EXISTS hm_reflection_observations (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    domain TEXT NOT NULL CHECK (domain IN ('memory', 'retrieval', 'communication', 'planning', 'security', 'authority', 'approval', 'permissions', 'capability_management', 'risk_management', 'identity_verification')),
+                    action_type TEXT NOT NULL,
+                    outcome TEXT NOT NULL CHECK (outcome IN ('SUCCESS', 'FAILURE', 'USER_CORRECTION', 'UNKNOWN')),
+                    context_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_refl_obs_domain ON hm_reflection_observations(domain, outcome);
+
+                CREATE TABLE IF NOT EXISTS hm_reflection_patterns (
+                    id TEXT PRIMARY KEY,
+                    pattern_signature TEXT NOT NULL UNIQUE,
+                    description TEXT NOT NULL,
+                    total_occurrences INTEGER DEFAULT 1 NOT NULL,
+                    success_rate REAL NOT NULL CHECK (success_rate BETWEEN 0.0 AND 1.0),
+                    independent_sessions_count INTEGER NOT NULL,
+                    last_observed REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS hm_reflection_hypotheses (
+                    id TEXT PRIMARY KEY,
+                    pattern_id TEXT,
+                    domain TEXT NOT NULL CHECK (domain IN ('memory', 'retrieval', 'communication', 'planning', 'security', 'authority', 'approval', 'permissions', 'capability_management', 'risk_management', 'identity_verification')),
+                    statement TEXT NOT NULL,
+                    predicted_metric_change TEXT NOT NULL,
+                    confidence_lower_bound REAL NOT NULL CHECK (confidence_lower_bound BETWEEN 0.0 AND 1.0),
+                    confidence_upper_bound REAL NOT NULL CHECK (confidence_upper_bound BETWEEN 0.0 AND 1.0),
+                    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'promoted', 'rejected', 'expired')),
+                    is_verified INTEGER DEFAULT 0 CHECK (is_verified IN (0, 1)),
+                    is_approved INTEGER DEFAULT 0 CHECK (is_approved IN (0, 1)),
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    evidence_cutoff_timestamp REAL,
+                    FOREIGN KEY (pattern_id) REFERENCES hm_reflection_patterns(id) ON DELETE SET NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_refl_hyp_status ON hm_reflection_hypotheses(status);
+
+                CREATE TABLE IF NOT EXISTS hm_reflection_reports (
+                    id TEXT PRIMARY KEY,
+                    execution_date TEXT NOT NULL UNIQUE,
+                    interactions_count INTEGER NOT NULL,
+                    serialized_report_json TEXT NOT NULL,
+                    reviewer_id TEXT,
+                    review_status TEXT DEFAULT 'pending' CHECK (review_status IN ('pending', 'approved', 'rejected')),
+                    reviewed_at REAL
+                );
+
+                CREATE TABLE IF NOT EXISTS hm_reflection_drift_alerts (
+                    id TEXT PRIMARY KEY,
+                    detected_at REAL NOT NULL,
+                    alert_type TEXT NOT NULL,
+                    severity REAL NOT NULL CHECK (severity BETWEEN 0.0 AND 1.0),
+                    description TEXT NOT NULL,
+                    resolved INTEGER DEFAULT 0 CHECK (resolved IN (0, 1))
+                );
+
+                -- ============================================================
+                -- STEP 13: GOAL ADAPTATION PROPOSALS TABLE
+                -- ============================================================
+                CREATE TABLE IF NOT EXISTS hm_goal_adaptation_proposals (
+                    id TEXT PRIMARY KEY,
+                    hypothesis_id TEXT,
+                    goal_id TEXT NOT NULL,
+                    suggested_action TEXT NOT NULL CHECK (suggested_action IN ('PAUSE', 'ABANDON', 'DEPRIORITIZE', 'DELAY', 'RE-ROUTE')),
+                    reason TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+                    FOREIGN KEY (hypothesis_id) REFERENCES hm_reflection_hypotheses(id) ON DELETE SET NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_refl_goal_adap_status ON hm_goal_adaptation_proposals(status);
                 """
             )
             
@@ -96,6 +172,10 @@ class ReflectionMemory:
             if "active_guardrails" not in columns_ref:
                 conn.execute("ALTER TABLE hm_reflections ADD COLUMN active_guardrails TEXT NOT NULL DEFAULT '[]'")
                 
+            columns_hyp = {row[1] for row in conn.execute("PRAGMA table_info(hm_reflection_hypotheses)")}
+            if "evidence_cutoff_timestamp" not in columns_hyp:
+                conn.execute("ALTER TABLE hm_reflection_hypotheses ADD COLUMN evidence_cutoff_timestamp REAL")
+
             conn.commit()
 
     @classmethod
@@ -452,9 +532,296 @@ class ReflectionMemory:
                 conn.execute("DELETE FROM hm_guardrails")
                 conn.execute("DELETE FROM hm_interventions")
                 conn.execute("DELETE FROM hm_reflections")
+                conn.execute("DELETE FROM hm_reflection_observations")
+                conn.execute("DELETE FROM hm_reflection_patterns")
+                conn.execute("DELETE FROM hm_reflection_hypotheses")
+                conn.execute("DELETE FROM hm_reflection_reports")
+                conn.execute("DELETE FROM hm_reflection_drift_alerts")
                 conn.commit()
             except Exception as e:
                 conn.rollback()
                 raise e
+            finally:
+                conn.close()
+
+    # =========================================================================
+    # STEP 12: SELF-REFLECTION PERSISTENCE APIs
+    # =========================================================================
+
+    @classmethod
+    def add_reflection_observation(
+        cls,
+        session_id: str,
+        domain: str,
+        action_type: str,
+        outcome: str,
+        context_json: str,
+    ) -> str:
+        """Logs an un-deduplicated raw interaction metric to observations table."""
+        _VALID_DOMAINS = {
+            "memory", "retrieval", "communication", "planning", 
+            "security", "authority", "approval", "permissions", 
+            "capability_management", "risk_management", "identity_verification"
+        }
+        if domain not in _VALID_DOMAINS:
+            raise ValueError(f"Protected-Core violation: Domain '{domain}' is invalid.")
+
+        # RF5 Isolation: 'security' etc. domains generate a drift alarm and throw ValueError
+        _PROTECTED_DOMAINS = {
+            "security", "authority", "approval", "permissions", 
+            "capability_management", "risk_management", "identity_verification"
+        }
+        if domain in _PROTECTED_DOMAINS:
+            cls.raise_drift_alert(
+                alert_type="SECURITY_POSTURE_INTERFERENCE",
+                severity=1.0,
+                description=f"Attempted observation write blocked on protected core domain '{domain}'."
+            )
+            raise ValueError(f"Protected-Core Isolation: Writing observations for domain '{domain}' is forbidden.")
+
+        obs_id = str(uuid.uuid4())
+        now = time.time()
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO hm_reflection_observations
+                        (id, session_id, timestamp, domain, action_type, outcome, context_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (obs_id, session_id, now, domain, action_type, outcome, context_json)
+                )
+                conn.commit()
+                return obs_id
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
+    def add_reflection_pattern(
+        cls,
+        signature: str,
+        description: str,
+        success_rate: float,
+        independent_sessions: int,
+        occurrences: int = 1,
+    ) -> str:
+        pat_id = str(uuid.uuid4())
+        now = time.time()
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                # Upsert on signature uniqueness
+                existing = conn.execute(
+                    "SELECT id, total_occurrences FROM hm_reflection_patterns WHERE pattern_signature = ?",
+                    (signature,)
+                ).fetchone()
+
+                if existing:
+                    pat_id = existing["id"]
+                    conn.execute(
+                        """
+                        UPDATE hm_reflection_patterns
+                        SET total_occurrences = total_occurrences + ?,
+                            success_rate = ?,
+                            independent_sessions_count = ?,
+                            last_observed = ?
+                        WHERE id = ?
+                        """,
+                        (occurrences, success_rate, independent_sessions, now, pat_id)
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO hm_reflection_patterns
+                            (id, pattern_signature, description, total_occurrences, success_rate, independent_sessions_count, last_observed)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (pat_id, signature, description, occurrences, success_rate, independent_sessions, now)
+                    )
+                conn.commit()
+                return pat_id
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
+    def add_reflection_hypothesis(
+        cls,
+        pattern_id: Optional[str],
+        domain: str,
+        statement: str,
+        predicted_metric_change: str,
+        lower_ci: float,
+        upper_ci: float,
+        ttl_seconds: int = 604800,
+        evidence_cutoff_timestamp: Optional[float] = None,
+    ) -> str:
+        _VALID_DOMAINS = {
+            "memory", "retrieval", "communication", "planning", 
+            "security", "authority", "approval", "permissions", 
+            "capability_management", "risk_management", "identity_verification"
+        }
+        if domain not in _VALID_DOMAINS:
+            raise ValueError(f"Protected-Core violation: Domain '{domain}' is invalid.")
+
+        # RF5 Isolation: Structural isolation checks on domain boundaries
+        _PROTECTED_DOMAINS = {
+            "security", "authority", "approval", "permissions", 
+            "capability_management", "risk_management", "identity_verification"
+        }
+        if domain in _PROTECTED_DOMAINS:
+            cls.raise_drift_alert(
+                alert_type="SECURITY_POSTURE_INTERFERENCE",
+                severity=1.0,
+                description=f"Attempted hypothesis write blocked on protected core domain '{domain}'."
+            )
+            raise ValueError(f"Protected-Core Isolation: Refusing to store hypothesis targeting protected domain '{domain}'.")
+
+        hyp_id = str(uuid.uuid4())
+        now = time.time()
+        cutoff = evidence_cutoff_timestamp if evidence_cutoff_timestamp is not None else now
+        expires_at = now + ttl_seconds
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO hm_reflection_hypotheses
+                        (id, pattern_id, domain, statement, predicted_metric_change,
+                         confidence_lower_bound, confidence_upper_bound, status,
+                         is_verified, is_approved, created_at, expires_at, evidence_cutoff_timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?, ?)
+                    """,
+                    (hyp_id, pattern_id, domain, statement, predicted_metric_change, lower_ci, upper_ci, now, expires_at, cutoff)
+                )
+                conn.commit()
+                return hyp_id
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
+    def get_hypothesis(cls, hyp_id: str) -> dict[str, Any] | None:
+        conn = cls._get_sqlite_conn()
+        try:
+            row = conn.execute("SELECT * FROM hm_reflection_hypotheses WHERE id = ?", (hyp_id,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    @classmethod
+    def raise_drift_alert(cls, alert_type: str, severity: float, description: str) -> str:
+        alert_id = str(uuid.uuid4())
+        now = time.time()
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO hm_reflection_drift_alerts
+                        (id, detected_at, alert_type, severity, description, resolved)
+                    VALUES (?, ?, ?, ?, ?, 0)
+                    """,
+                    (alert_id, now, alert_type, severity, description)
+                )
+                conn.commit()
+                return alert_id
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
+    def get_drift_alerts(cls, include_resolved: bool = False) -> list[dict[str, Any]]:
+        conn = cls._get_sqlite_conn()
+        try:
+            if include_resolved:
+                rows = conn.execute("SELECT * FROM hm_reflection_drift_alerts ORDER BY detected_at DESC").fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM hm_reflection_drift_alerts WHERE resolved = 0 ORDER BY detected_at DESC").fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    @classmethod
+    def add_goal_adaptation_proposal(
+        cls,
+        hypothesis_id: Optional[str],
+        goal_id: str,
+        suggested_action: str,
+        reason: str,
+    ) -> str:
+        """Step 13: Creates a read-only advisory proposal to adapt/pause a thrashed goal."""
+        _VALID_ACTIONS = {"PAUSE", "ABANDON", "DEPRIORITIZE", "DELAY", "RE-ROUTE"}
+        if suggested_action not in _VALID_ACTIONS:
+            raise ValueError(f"Invalid suggested action: {suggested_action}")
+
+        proposal_id = f"GAP-{uuid.uuid4().hex[:8].upper()}"
+        now = time.time()
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO hm_goal_adaptation_proposals
+                        (id, hypothesis_id, goal_id, suggested_action, reason, created_at, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                    """,
+                    (proposal_id, hypothesis_id, goal_id, suggested_action, reason, now)
+                )
+                conn.commit()
+                return proposal_id
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
+    def list_goal_adaptation_proposals(cls, status: Optional[str] = None) -> list[dict[str, Any]]:
+        """Lists goal adaptation proposals, optionally filtered by status."""
+        conn = cls._get_sqlite_conn()
+        try:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM hm_goal_adaptation_proposals WHERE status = ? ORDER BY created_at DESC",
+                    (status.strip().lower(),)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM hm_goal_adaptation_proposals ORDER BY created_at DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    @classmethod
+    def update_goal_adaptation_proposal_status(cls, proposal_id: str, status: str) -> bool:
+        """Updates the status of a goal adaptation proposal ('approved' or 'rejected')."""
+        status_clean = status.strip().lower()
+        if status_clean not in {"approved", "rejected"}:
+            raise ValueError(f"Invalid status transition: {status}")
+
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                cursor = conn.execute(
+                    "UPDATE hm_goal_adaptation_proposals SET status = ? WHERE id = ?",
+                    (status_clean, proposal_id)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+            except Exception:
+                conn.rollback()
+                return False
             finally:
                 conn.close()

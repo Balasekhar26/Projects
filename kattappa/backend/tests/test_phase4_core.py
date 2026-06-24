@@ -52,9 +52,9 @@ def test_goal_tree_and_progress():
     hw = GoalManager.add_goal("Hardware", parent_id=root["id"])
     fw = GoalManager.add_goal("Firmware", parent_id=root["id"])
     assert GoalManager.progress(root["id"]) == 0.0
-    GoalManager.complete(hw["id"])
+    GoalManager.complete(hw["id"], user_confirmed=True)
     assert GoalManager.progress(root["id"]) == 0.5
-    GoalManager.complete(fw["id"])
+    GoalManager.complete(fw["id"], user_confirmed=True)
     assert GoalManager.progress(root["id"]) == 1.0
 
 

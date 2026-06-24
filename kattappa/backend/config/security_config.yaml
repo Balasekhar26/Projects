@@ -1,0 +1,159 @@
+protected_core:
+  - "execution_policy.py"
+  - "approval_engine.py"
+  - "risk_classifier.py"
+  - "audit_ledger.py"
+  - "action_scheduler.py"
+  - "action_broker.py"
+  - "validators.py"
+  - "capability_broker.py"
+  - "security_config.yaml"
+
+static_risk_map:
+  READ_FILE: 0
+  LIST_DIR: 0
+  SEARCH_MEMORY: 0
+  RECALL_MEMORY: 0
+  GET_STATUS: 0
+  RUN_TESTS: 0
+  RUN_BENCHMARKS: 0
+  ANALYZE_CODE: 0
+  GENERATE_CODE: 0
+  CREATE_PROPOSAL: 0
+  ANALYZE_REPO: 0
+  FILE_PARSE: 0
+  
+  DESKTOP_READ_SCREEN: 1
+  DESKTOP_SCREENSHOT: 1
+  DESKTOP_OPEN_APP: 1
+  DESKTOP_MOUSE_MOVE: 1
+  DESKTOP_MOUSE_CLICK: 1
+  DESKTOP_KEYBOARD_TYPING: 1
+  DESKTOP_CLOSE_APP: 1
+  DESKTOP_KILL_PROCESS: 1
+  VOICE_MICROPHONE_READ: 1
+  VOICE_SPEAKER_OUTPUT: 1
+  VOICE_STT: 1
+  VOICE_TTS: 1
+  VOICE_WAKE_WORD_DETECTION: 1
+  BROWSER_READ: 1
+  BROWSER_NAVIGATE: 1
+  BROWSER_SEARCH: 1
+  
+  CREATE_FILE: 2
+  WRITE_FILE: 2
+  EDIT_FILE: 2
+  MOVE_FILE: 2
+  BROWSER_DOWNLOAD_FILE: 2
+  COMMIT_MEMORY_DELTA: 2
+  PIN_MEMORY: 2
+  UNPIN_MEMORY: 2
+  EXPIRE_MEMORY: 2
+  CONSOLIDATE_MEMORY: 2
+  AGING_MEMORY: 2
+  FILE_WRITE: 2
+  FILE_MODIFY: 2
+  BROWSER_FILL_FORM: 2
+  BROWSER_CLICK_SUBMIT: 2
+  BROWSER_LOGIN: 2
+  
+  PATCH_CODE: 3
+  GIT_COMMIT: 3
+  GIT_PUSH: 3
+  RUN_SHELL: 3
+  INSTALL_PACKAGE: 3
+  NETWORK_REQUEST: 3
+  SEND_EMAIL: 3
+  DELETE_MEMORY: 3
+  ROLLBACK_MEMORY: 3
+  
+  DELETE_FILE: 4
+  DESKTOP_DELETE_FILE: 4
+  DESKTOP_SHUTDOWN: 4
+  DESKTOP_SETTINGS: 4
+  DEPLOY: 4
+  FILE_DELETE: 4
+  
+  FORMAT_DRIVE: 5
+  DISABLE_SECURITY: 5
+  TRANSFER_MONEY: 5
+  EXFILTRATE_DATA: 5
+
+rate_limits:
+  DESKTOP_SCREENSHOT: 10
+  DESKTOP_READ_SCREEN: 10
+  BROWSER_READ: 20
+  BROWSER_NAVIGATE: 20
+  BROWSER_SEARCH: 20
+  WRITE_FILE: 30
+  FILE_WRITE: 30
+  CREATE_FILE: 30
+  RUN_SHELL: 10
+
+egress_actions:
+  - "SEND_EMAIL"
+  - "NETWORK_REQUEST"
+  - "BROWSER_FILL_FORM"
+  - "BROWSER_CLICK_SUBMIT"
+  - "BROWSER_LOGIN"
+  - "GIT_PUSH"
+  - "DEPLOY"
+
+execution_policies:
+  READ_FILE:
+    auto_execute: true
+  LIST_DIR:
+    auto_execute: true
+  SEARCH_MEMORY:
+    auto_execute: true
+  RECALL_MEMORY:
+    auto_execute: true
+  GET_STATUS:
+    auto_execute: true
+  RUN_TESTS:
+    auto_execute: true
+  RUN_BENCHMARKS:
+    auto_execute: true
+  ANALYZE_CODE:
+    auto_execute: true
+  GENERATE_CODE:
+    auto_execute: true
+  CREATE_PROPOSAL:
+    auto_execute: true
+  ANALYZE_REPO:
+    auto_execute: true
+  DESKTOP_READ_SCREEN:
+    auto_execute: true
+  DESKTOP_SCREENSHOT:
+    auto_execute: true
+  DESKTOP_OPEN_APP:
+    auto_execute: true
+  DESKTOP_MOUSE_MOVE:
+    auto_execute: true
+  DESKTOP_MOUSE_CLICK:
+    auto_execute: true
+  DESKTOP_KEYBOARD_TYPING:
+    auto_execute: true
+  DESKTOP_CLOSE_APP:
+    auto_execute: true
+  DESKTOP_KILL_PROCESS:
+    auto_execute: true
+  VOICE_MICROPHONE_READ:
+    auto_execute: true
+  VOICE_SPEAKER_OUTPUT:
+    auto_execute: true
+  VOICE_STT:
+    auto_execute: true
+  VOICE_TTS:
+    auto_execute: true
+  VOICE_WAKE_WORD_DETECTION:
+    auto_execute: true
+  FORMAT_DRIVE:
+    blocked: true
+  DISABLE_SECURITY:
+    blocked: true
+  TRANSFER_MONEY:
+    blocked: true
+  EXFILTRATE_DATA:
+    blocked: true
+

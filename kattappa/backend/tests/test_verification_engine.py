@@ -35,6 +35,18 @@ class _DVEBase(unittest.TestCase):
         # Ensure data directory exists
         Path(self.root, "backend", "data").mkdir(parents=True, exist_ok=True)
 
+        # Reset schema flags for database tables in test databases
+        from backend.core.verification_engine import VerificationEngine
+        from backend.core.cognitive_dashboard import CognitiveDashboardManager
+        from backend.core.goal_memory import GoalMemory
+        from backend.core.project_memory import ProjectMemory
+        from backend.core.identity_system import IdentitySystem
+        VerificationEngine._schema_ensured = False
+        CognitiveDashboardManager._schema_ensured = False
+        GoalMemory._schema_ensured = False
+        ProjectMemory._schema_ensured = False
+        IdentitySystem._schema_ensured = False
+
     def tearDown(self):
         import shutil
         shutil.rmtree(self.root, ignore_errors=True)
@@ -773,6 +785,167 @@ class TestVerificationWorkflowReport(_DVEBase):
         # Cleanup
         if os.path.exists(target):
             os.remove(target)
+
+
+# ==============================================================================
+# 10. Action-Level Database-Backed Verification Engine (Step 8.9)
+# ==============================================================================
+
+class TestVerificationEngineNewDB(_DVEBase):
+    """Layer 4: Action-level SQLite verification database and retraction ledger."""
+
+    def setUp(self):
+        super().setUp()
+        from backend.core.verification_engine import VerificationEngine
+        conn = VerificationEngine._get_sqlite_conn()
+        try:
+            conn.execute("DELETE FROM verification_reports")
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    def test_register_criterion(self):
+        from backend.core.verification_engine import VerificationEngine
+        called = []
+        VerificationEngine.register_criterion(
+            "CUSTOM_ACTION",
+            lambda params, result: called.append((params, result)) or result.get("data") == 42
+        )
+        # Test success
+        res1 = VerificationEngine.verify_result("q_1", "CUSTOM_ACTION", "agent", {"x": 1}, {"success": True, "data": 42})
+        self.assertEqual(res1["verdict"], "VERIFIED")
+        self.assertEqual(res1["confidence"], 1.0)
+        self.assertEqual(len(called), 1)
+
+        # Test failure
+        res2 = VerificationEngine.verify_result("q_2", "CUSTOM_ACTION", "agent", {"x": 1}, {"success": True, "data": 99})
+        self.assertEqual(res2["verdict"], "PARTIAL")
+        self.assertEqual(res2["confidence"], 0.5)
+
+    def test_verify_result_structural_failure(self):
+        from backend.core.verification_engine import VerificationEngine
+        # Invalid result format (not a dict)
+        res1 = VerificationEngine.verify_result("q_1", "READ_FILE", "agent", {}, "raw string result")
+        self.assertEqual(res1["verdict"], "REFUTED")
+        self.assertEqual(res1["confidence"], 0.0)
+
+        # Dictionary with success: False
+        res2 = VerificationEngine.verify_result("q_2", "READ_FILE", "agent", {}, {"success": False, "error": "file missing"})
+        self.assertEqual(res2["verdict"], "REFUTED")
+        self.assertEqual(res2["confidence"], 0.0)
+        self.assertEqual(res2["failure_reason"], "file missing")
+
+    def test_retract_report(self):
+        from backend.core.verification_engine import VerificationEngine
+        res = VerificationEngine.verify_result("q_1", "WRITE_FILE", "agent", {}, {"success": True})
+        report_id = res["report_id"]
+
+        # Before retraction
+        report = VerificationEngine.get_report(report_id)
+        self.assertEqual(report["verdict"], "VERIFIED")
+        self.assertEqual(report["confidence"], 1.0)
+
+        # Perform retraction
+        success = VerificationEngine.retract_report(report_id, "Manual inspection found corrupted file write")
+        self.assertTrue(success)
+
+        # After retraction
+        report_retracted = VerificationEngine.get_report(report_id)
+        self.assertEqual(report_retracted["verdict"], "RETRACTED")
+        self.assertEqual(report_retracted["confidence"], 0.5)
+        self.assertIn("Retracted", report_retracted["failure_reason"])
+
+    def test_conflicting_verification_retracts_old(self):
+        from backend.core.verification_engine import VerificationEngine
+        params = {"path": "/tmp/canary_db.txt"}
+        
+        # 1. Enqueue and verify first action as successful (VERIFIED)
+        res1 = VerificationEngine.verify_result("q_1", "WRITE_FILE", "agent", params, {"success": True})
+        self.assertEqual(res1["verdict"], "VERIFIED")
+
+        # 2. Enqueue and verify second action on same target file as failure (REFUTED)
+        res2 = VerificationEngine.verify_result("q_2", "WRITE_FILE", "agent", params, {"success": False, "error": "file empty"})
+        self.assertEqual(res2["verdict"], "REFUTED")
+
+        # 3. Old report (res1) should be automatically downgraded to RETRACTED
+        report1 = VerificationEngine.get_report(res1["report_id"])
+        self.assertEqual(report1["verdict"], "RETRACTED")
+        self.assertEqual(report1["confidence"], 0.5)
+        self.assertIn("conflicting verification", report1["failure_reason"])
+
+    def test_conflicting_verification_supersedes_old(self):
+        from backend.core.verification_engine import VerificationEngine
+        params = {"path": "/tmp/canary_db.txt"}
+        
+        # 1. Enqueue and verify first action as successful (VERIFIED)
+        res1 = VerificationEngine.verify_result("q_1", "WRITE_FILE", "agent", params, {"success": True})
+        self.assertEqual(res1["verdict"], "VERIFIED")
+
+        # 2. Enqueue and verify second action on same target file as successful (VERIFIED)
+        res2 = VerificationEngine.verify_result("q_2", "WRITE_FILE", "agent", params, {"success": True})
+        self.assertEqual(res2["verdict"], "VERIFIED")
+
+        # 3. Old report (res1) should be automatically downgraded to SUPERSEDED
+        report1 = VerificationEngine.get_report(res1["report_id"])
+        self.assertEqual(report1["verdict"], "SUPERSEDED")
+        self.assertEqual(report1["confidence"], 0.5)
+        self.assertIn("conflicting verification", report1["failure_reason"])
+
+    def test_get_verdicts_summary(self):
+        from backend.core.verification_engine import VerificationEngine
+        # Verify clean summary
+        summary1 = VerificationEngine.get_verdicts_summary()
+        self.assertEqual(summary1["VERIFIED"], 0)
+
+        # Insert reports
+        VerificationEngine.verify_result("q_1", "WRITE_FILE", "agent", {}, {"success": True})
+        VerificationEngine.verify_result("q_2", "WRITE_FILE", "agent", {}, {"success": False})
+
+        summary2 = VerificationEngine.get_verdicts_summary()
+        self.assertEqual(summary2["VERIFIED"], 1)
+        self.assertEqual(summary2["REFUTED"], 1)
+
+    def test_get_reports_for_action(self):
+        from backend.core.verification_engine import VerificationEngine
+        VerificationEngine.verify_result("q_target", "WRITE_FILE", "agent", {}, {"success": True})
+        VerificationEngine.verify_result("q_target", "WRITE_FILE", "agent", {}, {"success": False})
+
+        reports = VerificationEngine.get_reports_for_action("q_target")
+        self.assertEqual(len(reports), 2)
+        # Check sort order (newest first)
+        self.assertEqual(reports[0]["verdict"], "REFUTED")
+        self.assertEqual(reports[1]["verdict"], "VERIFIED")
+
+    def test_integration_action_scheduler_calls_ve(self):
+        from backend.core.action_scheduler import ActionScheduler
+        # We need a mock broker to pretend to execute successfully
+        with patch("backend.core.action_broker.ActionBroker.intake_request") as mock_intake:
+            mock_intake.return_value = {"success": True, "content": "mock file content"}
+
+            # Enqueue READ_FILE
+            res = ActionScheduler.enqueue_action("agent", "READ_FILE", {"path": "test.txt"}, {})
+            queue_id = res["queue_id"]
+
+            # Dispatch
+            dispatch_res = ActionScheduler.dispatch_next()
+            self.assertEqual(dispatch_res["status"], "dispatched")
+
+            # Check if a verification report was generated and attached to the DB action record
+            action_record = ActionScheduler.get_action(queue_id)
+            self.assertIsNotNone(action_record)
+            
+            result_data = json.loads(action_record["result_json"])
+            self.assertIn("verification_report_id", result_data)
+            self.assertEqual(result_data["verification_verdict"], "VERIFIED")
+
+            # Verify report exists in VE database
+            from backend.core.verification_engine import VerificationEngine
+            ve_report = VerificationEngine.get_report(result_data["verification_report_id"])
+            self.assertIsNotNone(ve_report)
+            self.assertEqual(ve_report["verdict"], "VERIFIED")
+            self.assertEqual(ve_report["queue_id"], queue_id)
 
 
 if __name__ == "__main__":

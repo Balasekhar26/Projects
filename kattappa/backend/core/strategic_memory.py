@@ -73,6 +73,27 @@ class StrategicMemory:
                     changed_by TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_hm_goal_history_goal ON hm_strategic_goal_history(goal_id);
+
+                -- ================================================================
+                -- DECISION RATIONALE MEMORY
+                -- Answers "why was this choice made?" — separate from goal state.
+                -- Records rationale, alternatives, context.  NEVER stores authority
+                -- grants or permission decisions; those belong to the security spine.
+                -- ================================================================
+                CREATE TABLE IF NOT EXISTS hm_decisions (
+                    id TEXT PRIMARY KEY,
+                    decision TEXT NOT NULL,
+                    context TEXT NOT NULL,
+                    rationale TEXT NOT NULL,
+                    alternatives_considered TEXT NOT NULL DEFAULT '[]',
+                    outcome TEXT,
+                    linked_goal_id TEXT,
+                    created_at REAL NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT 'user',
+                    trust_level TEXT NOT NULL DEFAULT 'TRUST_USER',
+                    FOREIGN KEY (linked_goal_id) REFERENCES hm_strategic_goals(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_hm_decisions_created ON hm_decisions(created_at DESC);
                 """
             )
             conn.commit()
@@ -352,3 +373,197 @@ class StrategicMemory:
 
         if nxt not in valid_next.get(curr, set()):
             raise ValueError(f"Invalid lifecycle transition: {curr} -> {nxt}")
+
+    # =========================================================================
+    # Decision Rationale Memory API
+    # =========================================================================
+
+    @classmethod
+    def record_decision(
+        cls,
+        decision: str,
+        context: str,
+        rationale: str,
+        alternatives: list[str] | None = None,
+        outcome: str | None = None,
+        linked_goal_id: str | None = None,
+        created_by: str = "user",
+    ) -> str:
+        """Record why a decision was made.
+
+        Stores the rationale, alternatives considered, and optional outcome.
+        Links to a strategic goal if provided.
+
+        Security note: This records *reasoning*, never authority grants.
+        The memory system cannot grant permissions through decision records.
+        """
+        decision_id = str(uuid.uuid4())
+        now = time.time()
+        alternatives_json = json.dumps(alternatives or [])
+
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                if linked_goal_id:
+                    row = conn.execute(
+                        "SELECT id FROM hm_strategic_goals WHERE id = ?",
+                        (linked_goal_id,)
+                    ).fetchone()
+                    if not row:
+                        raise ValueError(f"Linked goal {linked_goal_id} does not exist.")
+
+                conn.execute(
+                    """
+                    INSERT INTO hm_decisions
+                        (id, decision, context, rationale, alternatives_considered,
+                         outcome, linked_goal_id, created_at, created_by, trust_level)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRUST_USER')
+                    """,
+                    (
+                        decision_id,
+                        decision.strip(),
+                        context.strip(),
+                        rationale.strip(),
+                        alternatives_json,
+                        outcome,
+                        linked_goal_id,
+                        now,
+                        created_by.strip(),
+                    )
+                )
+                conn.commit()
+
+                # Log provenance
+                from backend.core.memory_governance import MemoryGovernance
+                MemoryGovernance.log_provenance(
+                    memory_id=decision_id,
+                    memory_type="strategic",
+                    source="user",
+                    created_by=created_by,
+                    confidence=1.0,
+                    metadata={"decision": decision.strip()}
+                )
+
+                return decision_id
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
+    def get_decision(cls, decision_id: str) -> dict[str, Any] | None:
+        """Retrieve a single decision record by ID."""
+        conn = cls._get_sqlite_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM hm_decisions WHERE id = ?", (decision_id,)
+            ).fetchone()
+            if not row:
+                return None
+            rec = dict(row)
+            rec["alternatives_considered"] = json.loads(rec["alternatives_considered"])
+            return rec
+        finally:
+            conn.close()
+
+    @classmethod
+    def query_decisions(
+        cls,
+        query_text: str,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Keyword search over decision text and rationale.
+
+        Returns decisions whose decision text, context, or rationale contains
+        any token from the query. Results ordered by recency (newest first).
+        """
+        if not query_text or not query_text.strip():
+            return cls.list_decisions(limit=limit)
+
+        tokens = [
+            t.lower() for t in query_text.split()
+            if len(t) > 2
+        ]
+        if not tokens:
+            return cls.list_decisions(limit=limit)
+
+        conn = cls._get_sqlite_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM hm_decisions ORDER BY created_at DESC LIMIT ?",
+                (limit * 5,)   # over-fetch then filter
+            ).fetchall()
+
+            results = []
+            for r in rows:
+                rec = dict(r)
+                haystack = (
+                    rec["decision"].lower() + " "
+                    + rec["context"].lower() + " "
+                    + rec["rationale"].lower()
+                )
+                if any(tok in haystack for tok in tokens):
+                    rec["alternatives_considered"] = json.loads(rec["alternatives_considered"])
+                    results.append(rec)
+                    if len(results) >= limit:
+                        break
+
+            return results
+        finally:
+            conn.close()
+
+    @classmethod
+    def list_decisions(cls, limit: int = 20) -> list[dict[str, Any]]:
+        """Return the most recent decision records, newest first."""
+        conn = cls._get_sqlite_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM hm_decisions ORDER BY created_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            results = []
+            for r in rows:
+                rec = dict(r)
+                rec["alternatives_considered"] = json.loads(rec["alternatives_considered"])
+                results.append(rec)
+            return results
+        finally:
+            conn.close()
+
+    @classmethod
+    def promote_strategic_principle(
+        cls,
+        statement: str,
+        evidence_nodes: list[str],
+        confidence: float,
+        created_by: str = "reflection_engine"
+    ) -> str:
+        """Promotes a consolidated pattern to a strategic principle (goal) in DRAFT status.
+        
+        It is marked as INFERRED, links to evidence nodes, and requires explicit user signoff to activate.
+        """
+        # Create a draft goal representing the principle
+        goal_id = cls.create_goal(
+            goal=f"Strategic Principle: {statement[:80]}",
+            description=f"Consolidated strategic principle: {statement}",
+            priority=0.8, # Default high priority for strategic principles
+            derived_from=evidence_nodes
+        )
+        
+        # Update goal details to enforce trust_level = 'TRUST_UNVERIFIED' (or INFERRED)
+        conn = cls._get_sqlite_conn()
+        try:
+            conn.execute(
+                """
+                UPDATE hm_strategic_goals
+                SET trust_level = 'TRUST_UNVERIFIED', approved_by_user = 0, goal = ?
+                WHERE id = ?
+                """,
+                (f"Strategic Principle: {statement} [INFERRED]", goal_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+            
+        return goal_id

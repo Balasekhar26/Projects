@@ -134,6 +134,14 @@ class ProjectMemory:
                     FOREIGN KEY (depends_on_project_id) REFERENCES projects(project_id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS task_dependencies (
+                    task_id TEXT NOT NULL,
+                    depends_on_task_id TEXT NOT NULL,
+                    PRIMARY KEY (task_id, depends_on_task_id),
+                    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+                    FOREIGN KEY (depends_on_task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS resources (
                     resource_id TEXT PRIMARY KEY,
                     project_id TEXT NOT NULL,
@@ -190,6 +198,18 @@ class ProjectMemory:
                     status TEXT NOT NULL DEFAULT 'ACTIVE',
                     timestamp REAL NOT NULL,
                     FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS continuous_benchmarks (
+                    run_id TEXT PRIMARY KEY,
+                    timestamp REAL NOT NULL,
+                    performance_metrics TEXT NOT NULL,
+                    memory_metrics TEXT NOT NULL,
+                    conversation_metrics TEXT NOT NULL,
+                    agent_metrics TEXT NOT NULL,
+                    regression_status TEXT NOT NULL,
+                    regression_reasons TEXT NOT NULL,
+                    proposals TEXT NOT NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_tasks_milestone ON tasks(milestone_id);
@@ -555,6 +575,21 @@ class ProjectMemory:
         with cls._lock:
             conn = cls._get_sqlite_conn()
             try:
+                # 1. Enforce Dependency Gating
+                if status_clean in {"READY", "RUNNING", "COMPLETED"}:
+                    incomplete = conn.execute(
+                        """
+                        SELECT d.depends_on_task_id 
+                        FROM task_dependencies d
+                        JOIN tasks t ON d.depends_on_task_id = t.task_id
+                        WHERE d.task_id = ? AND t.status != 'COMPLETED'
+                        """,
+                        (task_id,)
+                    ).fetchall()
+                    if incomplete:
+                        dep_ids = [r["depends_on_task_id"] for r in incomplete]
+                        raise ValueError(f"Cannot update task '{task_id}' to '{status_clean}': incomplete dependencies: {dep_ids}")
+
                 updates = ["status = ?"]
                 params = [status_clean]
                 if progress is not None:
@@ -570,6 +605,47 @@ class ProjectMemory:
                 params.append(task_id)
                 conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE task_id = ?", tuple(params))
 
+                # 2. Promote ready dependents if status becomes COMPLETED
+                if status_clean == "COMPLETED":
+                    dependents = conn.execute(
+                        "SELECT task_id FROM task_dependencies WHERE depends_on_task_id = ?",
+                        (task_id,)
+                    ).fetchall()
+                    for dep in dependents:
+                        dep_id = dep["task_id"]
+                        other_incomplete = conn.execute(
+                            """
+                            SELECT d.depends_on_task_id 
+                            FROM task_dependencies d
+                            JOIN tasks t ON d.depends_on_task_id = t.task_id
+                            WHERE d.task_id = ? AND t.status != 'COMPLETED'
+                            """,
+                            (dep_id,)
+                        ).fetchall()
+                        if not other_incomplete:
+                            dep_status_row = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (dep_id,)).fetchone()
+                            if dep_status_row and dep_status_row["status"] == "BLOCKED":
+                                conn.execute(
+                                    "UPDATE tasks SET status = 'READY', completed_at = NULL WHERE task_id = ?",
+                                    (dep_id,)
+                                )
+                                mprow = conn.execute(
+                                    "SELECT project_id FROM milestones WHERE milestone_id = (SELECT milestone_id FROM tasks WHERE task_id = ?)",
+                                    (dep_id,)
+                                ).fetchone()
+                                if mprow and mprow["project_id"]:
+                                    cls._log_event_conn(
+                                        conn,
+                                        mprow["project_id"],
+                                        "TASK_STATUS_CHANGED",
+                                        {
+                                            "task_id": dep_id,
+                                            "old_status": "BLOCKED",
+                                            "new_status": "READY",
+                                            "reason": f"Dependency {task_id} completed"
+                                        }
+                                    )
+
                 # Find milestone & goal and project to trigger updates
                 row = conn.execute("SELECT milestone_id FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
                 if row:
@@ -578,10 +654,22 @@ class ProjectMemory:
                     if mrow:
                         g_id = mrow["goal_id"]
                         # Auto-update milestone progress by averaging task progress
-                        t_rows = conn.execute("SELECT progress FROM tasks WHERE milestone_id = ?", (m_id,)).fetchall()
+                        t_rows = conn.execute("SELECT progress, status FROM tasks WHERE milestone_id = ?", (m_id,)).fetchall()
                         if t_rows:
                             avg_progress = sum(r["progress"] for r in t_rows) / len(t_rows)
                             conn.execute("UPDATE milestones SET progress = ? WHERE milestone_id = ?", (avg_progress, m_id))
+
+                            # Recalculate milestone status
+                            t_statuses = {r["status"] for r in t_rows}
+                            if t_statuses and all(s == "COMPLETED" for s in t_statuses):
+                                new_m_status = "COMPLETED"
+                            elif "FAILED" in t_statuses:
+                                new_m_status = "FAILED"
+                            elif any(s in ("RUNNING", "COMPLETED") for s in t_statuses):
+                                new_m_status = "IN_PROGRESS"
+                            else:
+                                new_m_status = "PENDING"
+                            conn.execute("UPDATE milestones SET status = ? WHERE milestone_id = ?", (new_m_status, m_id))
 
                             # Run goal and project progress recalculations
                             from backend.core.goal_memory import GoalMemory
@@ -734,6 +822,7 @@ class ProjectMemory:
             try:
                 conn.execute("DELETE FROM projects")
                 conn.execute("DELETE FROM project_dependencies")
+                conn.execute("DELETE FROM task_dependencies")
                 conn.execute("DELETE FROM tasks")
                 conn.execute("DELETE FROM actions")
                 conn.execute("DELETE FROM project_events")
@@ -746,6 +835,10 @@ class ProjectMemory:
                 conn.execute("DELETE FROM project_scope")
                 conn.execute("DELETE FROM project_revisions")
                 conn.execute("DELETE FROM project_blockers")
+                try:
+                    conn.execute("DELETE FROM continuous_benchmarks")
+                except sqlite3.OperationalError:
+                    pass
                 conn.execute("UPDATE goals SET project_id = NULL")
                 conn.commit()
             finally:

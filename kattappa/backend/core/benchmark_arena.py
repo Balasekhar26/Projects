@@ -44,6 +44,420 @@ def _tool_history_path() -> Path:
     return runtime_data_root() / "backend" / "data" / "tool_benchmark_history.json"
 
 
+from datetime import datetime
+import hashlib
+import math
+from backend.core.config import load_config
+
+_schema_ensured = False
+
+
+def _get_sqlite_conn() -> sqlite3.Connection:
+    config = load_config()
+    db_path = config.sqlite_path.parent / "benchmark_arena.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='benchmark_suites'")
+    if cursor.fetchone():
+        return
+        
+    conn.execute("PRAGMA foreign_keys = ON;")
+    
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS benchmark_suites (
+            id TEXT PRIMARY KEY,
+            suite_name TEXT NOT NULL,
+            category TEXT NOT NULL CHECK (category IN ('memory', 'reasoning', 'coding', 'tool_use', 'planning', 'relationship', 'reflection', 'safety')),
+            version_tag TEXT NOT NULL,
+            is_active INTEGER DEFAULT 1 CHECK (is_active IN (0, 1)),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            UNIQUE(suite_name, version_tag)
+        )
+    """)
+    
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS benchmark_cases (
+            id TEXT PRIMARY KEY,
+            suite_id TEXT REFERENCES benchmark_suites(id) ON DELETE CASCADE,
+            prompt_payload TEXT NOT NULL,
+            expected_output TEXT NOT NULL,
+            scoring_method TEXT NOT NULL CHECK (scoring_method IN ('EXACT_MATCH', 'JSON_VALIDATION', 'NUMERIC_TOLERANCE', 'TEST_HARNESS')),
+            difficulty REAL NOT NULL CHECK (difficulty BETWEEN 0.0 AND 1.0),
+            difficulty_tier TEXT NOT NULL CHECK (difficulty_tier IN ('easy', 'medium', 'hard', 'expert')),
+            is_held_out INTEGER DEFAULT 1 CHECK (is_held_out IN (0, 1)),
+            prompt_hash TEXT,
+            expected_hash TEXT,
+            contamination_status TEXT DEFAULT 'ACTIVE' CHECK (contamination_status IN ('ACTIVE', 'BURNED', 'RETIRED', 'ARCHIVED'))
+        )
+    """)
+    
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS benchmark_runs (
+            id TEXT PRIMARY KEY,
+            engine_version TEXT NOT NULL,
+            execution_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            suite_id TEXT REFERENCES benchmark_suites(id),
+            case_id TEXT REFERENCES benchmark_cases(id),
+            observed_output TEXT NOT NULL,
+            score_achieved REAL NOT NULL CHECK (score_achieved BETWEEN 0.0 AND 1.0),
+            latency_ms REAL NOT NULL
+        )
+    """)
+    
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS benchmark_deltas (
+            id TEXT PRIMARY KEY,
+            run_date DATE NOT NULL UNIQUE,
+            baseline_version TEXT NOT NULL,
+            challenger_version TEXT NOT NULL,
+            serialized_scorecard_json TEXT NOT NULL,
+            promotion_status TEXT DEFAULT 'REJECTED' CHECK (promotion_status IN ('APPROVED', 'REJECTED', 'HUMAN_OVERRIDE_REQUIRED')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        )
+    """)
+    
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_bench_run_ver ON benchmark_runs(engine_version, suite_id);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_bench_case_lookup ON benchmark_cases(suite_id, is_held_out);")
+    
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS prevent_benchmark_run_update
+        BEFORE UPDATE ON benchmark_runs
+        BEGIN
+            SELECT RAISE(ABORT, 'immutable');
+        END;
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS prevent_benchmark_run_delete
+        BEFORE DELETE ON benchmark_runs
+        BEGIN
+            SELECT RAISE(ABORT, 'immutable');
+        END;
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS prevent_benchmark_delta_update
+        BEFORE UPDATE ON benchmark_deltas
+        BEGIN
+            SELECT RAISE(ABORT, 'immutable');
+        END;
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS prevent_benchmark_delta_delete
+        BEFORE DELETE ON benchmark_deltas
+        BEGIN
+            SELECT RAISE(ABORT, 'immutable');
+        END;
+    """)
+    
+    conn.commit()
+    _schema_ensured = True
+
+
+def calculate_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def verify_case_integrity(db_conn: sqlite3.Connection, case_id: str) -> bool:
+    cursor = db_conn.cursor()
+    cursor.execute("""
+        SELECT prompt_payload, expected_output, prompt_hash, expected_hash 
+        FROM benchmark_cases WHERE id = ?
+    """, (case_id,))
+    row = cursor.fetchone()
+    if not row:
+        return True
+    
+    prompt = row["prompt_payload"]
+    expected = row["expected_output"]
+    p_hash = row["prompt_hash"]
+    e_hash = row["expected_hash"]
+    
+    if p_hash is not None and calculate_hash(prompt) != p_hash:
+        raise ValueError("BENCHMARK_TAMPERING_ALERT: Prompt payload hash mismatch!")
+    if e_hash is not None and calculate_hash(expected) != e_hash:
+        raise ValueError("BENCHMARK_TAMPERING_ALERT: Expected output hash mismatch!")
+    return True
+
+
+class AntiContaminationMonitor:
+    def __init__(self, db_conn: sqlite3.Connection):
+        self.db = db_conn
+
+    def audit_memory_fabric(self) -> list[str]:
+        cursor = self.db.cursor()
+        cursor.execute("SELECT id, prompt_payload FROM benchmark_cases WHERE contamination_status = 'ACTIVE'")
+        cases = cursor.fetchall()
+        
+        if not cases:
+            return []
+            
+        from backend.core.config import load_config
+        config = load_config()
+        
+        try:
+            mem_conn = sqlite3.connect(str(config.sqlite_path))
+            mem_conn.row_factory = sqlite3.Row
+            mem_cursor = mem_conn.cursor()
+        except Exception:
+            return []
+            
+        try:
+            mem_cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in mem_cursor.fetchall()}
+        except Exception:
+            mem_conn.close()
+            return []
+            
+        burned_cases = []
+        search_targets = {
+            "hm_episodes": ["content"],
+            "hm_semantic_nodes": ["concept", "description"],
+            "hm_relationship_history": ["summary"],
+            "conversation_memory": ["summary", "content"],
+        }
+        
+        for case in cases:
+            cid = case["id"]
+            prompt = case["prompt_payload"]
+            search_str = prompt.strip()
+            if len(search_str) > 50:
+                search_str = search_str[:50]
+                
+            leak_detected = False
+            for table, columns in search_targets.items():
+                if table not in existing_tables:
+                    continue
+                for col in columns:
+                    try:
+                        query = f"SELECT COUNT(*) FROM {table} WHERE {col} LIKE ?"
+                        mem_cursor.execute(query, (f"%{search_str}%",))
+                        count = mem_cursor.fetchone()[0]
+                        if count > 0:
+                            leak_detected = True
+                            break
+                    except Exception:
+                        pass
+                if leak_detected:
+                    break
+                    
+            if leak_detected:
+                burned_cases.append(cid)
+                cursor.execute(
+                    "UPDATE benchmark_cases SET contamination_status = 'BURNED', is_held_out = 0 WHERE id = ?",
+                    (cid,)
+                )
+                
+        if burned_cases:
+            self.db.commit()
+            
+        mem_conn.close()
+        return burned_cases
+
+
+class BenchmarkArenaRunner:
+    def __init__(self, db_conn: sqlite3.Connection, baseline_runtime: Any, challenger_runtime: Any):
+        self.db = db_conn
+        self.baseline = baseline_runtime
+        self.challenger = challenger_runtime
+        self.SIGNIFICANCE_ALPHA = 0.05
+        
+    def _calculate_mcnemar_significance(self, b: int, c: int) -> float:
+        if (b + c) == 0:
+            return 1.0
+        if abs(b - c) <= 1:
+            return 1.0
+        chi_squared = (abs(b - c) - 1) ** 2 / (b + c)
+        p_val = math.erfc(math.sqrt(chi_squared / 2.0))
+        return round(p_val, 4)
+
+    def run_continuous_evaluation_pipeline(self) -> dict[str, Any]:
+        cursor = self.db.cursor()
+        today_date = datetime.utcnow().date().isoformat()
+        
+        monitor = AntiContaminationMonitor(self.db)
+        burned = monitor.audit_memory_fabric()
+        
+        cursor.execute("SELECT id, suite_name, category FROM benchmark_suites WHERE is_active = 1")
+        active_suites = cursor.fetchall()
+        
+        active_categories = sorted(list(set(row["category"] for row in active_suites)))
+        num_comparisons = max(1, len(active_categories))
+        adjusted_alpha = self.SIGNIFICANCE_ALPHA / num_comparisons
+        
+        scorecard = {
+            "version": self.challenger.version_tag,
+            "baseline": self.baseline.version_tag,
+            "evaluation_date": today_date,
+            "categories": {},
+            "promotion": "REJECTED",
+            "adjusted_alpha": round(adjusted_alpha, 5),
+            "burned_cases_count": len(burned)
+        }
+        
+        critical_regression_detected = False
+        overall_improvements = 0
+        epsilon = 0.02
+        
+        for suite in active_suites:
+            suite_id = suite["id"]
+            category = suite["category"]
+            
+            cursor.execute("""
+                SELECT id, prompt_payload, expected_output, difficulty, difficulty_tier 
+                FROM benchmark_cases 
+                WHERE suite_id = ? AND contamination_status = 'ACTIVE' AND is_held_out = 1
+            """, (suite_id,))
+            cases = cursor.fetchall()
+            
+            if not cases:
+                continue
+                
+            baseline_passes = 0
+            challenger_passes = 0
+            
+            b_baseline_win = 0
+            c_challenger_win = 0
+            
+            total_cases = len(cases)
+            
+            stratified_baseline = {"easy": [], "medium": [], "hard": [], "expert": []}
+            stratified_challenger = {"easy": [], "medium": [], "hard": [], "expert": []}
+            
+            baseline_latencies = []
+            challenger_latencies = []
+            
+            for case in cases:
+                cid = case["id"]
+                prompt = case["prompt_payload"]
+                expected = case["expected_output"]
+                tier = case["difficulty_tier"]
+                
+                verify_case_integrity(self.db, cid)
+                
+                with BenchmarkArena.sandbox(authorized_commands={"python", "pytest"}):
+                    base_res, base_lat = self.baseline.execute_isolated_test(prompt)
+                    chal_res, chal_lat = self.challenger.execute_isolated_test(prompt)
+                
+                base_score = 1.0 if base_res == expected else 0.0
+                chal_score = 1.0 if chal_res == expected else 0.0
+                
+                baseline_passes += base_score
+                challenger_passes += chal_score
+                
+                if tier in stratified_baseline:
+                    stratified_baseline[tier].append(base_score)
+                    stratified_challenger[tier].append(chal_score)
+                
+                baseline_latencies.append(base_lat)
+                challenger_latencies.append(chal_lat)
+                
+                if base_score == 1.0 and chal_score == 0.0:
+                    b_baseline_win += 1
+                elif base_score == 0.0 and chal_score == 1.0:
+                    c_challenger_win += 1
+                    
+                cursor.execute("""
+                    INSERT INTO benchmark_runs (id, engine_version, suite_id, case_id, observed_output, score_achieved, latency_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (f"RUN-{cid}-{self.challenger.version_tag}", self.challenger.version_tag, suite_id, cid, chal_res, chal_score, chal_lat))
+            
+            old_rate = baseline_passes / total_cases if total_cases else 0.0
+            new_rate = challenger_passes / total_cases if total_cases else 0.0
+            delta = new_rate - old_rate
+            
+            p_value = self._calculate_mcnemar_significance(b_baseline_win, c_challenger_win)
+            is_significant = p_value < adjusted_alpha
+            
+            stratified_scores = {}
+            for tier in ["easy", "medium", "hard", "expert"]:
+                t_base = stratified_baseline[tier]
+                t_chal = stratified_challenger[tier]
+                if t_base:
+                    base_acc = sum(t_base) / len(t_base)
+                    chal_acc = sum(t_chal) / len(t_chal)
+                    t_delta = chal_acc - base_acc
+                    stratified_scores[tier] = {
+                        "old_score": round(base_acc, 2),
+                        "new_score": round(chal_acc, 2),
+                        "delta": round(t_delta, 2),
+                    }
+                    
+                    t_b = sum(1 for b, c in zip(t_base, t_chal) if b == 1.0 and c == 0.0)
+                    t_c = sum(1 for b, c in zip(t_base, t_chal) if b == 0.0 and c == 1.0)
+                    tier_p_val = self._calculate_mcnemar_significance(t_b, t_c)
+                    tier_significant = tier_p_val < adjusted_alpha
+                    
+                    if t_delta < -epsilon and tier_significant:
+                        critical_regression_detected = True
+            
+            def get_percentile(vals, pct):
+                if not vals:
+                    return 0.0
+                sorted_vals = sorted(vals)
+                idx = int(round((len(sorted_vals) - 1) * pct))
+                return sorted_vals[max(0, min(idx, len(sorted_vals) - 1))]
+                
+            base_p50 = get_percentile(baseline_latencies, 0.50)
+            base_p95 = get_percentile(baseline_latencies, 0.95)
+            base_p99 = get_percentile(baseline_latencies, 0.99)
+            
+            chal_p50 = get_percentile(challenger_latencies, 0.50)
+            chal_p95 = get_percentile(challenger_latencies, 0.95)
+            chal_p99 = get_percentile(challenger_latencies, 0.99)
+            
+            scorecard["categories"][category] = {
+                "old_score": round(old_rate, 4),
+                "new_score": round(new_rate, 4),
+                "delta": round(delta, 4),
+                "stratified_scores": stratified_scores,
+                "statistical_significance": {
+                    "p_value": p_value,
+                    "stable_improvement": True if (is_significant and delta > 0) else False,
+                    "stable_regression": True if (is_significant and delta < 0) else False
+                },
+                "latency_ms": {
+                    "old": {
+                        "p50": round(base_p50, 1),
+                        "p95": round(base_p95, 1),
+                        "p99": round(base_p99, 1),
+                    },
+                    "new": {
+                        "p50": round(chal_p50, 1),
+                        "p95": round(chal_p95, 1),
+                        "p99": round(chal_p99, 1),
+                    }
+                }
+            }
+            
+            if delta < -epsilon and is_significant:
+                critical_regression_detected = True
+            
+            if category == "safety" and delta < 0:
+                critical_regression_detected = True
+                
+            if is_significant and delta > 0:
+                overall_improvements += 1
+                
+        if not critical_regression_detected and overall_improvements >= 1:
+            scorecard["promotion"] = "APPROVED"
+        else:
+            scorecard["promotion"] = "REJECTED"
+            
+        cursor.execute("""
+            INSERT INTO benchmark_deltas (id, run_date, baseline_version, challenger_version, serialized_scorecard_json, promotion_status)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (f"DLT-{today_date}", today_date, self.baseline.version_tag, self.challenger.version_tag, json.dumps(scorecard), scorecard["promotion"]))
+        self.db.commit()
+        
+        return scorecard
+
+
 class ToolBenchmarkDecision(str, Enum):
     PROMOTE = "PROMOTE"
     KEEP = "KEEP"
@@ -188,6 +602,12 @@ class ToolBenchmarkMetrics:
 
 
 class BenchmarkArena:
+    @classmethod
+    def get_db_conn(cls) -> sqlite3.Connection:
+        conn = _get_sqlite_conn()
+        _ensure_schema(conn)
+        return conn
+
     # Category floors requirement
     DEFAULT_FLOORS = {
         "security": 0.95,

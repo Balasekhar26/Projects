@@ -68,6 +68,7 @@ def test_browser_node_safe_read(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_safe_read",
     }
     res = browser_node(state)
     assert res["approval_required"] is False
@@ -83,6 +84,7 @@ def test_browser_node_approval_flow(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_approval_flow",
     }
     res = browser_node(state)
     assert res["approval_required"] is True
@@ -105,6 +107,7 @@ def test_browser_node_blocked_actions(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_pay_blocked",
     }
     res_pay = browser_node(state_pay)
     assert "strictly prohibited" in res_pay["result"].lower()
@@ -116,6 +119,7 @@ def test_browser_node_blocked_actions(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_del_blocked",
     }
     res_del = browser_node(state_del)
     assert "strictly prohibited" in res_del["result"].lower()
@@ -168,6 +172,7 @@ def test_browser_node_provenance_data(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_provenance",
     }
     res = browser_node(state)
     assert res["approval_required"] is False
@@ -189,6 +194,7 @@ def test_domain_risk_classes(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_domain_green",
     }
     res = browser_node(state)
     assert res["approval_required"] is False
@@ -201,6 +207,7 @@ def test_domain_risk_classes(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_domain_yellow",
     }
     res = browser_node(state)
     assert res["approval_required"] is False
@@ -213,6 +220,7 @@ def test_domain_risk_classes(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_domain_orange",
     }
     res = browser_node(state)
     assert res["approval_required"] is True
@@ -225,6 +233,7 @@ def test_domain_risk_classes(mock_env):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_domain_red",
     }
     res = browser_node(state)
     assert res["approval_required"] is False
@@ -240,18 +249,24 @@ def test_egress_firewall(mock_env, monkeypatch):
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_egress_secrets",
+        "approved": True,
     }
     res = browser_node(state)
     assert "blocked by Egress Firewall" in res["result"]
     assert "secret_value_1234567" not in res["logs"]
 
     # Workspace path exfiltration block
+    from backend.core.config import load_config
+    current_workspace = str(load_config().root)
     state: AgentState = {
-        "user_input": "Fill form at http://example.com path=/Users/alwaysdesigns/Documents/Codex/2026-06-14/balasekhar26-ult-translator-https-github-com/work/ult-translator",
+        "user_input": f"Fill form at http://example.com path={current_workspace}",
         "plan": None,
         "selected_agent": "browser",
         "logs": [],
         "result": None,
+        "chat_session_id": "session_egress_workspace",
+        "approved": True,
     }
     res = browser_node(state)
     assert "blocked by Egress Firewall" in res["result"]
@@ -267,6 +282,7 @@ def test_crawl_budgets(mock_env):
         "logs": [],
         "result": None,
         "browser_tabs_depth": {"http://example.com/deep": 4},
+        "chat_session_id": "session_crawl_depth",
     }
     res = browser_node(state)
     assert "Max crawl depth of 3 reached" in res["result"]
@@ -279,6 +295,7 @@ def test_crawl_budgets(mock_env):
         "logs": [],
         "result": None,
         "browser_pages_visited": [f"http://example.com/p{i}" for i in range(25)],
+        "chat_session_id": "session_crawl_pages",
     }
     res = browser_node(state)
     assert "Max page limit of 25 reached" in res["result"]
@@ -291,6 +308,8 @@ def test_crawl_budgets(mock_env):
         "logs": [],
         "result": None,
         "browser_downloads_count": 5,
+        "chat_session_id": "session_crawl_downloads",
+        "approved": True,
     }
     res = browser_node(state)
     assert "Download budget exceeded. Max of 5 downloads reached." in res["result"]
@@ -304,6 +323,7 @@ def test_crawl_budgets(mock_env):
         "logs": [],
         "result": None,
         "browser_start_time": time.time() - 601,
+        "chat_session_id": "session_crawl_runtime",
     }
     res = browser_node(state)
     assert "Max runtime of 10 minutes reached" in res["result"]

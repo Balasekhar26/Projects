@@ -207,9 +207,29 @@ class PersonalProjectManager:
                 if not prow:
                     raise KeyError(f"Project '{project_id}' not found.")
 
+                current_status = prow["status"].upper().strip()
+                if status_clean == current_status:
+                    return cls.get_project(project_id)
+
                 # Rule 6: Archived/Completed projects are read-only historical memory
-                if prow["status"] in {"ARCHIVED", "COMPLETED", "ABANDONED"}:
-                    raise ValueError(f"Project is in terminal state '{prow['status']}' and cannot be modified.")
+                if current_status in {"ARCHIVED", "COMPLETED", "ABANDONED"}:
+                    raise ValueError(f"Project is in terminal state '{current_status}' and cannot be modified.")
+
+                # Valid transition map
+                VALID_TRANSITIONS = {
+                    "PROPOSED": {"ACTIVE", "CANCELLED", "ABANDONED"},
+                    "ACTIVE": {"COMPLETED", "FAILED", "CANCELLED", "ABANDONED", "STUCK", "DORMANT"},
+                    "STUCK": {"ACTIVE", "CANCELLED", "ABANDONED"},
+                    "DORMANT": {"ACTIVE", "ARCHIVED"},
+                    "COMPLETED": set(),
+                    "FAILED": set(),
+                    "CANCELLED": set(),
+                    "ABANDONED": set(),
+                    "ARCHIVED": set()
+                }
+
+                if status_clean not in VALID_TRANSITIONS.get(current_status, set()):
+                    raise ValueError(f"Invalid state transition: {current_status} -> {status_clean}")
 
                 conn.execute("UPDATE projects SET status = ? WHERE project_id = ?", (status_clean, project_id))
                 ProjectMemory._log_event_conn(conn, project_id, "PROJECT_STATUS_CHANGED", {"status": status_clean, "reason": reason})
@@ -294,7 +314,7 @@ class PersonalProjectManager:
                 conn.execute(
                     """
                     INSERT INTO tasks (task_id, milestone_id, title, description, assigned_agent, status, progress, created_at, effort_score, deadline)
-                    VALUES (?, ?, ?, ?, ?, 'QUEUED', 0.0, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, 'READY', 0.0, ?, ?, ?)
                     """,
                     (t_id, milestone_id, title, description, assigned_agent, now, int(effort_score), deadline)
                 )
@@ -305,7 +325,7 @@ class PersonalProjectManager:
             finally:
                 conn.close()
 
-        return {"task_id": t_id, "milestone_id": milestone_id, "title": title, "status": "QUEUED", "assigned_agent": assigned_agent, "effort_score": effort_score, "deadline": deadline}
+        return {"task_id": t_id, "milestone_id": milestone_id, "title": title, "status": "READY", "assigned_agent": assigned_agent, "effort_score": effort_score, "deadline": deadline}
 
     @classmethod
     def update_task_status(cls, task_id: str, status: str, progress: Optional[float] = None) -> Dict[str, Any]:
@@ -313,6 +333,105 @@ class PersonalProjectManager:
         return ProjectMemory.update_task_status(task_id, status, progress)
 
     # -- Blocker & Dependency Engines -----------------------------------------
+
+    @classmethod
+    def add_task_dependency(cls, task_id: str, depends_on_task_id: str) -> None:
+        """Adds a task-level dependency, checking for cycles and updating task status to BLOCKED if dependency is not completed."""
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                # 1. Validate existences of both tasks
+                t1 = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+                t2 = conn.execute("SELECT status FROM tasks WHERE task_id = ?", (depends_on_task_id,)).fetchone()
+                if not t1 or not t2:
+                    raise ValueError("Both tasks must exist to establish dependency.")
+
+                # 2. Insert into task_dependencies
+                conn.execute(
+                    "INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)",
+                    (task_id, depends_on_task_id)
+                )
+
+                # 3. Check for cycles
+                cycle_detected = False
+                if cls._has_task_dependency_cycle(conn):
+                    conn.execute(
+                        "DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_task_id = ?",
+                        (task_id, depends_on_task_id)
+                    )
+                    # Trigger project warning event
+                    prow = conn.execute(
+                        "SELECT project_id FROM milestones WHERE milestone_id = (SELECT milestone_id FROM tasks WHERE task_id = ?)",
+                        (task_id,)
+                    ).fetchone()
+                    if prow and prow["project_id"]:
+                        ProjectMemory._log_event_conn(
+                            conn,
+                            prow["project_id"],
+                            "WARNING",
+                            {"message": f"Rejected cyclic task dependency: {task_id} -> {depends_on_task_id}"}
+                        )
+                    cycle_detected = True
+
+                if cycle_detected:
+                    conn.commit()
+                    raise ValueError("Task dependency cycle detected!")
+
+                # 4. If depends_on_task_id is not COMPLETED, transition task_id to BLOCKED
+                if t2["status"] != "COMPLETED":
+                    conn.execute(
+                        "UPDATE tasks SET status = 'BLOCKED' WHERE task_id = ?",
+                        (task_id,)
+                    )
+
+                # Log dependency added event
+                prow = conn.execute(
+                    "SELECT project_id FROM milestones WHERE milestone_id = (SELECT milestone_id FROM tasks WHERE task_id = ?)",
+                    (task_id,)
+                ).fetchone()
+                if prow and prow["project_id"]:
+                    ProjectMemory._log_event_conn(
+                        conn,
+                        prow["project_id"],
+                        "TASK_DEPENDENCY_ADDED",
+                        {"task_id": task_id, "depends_on": depends_on_task_id}
+                    )
+
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @staticmethod
+    def _has_task_dependency_cycle(conn: sqlite3.Connection) -> bool:
+        rows = conn.execute("SELECT task_id, depends_on_task_id FROM task_dependencies").fetchall()
+        adj: dict[str, set[str]] = {}
+        for r in rows:
+            adj.setdefault(r["task_id"], set()).add(r["depends_on_task_id"])
+
+        visited: set[str] = set()
+        stack: set[str] = set()
+
+        def dfs(node: str) -> bool:
+            visited.add(node)
+            stack.add(node)
+            for neighbor in adj.get(node, []):
+                if neighbor not in visited:
+                    if dfs(neighbor):
+                        return True
+                elif neighbor in stack:
+                    return True
+            stack.remove(node)
+            return False
+
+        for node in adj:
+            if node not in visited:
+                if dfs(node):
+                    return True
+        return False
+
 
     @classmethod
     def add_blocker(cls, project_id: str, severity: str, source: str) -> Dict[str, Any]:

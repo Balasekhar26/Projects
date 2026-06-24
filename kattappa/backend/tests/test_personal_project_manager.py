@@ -18,8 +18,10 @@ def mock_env(monkeypatch):
     monkeypatch.setenv("KATTAPPA_ENV", "test")
     monkeypatch.setenv("KATTAPPA_DATA_DIR", temp_dir)
 
+    from backend.core.executive_planner import ExecutivePlanner
     GoalMemory._schema_ensured = False
     ProjectMemory._schema_ensured = False
+    ExecutivePlanner._schema_ensured = False
     GoalMemory.reset()
     ProjectMemory.reset()
 
@@ -180,3 +182,123 @@ def test_reflection_and_memory_logging():
     # Verify memory contains logs
     retrieved = PersonalProjectManager.get_project(p_id)
     assert len(retrieved["memory"]) == 3 # Decision, Lesson, Reflection report
+
+
+def test_task_dependency_gating():
+    # Create goal, project, milestone
+    goal = GoalManager.add_goal(title="Task Dependency Goal", current_state="ACTIVE")
+    proj = PersonalProjectManager.create_project(linked_goal_id=goal["goal_id"], status="ACTIVE")
+    p_id = proj["project_id"]
+    milestone = PersonalProjectManager.create_milestone(project_id=p_id, title="Milestone 1")
+    m_id = milestone["milestone_id"]
+
+    # Create task 1 and task 2
+    task1 = PersonalProjectManager.create_task(milestone_id=m_id, title="Task 1")
+    task2 = PersonalProjectManager.create_task(milestone_id=m_id, title="Task 2")
+    t1_id = task1["task_id"]
+    t2_id = task2["task_id"]
+
+    assert task1["status"] == "READY"
+    assert task2["status"] == "READY"
+
+    # Add task dependency: Task 2 depends on Task 1
+    PersonalProjectManager.add_task_dependency(t2_id, t1_id)
+
+    # Task 2 should transition to BLOCKED because Task 1 is not COMPLETED
+    t2_updated = ProjectMemory.get_task(t2_id)
+    assert t2_updated["status"] == "BLOCKED"
+
+    # Try to transition Task 2 to RUNNING -> should raise ValueError
+    with pytest.raises(ValueError, match="incomplete dependencies"):
+        PersonalProjectManager.update_task_status(t2_id, "RUNNING")
+
+    # Complete Task 1
+    PersonalProjectManager.update_task_status(t1_id, "COMPLETED")
+
+    # Task 2 should automatically become READY
+    t2_ready = ProjectMemory.get_task(t2_id)
+    assert t2_ready["status"] == "READY"
+
+    # Check project events
+    proj_details = ProjectMemory.get_project(p_id)
+    event_types = [e["event_type"] for e in proj_details["events"]]
+    assert "TASK_STATUS_CHANGED" in event_types
+
+
+def test_task_dependency_cycle_prevention():
+    # Create goal, project, milestone
+    goal = GoalManager.add_goal(title="Task Cycle Goal", current_state="ACTIVE")
+    proj = PersonalProjectManager.create_project(linked_goal_id=goal["goal_id"], status="ACTIVE")
+    p_id = proj["project_id"]
+    milestone = PersonalProjectManager.create_milestone(project_id=p_id, title="Milestone 1")
+    m_id = milestone["milestone_id"]
+
+    # Create task 1, 2, 3
+    t1 = PersonalProjectManager.create_task(milestone_id=m_id, title="T1")["task_id"]
+    t2 = PersonalProjectManager.create_task(milestone_id=m_id, title="T2")["task_id"]
+    t3 = PersonalProjectManager.create_task(milestone_id=m_id, title="T3")["task_id"]
+
+    # Add T2 depends on T1
+    PersonalProjectManager.add_task_dependency(t2, t1)
+    # Add T3 depends on T2
+    PersonalProjectManager.add_task_dependency(t3, t2)
+
+    # Try to add T1 depends on T3 -> should fail with cycle check
+    with pytest.raises(ValueError, match="dependency cycle detected"):
+        PersonalProjectManager.add_task_dependency(t1, t3)
+
+    # Check project warning event
+    proj_details = ProjectMemory.get_project(p_id)
+    event_types = [e["event_type"] for e in proj_details["events"]]
+    assert "WARNING" in event_types
+
+
+def test_executive_planner_ppm_dependency_mapping():
+    from backend.core.executive_planner import ExecutivePlanner
+    
+    # Initialize resource ledger totals for planning
+    conn = ExecutivePlanner._get_sqlite_conn()
+    try:
+        for r_type, cap in [("TOKEN_BUDGET", 10000000.0), ("COMPUTE_CORES", 64.0), ("HUMAN_ATTENTION_TOKENS", 100.0)]:
+            conn.execute(
+                "INSERT OR REPLACE INTO global_resource_ledger (resource_type, total_capacity, reserved_units, consumed_units) VALUES (?, ?, 0.0, 0.0)",
+                (r_type, cap)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    steps = [
+        {"action": "Design circuit", "requires_approval": False, "effort": 3},
+        {"action": "Validate daily charging", "requires_approval": True, "effort": 5}
+    ]
+
+    res = ExecutivePlanner.create_executive_plan(
+        goal_id="goal_solar_mapping",
+        plan_title="Build solar-powered cover map",
+        plan_description="Charge phone cover.",
+        plan_steps=steps,
+        domain="Hardware"
+    )
+    assert res["status"] == "ok"
+    blueprint_id = res["blueprint_id"]
+
+    # Deploy to PPM
+    dep_res = ExecutivePlanner.deploy_blueprint_to_ppm(blueprint_id)
+    assert dep_res["status"] == "ok"
+    p_id = dep_res["project_id"]
+
+    # Verify that project, milestones, and tasks were created with correct dependencies
+    proj = PersonalProjectManager.get_project(p_id)
+    assert len(proj["milestones"]) == 1
+    tasks = proj["milestones"][0]["tasks"]
+    assert len(tasks) == 2
+
+    # Task titles should match blueprint steps
+    t_design = next(t for t in tasks if "Design" in t["title"])
+    t_validate = next(t for t in tasks if "Validate" in t["title"])
+
+    # t_validate should be BLOCKED because it depends on t_design
+    assert t_design["status"] == "READY"
+    assert t_validate["status"] == "BLOCKED"
+
