@@ -565,10 +565,13 @@ def create_macos_desktop_shortcut() -> None:
     shortcut = desktop / "Kattappa AI OS.app"
     try:
         desktop.mkdir(parents=True, exist_ok=True)
-        if shortcut.is_symlink() and shortcut.resolve() == app.resolve():
-            print(f"macOS desktop shortcut ready: {shortcut}")
-            return
-        if shortcut.exists() or shortcut.is_symlink():
+        if shortcut.is_symlink():
+            if shortcut.resolve() == app.resolve():
+                print(f"macOS desktop shortcut ready: {shortcut}")
+                return
+            else:
+                shortcut.unlink()
+        elif shortcut.exists():
             print(f"Skipping macOS desktop shortcut: {shortcut} already exists.")
             return
         shortcut.symlink_to(app, target_is_directory=True)
