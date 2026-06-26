@@ -13,6 +13,18 @@ from typing import Optional
 from datetime import datetime
 
 
+def state_to_cpu(state):
+    """Recursively moves all PyTorch tensors in a state dict/list to CPU."""
+    if isinstance(state, dict):
+        return {k: state_to_cpu(v) for k, v in state.items()}
+    elif isinstance(state, list):
+        return [state_to_cpu(v) for v in state]
+    elif isinstance(state, torch.Tensor):
+        return state.cpu()
+    else:
+        return state
+
+
 class CheckpointManager:
     """
     Manages checkpoint saves and loads for Kattappa training.
@@ -46,11 +58,15 @@ class CheckpointManager:
         extra: Optional[dict] = None,
     ) -> str:
         """Save a checkpoint and return its path."""
+        # Copy to CPU to avoid MPS memory spikes and serialization issues on GPU
+        model_state_cpu = state_to_cpu(model.state_dict())
+        optimizer_state_cpu = state_to_cpu(optimizer.state_dict())
+
         state = {
             "step": step,
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
+            "model_state_dict": model_state_cpu,
+            "optimizer_state_dict": optimizer_state_cpu,
             "scheduler_state_dict": scheduler.state_dict() if hasattr(scheduler, "state_dict") else {},
             "val_ppl": val_ppl,
             "best_val_ppl": self.best_val_ppl,
@@ -94,7 +110,8 @@ class CheckpointManager:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Checkpoint not found: {path}")
 
-        state = torch.load(path, map_location=device)
+        # Always load checkpoint to CPU first to avoid GPU/MPS memory allocation spikes
+        state = torch.load(path, map_location="cpu")
         if model is not None:
             model.load_state_dict(state["model_state_dict"])
         if optimizer is not None:
@@ -103,8 +120,9 @@ class CheckpointManager:
             scheduler.load_state_dict(state.get("scheduler_state_dict", {}))
 
         self.best_val_ppl = state.get("best_val_ppl", float("inf"))
-        print(f"  📂  Loaded checkpoint: {path}  (step={state['step']}, best_ppl={self.best_val_ppl:.4f})")
+        print(f"  📂  Loaded checkpoint to CPU: {path}  (step={state['step']}, best_ppl={self.best_val_ppl:.4f})")
         return state
+
 
     def _prune(self):
         """Delete old checkpoints beyond keep_last_n."""

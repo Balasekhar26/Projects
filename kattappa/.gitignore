@@ -69,3 +69,11 @@ Kattappa AI OS/
 *.db
 *.sqlite
 *.sqlite3
+
+# ML checkpoints and weights
+checkpoints/
+**/checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.bin

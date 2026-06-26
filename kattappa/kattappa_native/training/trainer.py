@@ -220,36 +220,88 @@ def train(args):
                                   scheduler=scheduler, device=str(device))
         start_step = state.get("step", 0)
         print(f"  ▶  Resuming from step {start_step} ({Path(resume_path).name})")
+        del state
+        if device.type == "mps" and hasattr(torch.mps, "empty_cache"):
+            try:
+                torch.mps.empty_cache()
+            except Exception:
+                pass
+
 
     # Training loop
     model.train()
-    scaler = torch.cuda.amp.GradScaler() if use_bf16 else None
-    data_itr = batch_iterator(train_texts, args.batch, args.seq_len, cfg.vocab_size, device)
+    use_amp = (device.type == "mps")
+    if use_bf16:
+        scaler = torch.cuda.amp.GradScaler()
+    elif use_amp:
+        scaler = torch.amp.GradScaler("mps")
+    else:
+        scaler = None
+
+    # Handle micro-batches for gradient accumulation
+    accum_steps = getattr(args, "grad_accum_steps", 1)
+    if accum_steps < 1:
+        accum_steps = 1
+    assert args.batch % accum_steps == 0, f"Batch size {args.batch} must be divisible by grad-accum-steps {accum_steps}"
+    micro_batch_size = args.batch // accum_steps
+
+    data_itr = batch_iterator(train_texts, micro_batch_size, args.seq_len, cfg.vocab_size, device)
 
     print(f"\n{'='*60}")
     print(f"  Starting training from step {start_step}...")
+    print(f"  Micro-batch size: {micro_batch_size} | Accumulation steps: {accum_steps}")
     print(f"{'='*60}\n")
 
     t_start = time.time()
+    optimizer.zero_grad(set_to_none=True)
+
     for step in range(start_step, args.steps):
-        x, y = next(data_itr)
-        lr = scheduler.step()
-
-        optimizer.zero_grad(set_to_none=True)
-
-        if use_bf16:
-            with torch.autocast(device_type="cuda", dtype=dtype):
+        # Accumulate gradients over micro-steps
+        loss_val = 0.0
+        for micro_step in range(accum_steps):
+            x, y = next(data_itr)
+            if use_bf16:
+                with torch.autocast(device_type="cuda", dtype=dtype):
+                    _, loss = model(x, targets=y)
+                # Scale loss to account for accumulation
+                loss = loss / accum_steps
+                scaler.scale(loss).backward()
+                loss_val += loss.item() * accum_steps
+            elif use_amp:
+                with torch.amp.autocast(device_type="mps", dtype=torch.float16):
+                    _, loss = model(x, targets=y)
+                # Scale loss to account for accumulation
+                loss = loss / accum_steps
+                scaler.scale(loss).backward()
+                loss_val += loss.item() * accum_steps
+            else:
                 _, loss = model(x, targets=y)
-            scaler.scale(loss).backward()
+                # Scale loss to account for accumulation
+                loss = loss / accum_steps
+                loss.backward()
+                loss_val += loss.item() * accum_steps
+
+        # Update weights
+        if use_bf16 or use_amp:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             scaler.step(optimizer)
             scaler.update()
         else:
-            _, loss = model(x, targets=y)
-            loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             optimizer.step()
+
+        lr = scheduler.step()
+
+        optimizer.zero_grad(set_to_none=True)
+
+        # Periodic cache clearing on MPS
+        if device.type == "mps" and step % args.log_interval == 0:
+            if hasattr(torch.mps, "empty_cache"):
+                try:
+                    torch.mps.empty_cache()
+                except Exception:
+                    pass
 
         # Logging
         if step % args.log_interval == 0:
@@ -257,8 +309,8 @@ def train(args):
             tokens_per_sec = (step - start_step + 1) * args.batch * args.seq_len / max(elapsed, 1)
             print(
                 f"  step {step:>7d}/{args.steps}  "
-                f"loss={loss.item():.4f}  "
-                f"ppl={math.exp(loss.item()):.2f}  "
+                f"loss={loss_val:.4f}  "
+                f"ppl={math.exp(min(loss_val, 100.0)):.2f}  "
                 f"lr={lr:.2e}  "
                 f"tok/s={tokens_per_sec:,.0f}"
             )
@@ -266,7 +318,7 @@ def train(args):
         # Evaluation & checkpoint
         if step > 0 and step % args.eval_interval == 0:
             # 30 batches → ~240 samples: significantly more stable PPL estimate
-            val_ppl = evaluate(model, val_texts, args.batch, args.seq_len,
+            val_ppl = evaluate(model, val_texts, micro_batch_size, args.seq_len,
                                cfg.vocab_size, device, n_batches=30)
             print(f"\n  📊 Step {step} — Val PPL: {val_ppl:.4f}\n")
             ckpt_manager.save(
@@ -275,11 +327,17 @@ def train(args):
                 optimizer=optimizer,
                 scheduler=scheduler,
                 val_ppl=val_ppl,
-                extra={"train_loss": loss.item(), "lr": lr},
+                extra={"train_loss": loss_val, "lr": lr},
             )
+            # Empty cache again after evaluation
+            if device.type == "mps" and hasattr(torch.mps, "empty_cache"):
+                try:
+                    torch.mps.empty_cache()
+                except Exception:
+                    pass
 
     # Final save
-    val_ppl = evaluate(model, val_texts, args.batch, args.seq_len,
+    val_ppl = evaluate(model, val_texts, micro_batch_size, args.seq_len,
                        cfg.vocab_size, device, n_batches=20)
     ckpt_manager.save(
         step=args.steps,
@@ -293,10 +351,12 @@ def train(args):
     print(f"   Checkpoints saved to: {args.checkpoint_dir}\n")
 
 
+
 def main():
     parser = argparse.ArgumentParser(description="Kattappa-100M Trainer")
     parser.add_argument("--steps",          type=int,   default=50000)
     parser.add_argument("--batch",          type=int,   default=8)
+    parser.add_argument("--grad-accum-steps", type=int, default=1)
     parser.add_argument("--seq-len",        type=int,   default=2048)
     parser.add_argument("--lr",             type=float, default=3e-4)
     parser.add_argument("--grad-clip",      type=float, default=1.0)
