@@ -1,0 +1,200 @@
+{
+  "audit_timestamp": "2026-06-25T11:16:19.535617Z",
+  "manifest_version": "1.0.0",
+  "files_audited": 16,
+  "aggregated_by_category": {
+    "general_knowledge": 30027,
+    "roman_telugu": 14985,
+    "reasoning": 2061696,
+    "programming": 715013,
+    "tool_traces": 479872,
+    "telugu": 117411,
+    "engineering": 1926
+  },
+  "total_available_tokens": 3420930,
+  "alpha_target_tokens": 150000000,
+  "file_details": [
+    {
+      "path": "kattappa_data_engine/data/cleaned/ingested.jsonl",
+      "total_records": 6015,
+      "approx_tokens": 1142209,
+      "by_category": {
+        "general_knowledge": 244,
+        "roman_telugu": 5183,
+        "reasoning": 660328,
+        "programming": 247425,
+        "tool_traces": 186344,
+        "telugu": 40615
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/deduplicated/deduplicated.jsonl",
+      "total_records": 747,
+      "approx_tokens": 100597,
+      "by_category": {
+        "general_knowledge": 153,
+        "roman_telugu": 137,
+        "reasoning": 97831,
+        "programming": 777,
+        "tool_traces": 929,
+        "telugu": 460
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/distill/distillation_dataset.jsonl",
+      "total_records": 16,
+      "approx_tokens": 2849,
+      "by_category": {
+        "telugu": 870,
+        "general_knowledge": 1400,
+        "roman_telugu": 372,
+        "engineering": 198
+      },
+      "dominant_category": "general_knowledge"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/test.jsonl",
+      "total_records": 282,
+      "approx_tokens": 46717,
+      "by_category": {
+        "reasoning": 27349,
+        "programming": 10940,
+        "tool_traces": 5326,
+        "roman_telugu": 150,
+        "telugu": 1540,
+        "general_knowledge": 1207,
+        "engineering": 108
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/train.jsonl",
+      "total_records": 5085,
+      "approx_tokens": 839452,
+      "by_category": {
+        "reasoning": 484833,
+        "programming": 193315,
+        "general_knowledge": 24201,
+        "roman_telugu": 3850,
+        "tool_traces": 96308,
+        "telugu": 33771,
+        "engineering": 1404
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/validation_coding.jsonl",
+      "total_records": 90,
+      "approx_tokens": 21796,
+      "by_category": {
+        "programming": 21785
+      },
+      "dominant_category": "programming"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/validation_general.jsonl",
+      "total_records": 60,
+      "approx_tokens": 2052,
+      "by_category": {
+        "general_knowledge": 2035
+      },
+      "dominant_category": "general_knowledge"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/validation_memory.jsonl",
+      "total_records": 60,
+      "approx_tokens": 6901,
+      "by_category": {
+        "reasoning": 6882
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/validation_planning.jsonl",
+      "total_records": 90,
+      "approx_tokens": 27045,
+      "by_category": {
+        "reasoning": 27000
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/validation_reasoning.jsonl",
+      "total_records": 90,
+      "approx_tokens": 15728,
+      "by_category": {
+        "reasoning": 15695
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/validation_refusal.jsonl",
+      "total_records": 15,
+      "approx_tokens": 837,
+      "by_category": {
+        "engineering": 216,
+        "general_knowledge": 613
+      },
+      "dominant_category": "general_knowledge"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/validation_telugu.jsonl",
+      "total_records": 100,
+      "approx_tokens": 8770,
+      "by_category": {
+        "reasoning": 5472,
+        "roman_telugu": 550,
+        "telugu": 2708
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/processed/sft/validation_tool_usage.jsonl",
+      "total_records": 60,
+      "approx_tokens": 10712,
+      "by_category": {
+        "tool_traces": 10692
+      },
+      "dominant_category": "tool_traces"
+    },
+    {
+      "path": "kattappa_data_engine/data/raw/conversations/chat1.jsonl",
+      "total_records": 2,
+      "approx_tokens": 46,
+      "by_category": {
+        "roman_telugu": 30,
+        "general_knowledge": 16
+      },
+      "dominant_category": "roman_telugu"
+    },
+    {
+      "path": "kattappa_data_engine/data/raw/conversations/kattappa_synthetic_v1.jsonl",
+      "total_records": 6000,
+      "approx_tokens": 1101737,
+      "by_category": {
+        "reasoning": 638472,
+        "programming": 240030,
+        "tool_traces": 179344,
+        "telugu": 37255,
+        "roman_telugu": 4576
+      },
+      "dominant_category": "reasoning"
+    },
+    {
+      "path": "kattappa_data_engine/data/scored/scored.jsonl",
+      "total_records": 742,
+      "approx_tokens": 100301,
+      "by_category": {
+        "general_knowledge": 158,
+        "roman_telugu": 137,
+        "reasoning": 97834,
+        "programming": 741,
+        "tool_traces": 929,
+        "telugu": 192
+      },
+      "dominant_category": "reasoning"
+    }
+  ]
+}

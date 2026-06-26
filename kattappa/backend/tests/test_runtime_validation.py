@@ -43,13 +43,17 @@ def test_build_direct_model_prompt_injects_history_and_date(isolated_db):
     
     prompt = _build_direct_model_prompt("What's my name?", session["id"], current_msg["id"])
     
-    assert "System Context:" in prompt
-    assert "Current Date:" in prompt
-    assert "Current Local Time:" in prompt
-    assert "Recent conversation history:" in prompt
-    assert "user: My name is Bala" in prompt
-    assert "assistant: Hello Bala!" in prompt
-    assert "User: What's my name?" in prompt
+    # Check system prompt contents
+    system_msg = next((m for m in prompt if m["role"] == "system"), None)
+    assert system_msg is not None
+    assert "System Context:" in system_msg["content"]
+    assert "Current Date:" in system_msg["content"]
+    assert "Current Local Time:" in system_msg["content"]
+
+    # Check that older chat messages are in the message list
+    assert prompt[1] == {"role": "user", "content": "My name is Bala"}
+    assert prompt[2] == {"role": "assistant", "content": "Hello Bala!"}
+    assert prompt[3] == {"role": "user", "content": "What's my name?"}
 
 
 # ── Tool Tests ────────────────────────────────────────────────────────────────

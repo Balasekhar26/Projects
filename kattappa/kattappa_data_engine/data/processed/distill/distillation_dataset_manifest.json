@@ -1,0 +1,12 @@
+{
+  "total_prompts": 34,
+  "generated_samples": 34,
+  "filtered_out": 18,
+  "exported_samples": 16,
+  "disagreement_outliers": 0,
+  "diversity_metrics": {
+    "avg_word_count": 57.31,
+    "lexical_diversity": 0.1756
+  },
+  "output_path": "/Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/kattappa_data_engine/data/processed/distill/distillation_dataset.jsonl"
+}

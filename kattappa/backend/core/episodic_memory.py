@@ -48,7 +48,7 @@ class EpisodicMemory:
     def _get_sqlite_conn(cls) -> sqlite3.Connection:
         config = load_config()
         config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(config.sqlite_path), check_same_thread=False)
+        conn = sqlite3.connect(str(config.sqlite_path), check_same_thread=False, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode=WAL")

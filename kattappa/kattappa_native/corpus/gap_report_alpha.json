@@ -1,0 +1,163 @@
+{
+  "manifest_version": "1.0.0",
+  "model_target": "Kattappa-100M-Alpha",
+  "gap_analysis": {
+    "run": "alpha",
+    "total_target": 150000000,
+    "total_available": 160608154,
+    "total_gap": 0,
+    "pct_filled": 107.07,
+    "categories": [
+      {
+        "category": "general_knowledge",
+        "target_tokens": 52500000,
+        "available_tokens": 76465639,
+        "gap_tokens": 0,
+        "pct_filled": 145.6,
+        "status": "\u2705"
+      },
+      {
+        "category": "reasoning",
+        "target_tokens": 30000000,
+        "available_tokens": 17235164,
+        "gap_tokens": 12764836,
+        "pct_filled": 57.5,
+        "status": "\ud83d\udfe1"
+      },
+      {
+        "category": "programming",
+        "target_tokens": 22500000,
+        "available_tokens": 8974435,
+        "gap_tokens": 13525565,
+        "pct_filled": 39.9,
+        "status": "\ud83d\udfe1"
+      },
+      {
+        "category": "engineering",
+        "target_tokens": 15000000,
+        "available_tokens": 442928,
+        "gap_tokens": 14557072,
+        "pct_filled": 3.0,
+        "status": "\ud83d\udd34"
+      },
+      {
+        "category": "telugu",
+        "target_tokens": 15000000,
+        "available_tokens": 36791257,
+        "gap_tokens": 0,
+        "pct_filled": 245.3,
+        "status": "\u2705"
+      },
+      {
+        "category": "roman_telugu",
+        "target_tokens": 7500000,
+        "available_tokens": 9816424,
+        "gap_tokens": 0,
+        "pct_filled": 130.9,
+        "status": "\u2705"
+      },
+      {
+        "category": "tool_traces",
+        "target_tokens": 7500000,
+        "available_tokens": 10882307,
+        "gap_tokens": 0,
+        "pct_filled": 145.1,
+        "status": "\u2705"
+      }
+    ],
+    "status_summary": "\u2705 READY \u2014 token budget satisfied"
+  },
+  "file_reports": [
+    {
+      "path": "kattappa_native/corpus/deduped/gutenberg.jsonl",
+      "total_tokens": 87695258,
+      "by_category": {
+        "general_knowledge": 63598125,
+        "roman_telugu": 9393415,
+        "tool_traces": 1517601,
+        "programming": 4499931,
+        "reasoning": 8260041,
+        "engineering": 425228,
+        "telugu": 917
+      }
+    },
+    {
+      "path": "kattappa_native/corpus/deduped/kde_ingested.jsonl",
+      "total_tokens": 1048681,
+      "by_category": {
+        "reasoning": 694094,
+        "tool_traces": 336425,
+        "telugu": 18162
+      }
+    },
+    {
+      "path": "kattappa_native/corpus/deduped/kde_synthetic_v1.jsonl",
+      "total_tokens": 1021959,
+      "by_category": {
+        "reasoning": 679842,
+        "tool_traces": 329757,
+        "telugu": 12360
+      }
+    },
+    {
+      "path": "kattappa_native/corpus/deduped/kde_train.jsonl",
+      "total_tokens": 763510,
+      "by_category": {
+        "reasoning": 529681,
+        "tool_traces": 221995,
+        "telugu": 11834
+      }
+    },
+    {
+      "path": "kattappa_native/corpus/deduped/synthetic_expansion.jsonl",
+      "total_tokens": 25573910,
+      "by_category": {
+        "roman_telugu": 394630,
+        "telugu": 3026,
+        "reasoning": 7032366,
+        "general_knowledge": 12653355,
+        "tool_traces": 3379917,
+        "engineering": 7144,
+        "programming": 2103472
+      }
+    },
+    {
+      "path": "kattappa_native/corpus/deduped/wikipedia_en.jsonl",
+      "total_tokens": 94028,
+      "by_category": {
+        "general_knowledge": 68949,
+        "reasoning": 7826,
+        "roman_telugu": 10389,
+        "programming": 4611,
+        "tool_traces": 1495,
+        "engineering": 758
+      }
+    },
+    {
+      "path": "kattappa_native/corpus/deduped/wikipedia_te.jsonl",
+      "total_tokens": 36754100,
+      "by_category": {
+        "telugu": 36732198,
+        "roman_telugu": 4754,
+        "reasoning": 3190,
+        "general_knowledge": 8241,
+        "engineering": 1564,
+        "programming": 2597,
+        "tool_traces": 1556
+      }
+    },
+    {
+      "path": "kattappa_native/corpus/deduped/workspace_code.jsonl",
+      "total_tokens": 7656708,
+      "by_category": {
+        "programming": 2363824,
+        "tool_traces": 5093561,
+        "general_knowledge": 136969,
+        "reasoning": 28124,
+        "engineering": 8234,
+        "telugu": 12760,
+        "roman_telugu": 13236
+      }
+    }
+  ]
+}

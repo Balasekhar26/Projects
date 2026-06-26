@@ -350,7 +350,7 @@ def render_assistant_reply_for_telugu_speech(text: str) -> str:
     cleaned = _speech_safe_text(text)
     if not cleaned:
         return ""
-    if _contains_telugu(cleaned):
+    if _contains_telugu(cleaned) and not re.search(r"[a-zA-Z]", cleaned):
         return cleaned
     phrase = _telugu_phrase(cleaned)
     if phrase:
@@ -815,9 +815,12 @@ def _translate_to_telugu_with_local_model(text: str) -> str:
     config = load_config()
     model = os.getenv("KATTAPPA_VOICE_TRANSLATE_MODEL", config.model_map.get("fast", config.model_map["general"]))
     prompt = (
-        "Translate this assistant reply into natural spoken Telugu for text-to-speech. "
-        "Keep product names, file names, commands, and code keywords in English only when needed. "
-        "Return only Telugu script text, no markdown, no explanation, no quotation marks.\n\n"
+        "Translate this assistant reply 100% into natural spoken Telugu for text-to-speech.\n"
+        "Rules:\n"
+        "1. Exclusively use Telugu script (Telugu Unicode characters). Do not output any English letters (A-Z, a-z).\n"
+        "2. Any English/technical terms (like 'Chrome', 'file', 'code', 'python', 'server') must be transliterated into Telugu script (e.g., 'క్రోమ్', 'ఫైల్', 'కోడ్', 'పైథాన్', 'సర్వర్').\n"
+        "3. All numbers, years, and dates must be written out fully in Telugu words (e.g., '2026' should be 'రెండు వేల ఇరవై ఆరు', '25' should be 'ఇరవై ఐదు').\n"
+        "4. Return ONLY the translated Telugu script. Do not include markdown, explanations, notes, or English words.\n\n"
         f"English reply:\n{text}"
     )
     try:
@@ -829,8 +832,8 @@ def _translate_to_telugu_with_local_model(text: str) -> str:
                     {
                         "role": "system",
                         "content": (
-                            "You render Kattappa AI OS voice replies in Telugu. "
-                            "The visual chat remains English, but spoken output must be Telugu."
+                            "You are a translation layer that converts English replies into 100% pure Telugu script. "
+                            "Never output English alphabet letters (A-Z, a-z). Translate or transliterate all words into Telugu script."
                         ),
                     },
                     {"role": "user", "content": prompt},
@@ -851,6 +854,7 @@ def _translate_to_telugu_with_local_model(text: str) -> str:
 def _clean_translated_telugu(text: str) -> str:
     cleaned = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
     cleaned = re.sub(r"[*_`#>]+", "", cleaned)
+    cleaned = re.sub(r"[a-zA-Z]", "", cleaned)
     cleaned = cleaned.strip().strip('"').strip("'")
     return " ".join(cleaned.split())
 

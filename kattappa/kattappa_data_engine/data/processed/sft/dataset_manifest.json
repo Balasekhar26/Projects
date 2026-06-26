@@ -1,0 +1,34 @@
+{
+  "total_training_samples": 5085,
+  "total_test_samples": 282,
+  "category_training_counts": {
+    "planning": 810,
+    "coding": 810,
+    "reasoning": 810,
+    "memory": 540,
+    "general": 540,
+    "telugu": 900,
+    "tool_usage": 540,
+    "refusal": 135
+  },
+  "validation_split_counts": {
+    "reasoning": 90,
+    "planning": 90,
+    "coding": 90,
+    "memory": 60,
+    "tool_usage": 60,
+    "telugu": 100,
+    "general": 60,
+    "refusal": 15
+  },
+  "language_counts": {
+    "english": 4185,
+    "roman_telugu": 593,
+    "telugu": 307
+  },
+  "difficulty_counts": {
+    "medium": 2188,
+    "hard": 2058,
+    "easy": 839
+  }
+}

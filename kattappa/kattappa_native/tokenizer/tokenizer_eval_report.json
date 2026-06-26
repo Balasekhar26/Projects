@@ -1,0 +1,29 @@
+{
+  "results": {
+    "english": {
+      "fertility": 1.277,
+      "threshold": 1.5,
+      "unk_rate": 0.0,
+      "passed": true
+    },
+    "telugu": {
+      "fertility": 2.0,
+      "threshold": 3.0,
+      "unk_rate": 0.0,
+      "passed": true
+    },
+    "roman_telugu": {
+      "fertility": 2.273,
+      "threshold": 2.5,
+      "unk_rate": 0.0,
+      "passed": true
+    },
+    "code": {
+      "fertility": 2.17,
+      "threshold": 3.0,
+      "unk_rate": 0.0,
+      "passed": true
+    }
+  },
+  "all_pass": true
+}

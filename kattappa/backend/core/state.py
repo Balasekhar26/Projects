@@ -24,3 +24,21 @@ class AgentState(TypedDict):
     logs: list[str]
     operator_plan: dict[str, Any] | None
     trust_tag: str
+    # Cognitive pipeline keys
+    observation_frame: dict[str, Any] | None
+    attention_frame: dict[str, Any] | None
+    memory_payload: dict[str, Any] | None
+    council_debate_result: dict[str, Any] | None
+    reasoning_hypothesis: str | None
+    stakes_level: str
+    reversibility: str
+    required_confidence: float
+    path_selected: str
+    metacognitive_action: str
+    world_model_prediction: dict[str, Any] | None
+    re_retrieve_count: int
+    blackboard: Any | None
+    memory_confidence_level: str
+    reasoning_recursion_depth: int
+    reasoning_gaps: str | None
+    kg_context: str | None

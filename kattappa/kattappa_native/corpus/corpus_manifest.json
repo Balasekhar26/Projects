@@ -1,0 +1,122 @@
+{
+  "_description": "Kattappa-100M token budget manifest. Lock this file before tokenizer training begins.",
+  "_version": "1.0.0",
+  "_model_target": "Kattappa-100M-Alpha",
+  "_last_updated": "2026-06-25",
+
+  "alpha_run": {
+    "_description": "Ignition test — verify tokenizer, dataloader, training loop, checkpointing.",
+    "target_total_tokens": 150000000,
+    "sources": {
+      "general_knowledge": {
+        "ratio": 0.35,
+        "target_tokens": 52500000,
+        "description": "English factual text, Wikipedia summaries, encyclopedic content"
+      },
+      "reasoning": {
+        "ratio": 0.20,
+        "target_tokens": 30000000,
+        "description": "Chain-of-thought, math word problems, logical reasoning traces"
+      },
+      "programming": {
+        "ratio": 0.15,
+        "target_tokens": 22500000,
+        "description": "Code samples, docstrings, code comments, technical Q&A"
+      },
+      "engineering": {
+        "ratio": 0.10,
+        "target_tokens": 15000000,
+        "description": "Systems design, architecture docs, engineering principles"
+      },
+      "telugu": {
+        "ratio": 0.10,
+        "target_tokens": 15000000,
+        "description": "Telugu Wikipedia, Telugu news, Telugu books (public domain)"
+      },
+      "roman_telugu": {
+        "ratio": 0.05,
+        "target_tokens": 7500000,
+        "description": "Romanised Telugu conversations, code-switched chat"
+      },
+      "tool_traces": {
+        "ratio": 0.05,
+        "target_tokens": 7500000,
+        "description": "KM-2 synthetic tool-use traces, KM-4.5 distillation outputs"
+      }
+    }
+  },
+
+  "beta_run": {
+    "_description": "Intelligence acquisition — requires Alpha success first.",
+    "target_total_tokens": 750000000,
+    "sources": {
+      "general_knowledge":  { "ratio": 0.35, "target_tokens": 262500000 },
+      "reasoning":          { "ratio": 0.20, "target_tokens": 150000000 },
+      "programming":        { "ratio": 0.15, "target_tokens": 112500000 },
+      "engineering":        { "ratio": 0.10, "target_tokens": 75000000  },
+      "telugu":             { "ratio": 0.10, "target_tokens": 75000000  },
+      "roman_telugu":       { "ratio": 0.05, "target_tokens": 37500000  },
+      "tool_traces":        { "ratio": 0.05, "target_tokens": 37500000  }
+    }
+  },
+
+  "tokenizer_sample": {
+    "_description": "10M-token balanced sample for SentencePiece training. Must represent all categories.",
+    "target_tokens": 10000000,
+    "sources": {
+      "general_knowledge":  { "ratio": 0.25, "target_tokens": 2500000 },
+      "reasoning":          { "ratio": 0.15, "target_tokens": 1500000 },
+      "programming":        { "ratio": 0.15, "target_tokens": 1500000 },
+      "engineering":        { "ratio": 0.05, "target_tokens": 500000  },
+      "telugu":             { "ratio": 0.15, "target_tokens": 1500000 },
+      "roman_telugu":       { "ratio": 0.20, "target_tokens": 2000000 },
+      "tool_traces":        { "ratio": 0.05, "target_tokens": 500000  }
+    }
+  },
+
+  "fertility_targets": {
+    "_description": "Max acceptable tokens-per-word for each script. Fail tokenizer eval if exceeded.",
+    "english": 1.5,
+    "telugu":  3.0,
+    "roman_telugu": 2.5,
+    "code": 3.0
+  },
+
+  "tokenizer": {
+    "model_type": "BPE",
+    "library": "sentencepiece",
+    "vocab_size": 32000,
+    "character_coverage": 1.0,
+    "pad_to_multiple_of": null,
+    "special_tokens": ["<pad>", "<unk>", "<bos>", "<eos>", "<sep>", "<mask>"]
+  },
+
+  "model_architecture": {
+    "name": "Kattappa-100M",
+    "n_layers": 12,
+    "n_heads": 12,
+    "d_model": 768,
+    "d_ff": 3072,
+    "context_length": 2048,
+    "vocab_size": 32000,
+    "approx_parameters": 117000000,
+    "positional_encoding": "RoPE",
+    "activation": "SwiGLU",
+    "norm": "LayerNorm",
+    "norm_position": "pre"
+  },
+
+  "training": {
+    "optimizer": "AdamW",
+    "lr": 3e-4,
+    "weight_decay": 0.1,
+    "betas": [0.9, 0.95],
+    "eps": 1e-8,
+    "gradient_clip": 1.0,
+    "lr_schedule": "cosine",
+    "warmup_ratio": 0.02,
+    "precision": "bf16",
+    "batch_size_tokens": 524288,
+    "eval_interval_steps": 200
+  }
+}

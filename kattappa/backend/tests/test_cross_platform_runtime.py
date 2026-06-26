@@ -70,7 +70,9 @@ def test_kattappa_voice_prompts_are_telugu_first_with_english_text_contract() ->
     assert voice_tools.normalize_spoken_text("Ready", "wake_ack").startswith("చెప్పండి.")
     assert voice_tools.normalize_spoken_text("Okay", "command_ack").startswith("సరే.")
     assert voice_tools.normalize_spoken_text("I can help.", "assistant_response").startswith("నేను సహాయం")
-    assert voice_tools.normalize_spoken_text("సరే. I can help.", "assistant_response") == "సరే. I can help."
+    import re
+    mixed_res = voice_tools.normalize_spoken_text("సరే. I can help.", "assistant_response")
+    assert not re.search(r"[a-zA-Z]", mixed_res)
 
 
 def test_kattappa_voice_uses_local_telugu_renderer_for_assistant_reply(monkeypatch) -> None:

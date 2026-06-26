@@ -1,0 +1,17 @@
+{
+  "model_type": "BPE",
+  "vocab_size": 32000,
+  "model_file": "kattappa_tokenizer.model",
+  "vocab_file": "vocab.json",
+  "special_tokens": {
+    "pad_token": "<pad>",
+    "unk_token": "<unk>",
+    "bos_token": "<bos>",
+    "eos_token": "<eos>",
+    "sep_token": "<sep>",
+    "mask_token": "<mask>"
+  },
+  "trained_on": "Kattappa-100M balanced corpus sample",
+  "version": "1.0.0",
+  "lock_warning": "DO NOT retrain this tokenizer after model training has started. Changing vocabulary requires a full model restart."
+}

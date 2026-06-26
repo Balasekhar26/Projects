@@ -971,6 +971,67 @@ class ReflectionEngine:
         }
 
     @classmethod
+    def reflect_and_consolidate(
+        cls,
+        session_id: str,
+        user_query: str,
+        response_text: str,
+        state: dict[str, Any]
+    ) -> None:
+        """Asynchronously analyze outcome, record accuracy metrics, and store the episode."""
+        from backend.core.episodic_memory import EpisodicMemory
+        
+        # 1. Determine execution outcome status
+        success = True
+        if state.get("selected_agent") == "safety" or "Safety Block" in response_text:
+            success = False
+            outcome = "FAILURE"
+        elif state.get("selected_agent") == "personality_council" and state.get("council_debate_result", {}).get("status") == "rejected":
+            success = False
+            outcome = "ANOMALY"
+        else:
+            outcome = "SUCCESS"
+
+        # 2. Derive a lesson learned based on outcome
+        if outcome == "SUCCESS":
+            lesson = f"User query: '{user_query}' processed successfully by {state.get('selected_agent', 'direct_model')}."
+        else:
+            lesson = f"User query: '{user_query}' triggered safety or council rejection: '{response_text[:100]}...'."
+
+        # 3. Calculate importance score (normalized 0.0 to 1.0)
+        risk_str = str(state.get("risk_level", "low")).lower()
+        risk_val = 0.8 if "high" in risk_str else (0.5 if "medium" in risk_str else 0.2)
+        importance = round(0.5 * risk_val + 0.5 * (1.0 if success else 0.2), 2)
+
+        # 4. Create and store episode
+        try:
+            EpisodicMemory.create_episode(
+                content=f"User: {user_query}\nAssistant: {response_text}",
+                importance=importance,
+                category="IMPLEMENTATION",
+                session_id=session_id,
+                outcome=outcome,
+                lesson_learned=lesson,
+            )
+        except Exception:
+            pass
+
+        # 5. Record agent prediction success/failure outcome to update calibration
+        selected_agent = state.get("selected_agent")
+        if selected_agent and selected_agent not in ("unknown", "evaluator"):
+            try:
+                from backend.core.council_session import CouncilSession
+                decision_id = (state.get("council_debate_result") or {}).get("decision_id")
+                if decision_id:
+                    CouncilSession.record_outcome(
+                        decision_id=decision_id,
+                        actual_success=1.0 if success else 0.0
+                    )
+            except Exception:
+                pass
+
+    @classmethod
     def reset(cls) -> None:
         with cls._lock:
             cls._save({"reflections": []})
+

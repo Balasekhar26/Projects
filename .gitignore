@@ -1,2 +1,22 @@
 Open\ Design\ release-stable-win/ 
 Open\ Design\ release-stable-win/ 
+
+# Model checkpoints and training artifacts
+checkpoints/
+**/checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.bin
+runs/
+**/runs/
+tensorboard/
+**/tensorboard/
+*.log
+**/logs/
+
+# Large training datasets and corpora
+**/corpus/raw/
+**/corpus/processed/
+**/corpus/deduped/
+

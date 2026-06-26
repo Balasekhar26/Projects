@@ -126,6 +126,35 @@ def topic_phrase(user_input: str, limit: int = 72) -> str:
 
 def _normalize_token(token: str) -> str:
     token = token.strip("_-")
+    
+    # Irregular verbs mapping to base form
+    irregulars = {
+        "told": "tell",
+        "said": "say",
+        "wrote": "write",
+        "spoke": "speak",
+        "gave": "give",
+        "shown": "show",
+        "showed": "show",
+        "did": "do",
+    }
+    if token in irregulars:
+        return irregulars[token]
+
+    # Date / temporal terms mapping to "date"
+    months = {
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec"
+    }
+    relative_temporal = {"today", "tomorrow", "yesterday", "now"}
+    if token in months or token in relative_temporal or re.match(r"^2\d{3}$", token):
+        return "date"
+
+    # Time terms mapping to "time"
+    if token in {"am", "pm"}:
+        return "time"
+
     if token.endswith("ies") and len(token) > 4:
         return token[:-3] + "y"
     for suffix in ("ingly", "edly", "ing", "edly", "ed", "ly", "s"):

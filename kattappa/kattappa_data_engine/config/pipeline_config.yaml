@@ -1,0 +1,73 @@
+# KDE-v1 Pipeline Configuration Settings
+
+# Directories (Relative to kattappa_data_engine/ workspace root)
+paths:
+  raw_dir: "data/raw"
+  cleaned_dir: "data/cleaned"
+  safe_dir: "data/safe"
+  deduplicated_dir: "data/deduplicated"
+  scored_dir: "data/scored"
+  tokenized_dir: "data/tokenized"
+  shards_dir: "data/shards"
+  reports_dir: "reports"
+
+# Language Filtering Configuration
+language:
+  allowlist: ["en", "te", "te-en", "te-en-hybrid"]
+  # Minimum confidence threshold for standard classifier (if used)
+  min_confidence: 0.85
+  # Roman Telugu indicator list (used for custom hybrid lookup)
+  roman_telugu_indicators:
+    - "nuvvu"
+    - "nenu"
+    - "unnavu"
+    - "bagunnanu"
+    - "enti"
+    - "chey"
+    - "ela"
+    - "unnava"
+    - "chestunnav"
+    - "tinnava"
+    - "ekada"
+    - "avunu"
+    - "ledhu"
+    - "telugu"
+    - "kattappa"
+
+# Deduplication Configuration
+dedup:
+  jaccard_threshold: 0.85
+  num_permutations: 128
+  max_repetition_count: 3  # Cap repetitions of duplicate paragraphs/docs
+
+# Safety & Formatting Configuration
+safety:
+  redact_pii: true
+  filter_copyleft_licenses: true
+  quarantine_licenses: ["GPL-2.0", "GPL-3.0", "AGPL-3.0", "LGPL-2.1", "LGPL-3.0"]
+  toxicity_keywords:
+    - "badword1"  # Stub for modular replacement
+    - "maliciouspattern"
+
+# Quality Score Gate Configuration
+quality:
+  # Prose quality criteria (macro_class: TEXT, BOOK, CHAT)
+  prose:
+    min_readability_score: 50.0 # Standard Flesch Reading Ease equivalent
+    max_symbol_to_alphanumeric_ratio: 0.2
+  # Code quality criteria (macro_class: CODE, TECH_DOC)
+  code:
+    check_ast_syntax: true
+    max_line_length: 500
+
+# Tokenizer Settings
+tokenizer:
+  bpe_vocab_file: "../ai_foundations/tokenization/bpe_vocab.json"  # Relative path or absolute path resolved in code
+  sequence_length: 1024
+
+# Shard Settings
+sharding:
+  train_ratio: 0.96
+  val_ratio: 0.02
+  test_ratio: 0.02
+  shard_size_tokens: 100000000 # 100M tokens target (can be adjusted for small tests)

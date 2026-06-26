@@ -591,6 +591,13 @@ class CouncilSession:
                 selected.append(security)
                 ranked = [p for p in ranked if p.role != "Security"]
 
+        # Ensure Rama, Shiva, and Kattappa are always preserved in the lazy council (asymmetric degradation)
+        for role_name in ["Rama", "Shiva", "Kattappa"]:
+            p_obj = ROSTER_BY_ROLE.get(role_name)
+            if p_obj and p_obj not in selected:
+                selected.append(p_obj)
+                ranked = [p for p in ranked if p.role != role_name]
+
         n_remaining = max(0, n - len(selected))
         selected.extend(ranked[:n_remaining])
 
@@ -657,22 +664,64 @@ class CouncilSession:
                 available_refs.add(val)
         available_refs_str = ", ".join(sorted(available_refs)) if available_refs else "None"
 
-        # 2. Elicit each perspective
+        # 2. Elicit each perspective concurrently
+        import concurrent.futures
         agent_outputs: list[AgentOutput] = []
         vote_records: list[dict[str, Any]] = []
 
-        for perspective in perspectives:
-            output, vote_rec = cls._elicit_perspective(
-                perspective=perspective,
-                question=question,
-                question_type=qt,
-                context=context,
-                available_refs_str=available_refs_str,
-                available_refs=available_refs,
-                active_weights=active_weights,
-            )
-            agent_outputs.append(output)
-            vote_records.append(vote_rec)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(perspectives)) as executor:
+            futures = {
+                executor.submit(
+                    cls._elicit_perspective,
+                    perspective=perspective,
+                    question=question,
+                    question_type=qt,
+                    context=context,
+                    available_refs_str=available_refs_str,
+                    available_refs=available_refs,
+                    active_weights=active_weights,
+                ): perspective for perspective in perspectives
+            }
+            
+            results_by_role = {}
+            for future in concurrent.futures.as_completed(futures):
+                p = futures[future]
+                try:
+                    output, vote_rec = future.result()
+                    results_by_role[p.role] = (output, vote_rec)
+                except Exception as e:
+                    from backend.core.consensus_engine import AgentOutput, Decision, EvidenceType
+                    output = AgentOutput(
+                        agent=p.role,
+                        decision=Decision.ABSTAIN,
+                        confidence=0.5,
+                        evidence=(EvidenceType.REASONING,),
+                        recommendations=(),
+                        source_id=f"council_{p.role.lower()}",
+                        rationale=f"Parallel elicitation failed: {e}",
+                    )
+                    vote_rec = {
+                        "perspective": p.role,
+                        "vote": "ABSTAIN",
+                        "confidence": 0.5,
+                        "calibrated_confidence": 0.5,
+                        "calibration_factor": 1.0,
+                        "historical_judged": 0,
+                        "historical_correct": 0,
+                        "evidence_type": "reasoning",
+                        "rationale": f"Parallel elicitation failed: {e}",
+                        "risks": [],
+                        "benefits": [],
+                        "vote_weight": 0.0,
+                        "evidence_refs": [],
+                    }
+                    results_by_role[p.role] = (output, vote_rec)
+            
+            for p in perspectives:
+                if p.role in results_by_role:
+                    output, vote_rec = results_by_role[p.role]
+                    agent_outputs.append(output)
+                    vote_records.append(vote_rec)
 
         # 3. Auditor adversarial pass
         audit_findings: list[dict[str, Any]] = []
@@ -881,7 +930,11 @@ class CouncilSession:
             }
 
         decision_str = str(parsed.get("decision", "ABSTAIN")).strip().upper()
-        confidence = float(parsed.get("confidence", 0.5))
+        try:
+            raw_conf = parsed.get("confidence")
+            confidence = float(raw_conf) if raw_conf is not None else 0.5
+        except (ValueError, TypeError):
+            confidence = 0.5
         ev_type_str = str(parsed.get("evidence_type", "reasoning")).lower()
         risks: list[str] = parsed.get("risks", []) or []
         benefits: list[str] = parsed.get("benefits", []) or []
