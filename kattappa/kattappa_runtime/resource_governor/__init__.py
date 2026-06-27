@@ -2,16 +2,23 @@
 Kattappa Resource Governor (KRG) — Step 30
 ==========================================
 
-First-class resource monitoring, budgeting, throttling, routing, and compression layer.
+First-class resource monitoring, safety protection, budgeting, throttling, routing, and compression layer.
 """
 
-from kattappa_runtime.resource_governor.schema import (
-    GovernanceConfig,
-    SubsystemBudget,
-    SystemResourceMetrics,
-    SubsystemStats,
-)
 from kattappa_runtime.resource_governor.engine import ResourceGovernorEngine
+from kattappa_runtime.resource_governor.safety_controller import SafetyController
+from kattappa_runtime.resource_governor.schema import (
+    AppleSiliconPressure,
+    ApprovalResult,
+    GovernanceConfig,
+    SafetyThresholds,
+    SafetyVerdict,
+    SubsystemBudget,
+    SubsystemStats,
+    SystemResourceMetrics,
+    TrainerBudget,
+    TrainingConfig,
+)
 
 __all__ = [
     "GovernanceConfig",
@@ -19,4 +26,11 @@ __all__ = [
     "SystemResourceMetrics",
     "SubsystemStats",
     "ResourceGovernorEngine",
+    "SafetyController",
+    "AppleSiliconPressure",
+    "SafetyThresholds",
+    "TrainerBudget",
+    "TrainingConfig",
+    "SafetyVerdict",
+    "ApprovalResult",
 ]

@@ -1,5 +1,12 @@
 import os
 from typing import Dict, Any
+import warnings
+
+warnings.warn(
+    "kattappa_runtime.memory is deprecated and will be removed in K5. Use backend.core.episodic_memory.py or MemorySystem instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from kattappa_runtime.memory.working_memory import WorkingMemory
 from kattappa_runtime.memory.episodic_memory import EpisodicMemory

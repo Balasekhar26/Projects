@@ -1,0 +1,12 @@
+{
+  "steps": 50000,
+  "batch": 2,
+  "lr": 3e-4,
+  "grad_clip": 1.0,
+  "log_interval": 10,
+  "eval_interval": 100,
+  "curriculum": true,
+  "initial_seq_len": 256,
+  "kattappa_budget_gb": 9.5,
+  "safety_mode": "monitor"
+}

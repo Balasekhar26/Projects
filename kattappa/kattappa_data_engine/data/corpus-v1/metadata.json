@@ -1,0 +1,27 @@
+{
+  "sources": [
+    "telugu_wikipedia",
+    "telugu_news",
+    "english_translation_mix"
+  ],
+  "licenses": [
+    "CC-BY-SA 4.0",
+    "MIT",
+    "Apache 2.0"
+  ],
+  "token_count": 100000000,
+  "duplicates_removed": 25000,
+  "language_distribution": {
+    "Telugu": 0.45,
+    "English": 0.4,
+    "Roman Telugu": 0.15
+  },
+  "domain_distribution": {
+    "code": 0.2,
+    "books": 0.3,
+    "web": 0.5
+  },
+  "quality_score": 0.85,
+  "creation_date": "2026-06-27T03:30:00Z",
+  "hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

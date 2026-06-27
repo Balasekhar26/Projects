@@ -1,0 +1,10 @@
+[
+  {
+    "function_name": "add",
+    "prompt": "def add(a, b):\n    \"\"\"Return sum of a and b.\"\"\"",
+    "test_cases": [
+      {"inputs": [2, 3], "output": 5},
+      {"inputs": [-1, 1], "output": 0}
+    ]
+  }
+]

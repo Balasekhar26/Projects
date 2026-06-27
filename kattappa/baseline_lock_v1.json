@@ -1,0 +1,37 @@
+{
+  "baseline_version": "baseline-v1.0.0",
+  "frozen_timestamp": "2026-06-27T10:18:04.903721Z",
+  "file_hashes": {
+    "trainer_py_sha256": "4b496b73f0b794ef8f78cdf646b1f930e4b5f35e8683454174aca1f65d37f28a",
+    "optimizer_py_sha256": "84a0471546d3cb5d93466e2011d69ba90d3e4b3c1dde99fc169c8fddc914caaa",
+    "scheduler_py_sha256": "7397fee580bee327167ca51247f627b393e6f425b98a2787cf84292280d5f16e",
+    "model_py_sha256": "8a3e4ae3067f99d9b9173306b444bf3ad3e918f33a7102319935a370bdbf853b",
+    "attention_py_sha256": "648ea44467e6c64799720304ec2d2e9873cb47f016dce6e194769128d19bb574",
+    "block_py_sha256": "1e4c045a8362e45c39c9b02c6af40eb0b1fb37bf21eaabd8739c8f4b5476648d",
+    "tokenizer_model_sha256": "26c5b195174b89fa5da6acf47464cc85e75a6cb08ab3c98b9e326180f32867af"
+  },
+  "model_config": {
+    "n_layers": 12,
+    "n_heads": 12,
+    "n_kv_heads": 4,
+    "d_model": 768,
+    "d_ff": 3072,
+    "context_length": 2048,
+    "vocab_size": 32000,
+    "rope_theta": 10000.0
+  },
+  "training_config": {
+    "steps": 50000,
+    "batch_size": 2,
+    "initial_seq_len": 256,
+    "max_seq_len": 2048,
+    "curriculum_training": true,
+    "lr": 0.0003,
+    "grad_clip": 1.0,
+    "lr_scheduler": "CosineScheduler",
+    "optimizer": "AdamW",
+    "weight_decay": 0.1,
+    "beta1": 0.9,
+    "beta2": 0.95
+  }
+}

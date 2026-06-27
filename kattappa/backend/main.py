@@ -935,6 +935,32 @@ class ValueRankRequest(BaseModel):
 
 
 app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
+
+from backend.api.v1.chat import chat_router
+from backend.api.v1.voice import voice_router
+from backend.api.v1.memory import memory_router
+from backend.api.v1.planner import planner_router
+from backend.api.v1.safety import safety_router
+from backend.api.v1.models import models_router
+
+app.include_router(chat_router, prefix="/api/v1")
+app.include_router(chat_router)
+
+app.include_router(voice_router, prefix="/api/v1")
+app.include_router(voice_router)
+
+app.include_router(memory_router, prefix="/api/v1")
+app.include_router(memory_router)
+
+app.include_router(planner_router, prefix="/api/v1")
+app.include_router(planner_router)
+
+app.include_router(safety_router, prefix="/api/v1")
+app.include_router(safety_router)
+
+app.include_router(models_router, prefix="/api/v1")
+app.include_router(models_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -3127,7 +3153,7 @@ def free_tools() -> dict[str, object]:
     return free_tool_decision_report()
 
 
-@app.get("/ai-engine/local-models")
+@models_router.get("/ai-engine/local-models")
 def ai_engine_local_models() -> dict[str, object]:
     return local_model_profiles()
 
@@ -3217,12 +3243,12 @@ def creator_marketing_kit(request: MarketingKitRequest) -> dict[str, object]:
     )
 
 
-@app.get("/voice/status")
+@voice_router.get("/voice/status")
 def voice_status() -> dict[str, object]:
     return voice_pipeline_status()
 
 
-@app.post("/voice/speak")
+@voice_router.post("/voice/speak")
 def voice_speak(request: VoiceSpeakRequest) -> dict[str, object]:
     spoken_text = normalize_spoken_text(request.text, purpose=request.purpose)
     if not spoken_text:
@@ -3236,7 +3262,7 @@ def voice_speak(request: VoiceSpeakRequest) -> dict[str, object]:
     }
 
 
-@app.post("/voice/process")
+@voice_router.post("/voice/process")
 def voice_process(request: VoiceAudioRequest) -> dict[str, object]:
     return process_voice_audio(
         request.audio_base64,
@@ -3245,7 +3271,7 @@ def voice_process(request: VoiceAudioRequest) -> dict[str, object]:
     )
 
 
-@app.post("/voice/parse-wake")
+@voice_router.post("/voice/parse-wake")
 def voice_parse_wake(request: VoiceTranscriptRequest) -> dict[str, object]:
     return parse_wake_command(request.transcript)
 
@@ -3937,7 +3963,7 @@ def _build_direct_model_prompt(clean_message: str, session_id: str, current_mess
     return messages
 
 
-@app.post("/chat")
+@chat_router.post("/chat")
 def chat(request: ChatRequest) -> dict[str, object]:
     # Check cluster capacity / handoff first
     delegated_payload = _cluster_delegated_chat_payload(request.message)
@@ -4530,22 +4556,22 @@ def action_memory_get(action_id: str) -> dict[str, object]:
     return {"item": item.to_dict()}
 
 
-@app.post("/memory")
+@memory_router.post("/memory")
 def add_memory(request: MemoryRequest) -> dict[str, str]:
     return {"id": remember(request.text, category=request.category)}
 
 
-@app.post("/chat-sessions")
+@chat_router.post("/chat-sessions")
 def create_chat_session(request: ChatSessionRequest) -> dict[str, object]:
     return {"item": memory.create_chat_session(request.title)}
 
 
-@app.get("/chat-sessions")
+@chat_router.get("/chat-sessions")
 def chat_sessions(limit: int = 50) -> dict[str, object]:
     return {"items": memory.list_chat_sessions(limit=limit)}
 
 
-@app.get("/chat-sessions/{session_id}")
+@chat_router.get("/chat-sessions/{session_id}")
 def get_chat_session(session_id: str) -> dict[str, object]:
     item = memory.get_chat_session(session_id)
     if item is None:
@@ -4553,7 +4579,7 @@ def get_chat_session(session_id: str) -> dict[str, object]:
     return {"item": item, "messages": memory.list_chat_messages(session_id)}
 
 
-@app.post("/chat-sessions/{session_id}/messages")
+@chat_router.post("/chat-sessions/{session_id}/messages")
 def add_chat_session_message(
     session_id: str, request: ChatMessageRequest
 ) -> dict[str, object]:

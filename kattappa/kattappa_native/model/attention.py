@@ -1,8 +1,8 @@
 """
-KM-5.2 — RoPE Multi-Head Self-Attention
+KM-5.2 — RoPE Grouped-Query Self-Attention
 ========================================
-Implements rotary positional embeddings (RoPE) and causal
-multi-head self-attention for the Kattappa-100M decoder.
+Implements rotary positional embeddings (RoPE), Grouped-Query Attention (GQA),
+and a persistent KV Cache for fast autoregressive decoder inference.
 """
 
 import math
@@ -35,71 +35,118 @@ def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
     return xq_out.to(x.dtype)
 
 
+def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    Repeat key/value heads for Grouped-Query Attention (GQA).
+    x: (B, n_kv_heads, T, head_dim)
+    n_rep: number of repetitions per head
+    """
+    if n_rep == 1:
+        return x
+    B, n_kv_heads, T, D = x.shape
+    return x.unsqueeze(2).expand(B, n_kv_heads, n_rep, T, D).reshape(B, n_kv_heads * n_rep, T, D)
+
+
 class MultiHeadAttention(nn.Module):
     """
-    Causal multi-head self-attention with RoPE positional encoding.
+    Causal Grouped-Query Self-Attention (GQA) with RoPE positional encoding and KV Cache.
 
     Args:
-        d_model: Model dimension (768 for Kattappa-100M).
-        n_heads: Number of attention heads (12).
-        dropout: Dropout on attention weights (default 0.0 during inference).
+        d_model:    Model dimension (768 for Kattappa-100M).
+        n_heads:    Number of query attention heads (12).
+        n_kv_heads: Number of key/value heads (default: 4 for GQA).
+        dropout:    Dropout on attention weights.
     """
 
-    def __init__(self, d_model: int, n_heads: int, dropout: float = 0.0):
+    def __init__(self, d_model: int, n_heads: int, n_kv_heads: Optional[int] = 4, dropout: float = 0.0):
         super().__init__()
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
         self.d_model = d_model
         self.n_heads = n_heads
+        self.n_kv_heads = n_kv_heads if n_kv_heads is not None else n_heads
+        self.group_size = n_heads // self.n_kv_heads
         self.head_dim = d_model // n_heads
         self.dropout = dropout
 
-        # Fused QKV projection for efficiency
-        self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        # Projection sizes
+        self.q_size = self.n_heads * self.head_dim
+        self.kv_size = self.n_kv_heads * self.head_dim
+
+        # Fused QKV projection for GQA efficiency
+        self.qkv = nn.Linear(d_model, self.q_size + 2 * self.kv_size, bias=False)
         self.out_proj = nn.Linear(d_model, d_model, bias=False)
 
         self._attn_dropout = nn.Dropout(dropout)
+
+        # Persistent Cache State for fast generation (resets per sequence)
+        self.cache_k = None
+        self.cache_v = None
+
+    def reset_cache(self):
+        """Clears the cached key and value tensors."""
+        self.cache_k = None
+        self.cache_v = None
 
     def forward(
         self,
         x: torch.Tensor,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
+        use_cache: bool = False,
     ) -> torch.Tensor:
         """
         Args:
             x:         (batch, seq_len, d_model)
-            freqs_cis: (seq_len, head_dim // 2) — precomputed RoPE freqs
-            mask:      (seq_len, seq_len) causal mask or None
+            freqs_cis: (seq_len, head_dim // 2) — RoPE frequencies for current steps
+            mask:      (seq_len, total_seq_len) causal mask or None
+            use_cache: If True, uses and updates persistent KV Cache
         Returns:
             out:       (batch, seq_len, d_model)
         """
         B, T, _ = x.shape
-        H, D = self.n_heads, self.head_dim
+        H, H_kv, D = self.n_heads, self.n_kv_heads, self.head_dim
 
         # Project to Q, K, V
-        qkv = self.qkv(x)  # (B, T, 3*d_model)
-        q, k, v = qkv.split(self.d_model, dim=-1)  # each: (B, T, d_model)
+        qkv = self.qkv(x)  # (B, T, q_size + 2 * kv_size)
+        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
 
-        # Reshape to (B, T, H, D) for RoPE application
+        # Reshape to multi-head structures
         q = q.view(B, T, H, D)
-        k = k.view(B, T, H, D)
-        v = v.view(B, T, H, D)
+        k = k.view(B, T, H_kv, D)
+        v = v.view(B, T, H_kv, D)
 
-        # Apply RoPE to Q and K (not V)
+        # Apply RoPE positional embeddings
         q = apply_rotary_emb(q, freqs_cis)
         k = apply_rotary_emb(k, freqs_cis)
 
-        # Transpose to (B, H, T, D) for attention
-        q = q.transpose(1, 2)
-        k = k.transpose(1, 2)
-        v = v.transpose(1, 2)
+        # Update / Load KV Cache
+        if use_cache:
+            if self.cache_k is None:
+                self.cache_k = k
+                self.cache_v = v
+            else:
+                self.cache_k = torch.cat([self.cache_k, k], dim=1)
+                self.cache_v = torch.cat([self.cache_v, v], dim=1)
+            k = self.cache_k
+            v = self.cache_v
 
-        # Scaled dot-product attention with causal mask
+        # Transpose to (B, H/H_kv, seq_len, D) for attention
+        q = q.transpose(1, 2)  # (B, H, T, D)
+        k = k.transpose(1, 2)  # (B, H_kv, seq_len, D)
+        v = v.transpose(1, 2)  # (B, H_kv, seq_len, D)
+
+        # Repeat KV heads for Grouped-Query Attention (GQA)
+        k = repeat_kv(k, self.group_size)  # (B, H, seq_len, D)
+        v = repeat_kv(v, self.group_size)  # (B, H, seq_len, D)
+
+        # Scaled dot-product attention
         scale = math.sqrt(D)
-        attn = torch.matmul(q, k.transpose(-2, -1)) / scale  # (B, H, T, T)
+        attn = torch.matmul(q, k.transpose(-2, -1)) / scale  # (B, H, T, seq_len)
 
         if mask is not None:
-            attn = attn + mask  # additive causal mask (−inf for future tokens)
+            if mask.ndim == 2:
+                mask = mask.unsqueeze(0).unsqueeze(1)
+            attn = attn + mask
 
         attn = F.softmax(attn, dim=-1)
         attn = self._attn_dropout(attn)

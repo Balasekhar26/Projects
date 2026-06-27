@@ -52,10 +52,10 @@ def temp_dir(tmpdir):
 def test_schema_initialization():
     """Test 1: Check schema configuration defaults."""
     config = GovernanceConfig()
-    assert config.global_cpu_limit == 0.50
-    assert config.global_ram_limit == 0.50
+    assert config.global_cpu_limit == 0.30
+    assert config.global_ram_limit == 0.35
     assert config.thermal_throttling_temp_c == 85.0
-    assert config.min_free_disk_space_bytes == 100 * 1024 * 1024 * 1024
+    assert config.min_free_disk_space_bytes == 5 * 1024 * 1024 * 1024
 
 
 def test_system_resource_metrics_fields():
@@ -95,8 +95,8 @@ def test_governor_budget_permitted():
     monitor.set_mock_metrics(SystemResourceMetrics(cpu_percent=10.0, ram_percent=15.0))
     governor = ResourceGovernor(monitor)
     
-    # Needs 5% CPU, 5% RAM -> total 15% CPU, 20% RAM (under 50% limit)
-    assert governor.request_permission("planner", estimated_cpu=5.0, estimated_ram=5.0) is True
+    # Needs 2% CPU, 1% RAM -> total 12% CPU, 16% RAM (under limit)
+    assert governor.request_permission("planner", estimated_cpu=2.0, estimated_ram=1.0) is True
 
 
 def test_governor_budget_denied():
@@ -198,10 +198,10 @@ def test_training_governor_pressure_state():
     monitor = MockMonitor()
     governor = ResourceGovernor(monitor)
     
-    # Limit is 50%. 46% is approaching.
+    # Limit is 35%. 32% is approaching warning limit (35% - 5%).
     recs = governor.project_training_step(
         current_step=100,
-        current_ram_percent=46.0,
+        current_ram_percent=32.0,
         current_gpu_memory_gb=2.0,
         batch_size=8,
         grad_accum_steps=1
@@ -753,4 +753,113 @@ def test_engine_facade_lazy_load_denied_exception():
     
     with pytest.raises(RuntimeError, match="blocked lazy load"):
         engine.load_subsystem("knowledge_graph")
+
+
+# ── Safety Controller Tests ───────────────────────────────────────────────────
+
+from kattappa_runtime.resource_governor.safety_controller import SafetyController
+from kattappa_runtime.resource_governor.schema import SafetyThresholds, TrainerBudget, TrainingConfig, AppleSiliconPressure
+
+def test_safety_controller_memory_estimation():
+    """Test 51: SafetyController estimates memory correctly."""
+    monitor = MockMonitor()
+    controller = SafetyController(monitor)
+    
+    mem_small = controller.estimate_memory_requirements(1, 512)
+    mem_large = controller.estimate_memory_requirements(8, 2048)
+    
+    assert mem_large > mem_small
+    assert mem_small > 0.0
+
+
+def test_safety_controller_approval():
+    """Test 52: Gating approvals for safe vs overloaded training configurations."""
+    monitor = MockMonitor()
+    # Mock clean metrics
+    monitor.set_mock_metrics(SystemResourceMetrics(swap_file_count=0))
+    
+    # 3.0 GB budget, standard sizes (8, 2048) will exceed it
+    budget = TrainerBudget(kattappa_budget_gb=3.0)
+    config = TrainingConfig(initial_seq_len=512, target_seq_len=2048)
+    controller = SafetyController(monitor, budget=budget, config=config)
+    
+    # Large config that exceeds 3.0 GB limit
+    approval_fail = controller.approve_training_config(8, 2048)
+    assert approval_fail.approved is False
+    assert approval_fail.max_safe_batch < 8 or approval_fail.max_safe_seq_len < 2048
+    
+    # Low config should fit with a 10.0 GB budget
+    budget_large = TrainerBudget(kattappa_budget_gb=10.0)
+    controller_large = SafetyController(monitor, budget=budget_large, config=config)
+    approval_pass = controller_large.approve_training_config(1, 256)
+    assert approval_pass.approved is True
+    assert approval_pass.max_safe_batch == 1
+    assert approval_pass.max_safe_seq_len == 256
+
+
+def test_safety_controller_assess_gating():
+    """Test 53: Verify safety controller correctly assesses and gates system states."""
+    monitor = MockMonitor()
+    thresholds = SafetyThresholds(
+        swap_warn_gb=2.0,
+        swap_pause_gb=4.0,
+        compressed_mem_warn_pct=15.0,
+        compressed_mem_pause_pct=25.0
+    )
+    controller = SafetyController(monitor, thresholds=thresholds)
+    
+    # Scenario A: Nominal/Healthy
+    monitor.set_mock_metrics(SystemResourceMetrics(
+        swap_used_gb=0.0,
+        compressed_memory_pct=5.0,
+        unified_memory_used_gb=1.0,
+        ssd_free_gb=200.0,
+        memory_pressure=AppleSiliconPressure.NOMINAL
+    ))
+    controller.previous_swap_used_gb = 0.0
+    verdict = controller.assess()
+    assert verdict.ok is True
+    assert verdict.pause is False
+    assert verdict.warn is False
+    
+    # Scenario B: Warning state
+    monitor.set_mock_metrics(SystemResourceMetrics(
+        swap_used_gb=2.5,  # Exceeds swap warn (2.0)
+        compressed_memory_pct=5.0,
+        unified_memory_used_gb=1.0,
+        ssd_free_gb=200.0,
+        memory_pressure=AppleSiliconPressure.NOMINAL
+    ))
+    controller.previous_swap_used_gb = 2.5
+    verdict = controller.assess()
+    assert verdict.ok is True
+    assert verdict.pause is False
+    assert verdict.warn is True
+    
+    # Scenario C: Pause state (swap)
+    monitor.set_mock_metrics(SystemResourceMetrics(
+        swap_used_gb=5.0,  # Exceeds swap pause (4.0)
+        compressed_memory_pct=5.0,
+        unified_memory_used_gb=1.0,
+        ssd_free_gb=200.0,
+        memory_pressure=AppleSiliconPressure.NOMINAL
+    ))
+    controller.previous_swap_used_gb = 5.0
+    verdict = controller.assess()
+    assert verdict.ok is False
+    assert verdict.pause is True
+    
+    # Scenario D: Pause state (critical pressure)
+    monitor.set_mock_metrics(SystemResourceMetrics(
+        swap_used_gb=0.0,
+        compressed_memory_pct=5.0,
+        unified_memory_used_gb=1.0,
+        ssd_free_gb=200.0,
+        memory_pressure=AppleSiliconPressure.CRITICAL
+    ))
+    controller.previous_swap_used_gb = 0.0
+    verdict = controller.assess()
+    assert verdict.ok is False
+    assert verdict.pause is True
+
 

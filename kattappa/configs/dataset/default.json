@@ -1,0 +1,7 @@
+{
+  "version": "corpus-v1",
+  "ingestion_limits": 10000000,
+  "pii_regex": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
+  "toxicity_threshold": 0.5,
+  "deduplication_hash_size": 64
+}

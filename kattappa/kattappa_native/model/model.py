@@ -27,6 +27,7 @@ class KattappaConfig:
     """Hyperparameters for Kattappa. Lock before training."""
     n_layers: int       = 12
     n_heads: int        = 12
+    n_kv_heads: int     = 4
     d_model: int        = 768
     d_ff: int           = 3072
     context_length: int = 2048
@@ -83,7 +84,7 @@ class KattappaModel(nn.Module):
 
         # Stack of decoder blocks
         self.blocks = nn.ModuleList([
-            DecoderBlock(cfg.d_model, cfg.n_heads, cfg.d_ff, dropout=cfg.dropout)
+            DecoderBlock(cfg.d_model, cfg.n_heads, cfg.d_ff, n_kv_heads=cfg.n_kv_heads, dropout=cfg.dropout)
             for _ in range(cfg.n_layers)
         ])
 
@@ -123,37 +124,52 @@ class KattappaModel(nn.Module):
                 if module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
 
+    def reset_cache(self):
+        """Clears the KV Cache on all decoder blocks."""
+        for block in self.blocks:
+            block.attn.reset_cache()
+
     def forward(
         self,
         token_ids: torch.Tensor,
         targets: Optional[torch.Tensor] = None,
+        start_pos: int = 0,
+        use_cache: bool = False,
     ):
         """
         Args:
             token_ids: (batch, seq_len) int64 token indices
             targets:   (batch, seq_len) int64 labels for language modelling loss
                        (None during inference)
+            start_pos: Start index offset for RoPE and cache mapping
+            use_cache: If True, uses KV cache
         Returns:
             logits: (batch, seq_len, vocab_size) — always returned
             loss:   scalar cross-entropy loss — only if targets provided
         """
         B, T = token_ids.shape
-        assert T <= self.config.context_length, (
-            f"Sequence length {T} exceeds context_length {self.config.context_length}"
+        assert start_pos + T <= self.config.context_length, (
+            f"Sequence length {start_pos + T} exceeds context_length {self.config.context_length}"
         )
 
         # Embed tokens
         x = self.embedding(token_ids)  # (B, T, d_model)
 
-        # Build causal mask for this sequence length
-        mask = build_causal_mask(T, device=x.device)
-
         # Slice precomputed RoPE frequencies for this sequence
-        freqs_cis = self.freqs_cis[:T]
+        freqs_cis = self.freqs_cis[start_pos : start_pos + T]
+
+        # Build causal mask for this sequence length
+        if T > 1:
+            mask = build_causal_mask(T, device=x.device)
+            if start_pos > 0:
+                zeros = torch.zeros((T, start_pos), device=x.device)
+                mask = torch.cat([zeros, mask], dim=-1)
+        else:
+            mask = None
 
         # Pass through decoder blocks
         for block in self.blocks:
-            x = block(x, freqs_cis, mask=mask)
+            x = block(x, freqs_cis, mask=mask, use_cache=use_cache)
 
         # Final norm and project to vocab
         x = self.norm(x)
@@ -173,11 +189,14 @@ class KattappaModel(nn.Module):
     @torch.no_grad()
     def generate(
         self,
-        prompt_ids: torch.Tensor,
+        prompt_ids: Optional[torch.Tensor] = None,
         max_new_tokens: int = 128,
         temperature: float = 0.8,
         top_k: int = 50,
         eos_id: Optional[int] = None,
+        input_ids: Optional[torch.Tensor] = None,
+        *args,
+        **kwargs
     ) -> torch.Tensor:
         """
         Autoregressive greedy / top-k sampling.
@@ -193,13 +212,38 @@ class KattappaModel(nn.Module):
             generated: (1, T + max_new_tokens) full sequence
         """
         self.eval()
+        self.reset_cache()
         eos_id = eos_id or self.config.eos_id
-        ids = prompt_ids.clone()
+        actual_ids = prompt_ids if prompt_ids is not None else input_ids
+        if actual_ids is None:
+            raise ValueError("Either prompt_ids or input_ids must be provided")
+        ids = actual_ids.clone()
+        B, prompt_len = ids.shape
 
-        for _ in range(max_new_tokens):
-            # Truncate to context window
-            ctx = ids[:, -self.config.context_length:]
-            logits, _ = self.forward(ctx)
+        # Prefill stage (process prompt)
+        logits, _ = self.forward(ids, start_pos=0, use_cache=True)
+        next_logits = logits[:, -1, :] / max(temperature, 1e-8)
+
+        if top_k > 0:
+            topk_vals, _ = torch.topk(next_logits, top_k)
+            threshold = topk_vals[:, -1].unsqueeze(-1)
+            next_logits = next_logits.masked_fill(next_logits < threshold, float("-inf"))
+
+        probs = torch.softmax(next_logits, dim=-1)
+        next_id = torch.multinomial(probs, num_samples=1)
+        ids = torch.cat([ids, next_id], dim=-1)
+
+        if next_id.item() == eos_id:
+            return ids
+
+        # Decode stage (autoregressive generation one token at a time)
+        for step in range(1, max_new_tokens):
+            current_pos = prompt_len + step - 1
+            if current_pos >= self.config.context_length:
+                break
+            
+            # Forward pass only on the last generated token
+            logits, _ = self.forward(next_id, start_pos=current_pos, use_cache=True)
             next_logits = logits[:, -1, :] / max(temperature, 1e-8)
 
             if top_k > 0:
@@ -214,6 +258,8 @@ class KattappaModel(nn.Module):
             if next_id.item() == eos_id:
                 break
 
+        # Clean up cache state after generation
+        self.reset_cache()
         return ids
 
     def param_count(self) -> int:

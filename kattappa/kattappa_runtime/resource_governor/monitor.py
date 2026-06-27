@@ -1,25 +1,35 @@
 """
-Resource Monitor — Step 30
-===========================
+Resource Monitor — Step 30 (Safety Controller hardening)
+=========================================================
 
-Provides real-time system metrics tracking using psutil and torch.mps.
-Runs in a background thread to maintain an updated snapshot of system usage.
+Provides real-time system metrics tracking using psutil, subprocess/sysctl, and torch.mps.
+Runs in a background thread to maintain an updated snapshot of system usage,
+with specific enhancements for Apple Silicon (swap files, memory pressure, compressed memory, pageouts rate).
 """
 
 from __future__ import annotations
 
-import time
+import os
+import re
+import subprocess
 import threading
-import psutil
+import time
 from typing import Dict, Optional
+
+import psutil
 import torch
 
-from kattappa_runtime.resource_governor.schema import SystemResourceMetrics, SubsystemStats
+from kattappa_runtime.resource_governor.schema import (
+    AppleSiliconPressure,
+    SubsystemStats,
+    SystemResourceMetrics,
+)
 
 
 class ResourceMonitor:
     """
-    Monitors CPU, RAM, GPU (MPS), Disk I/O, Network, Temperature, and Battery.
+    Monitors CPU, RAM, GPU (MPS), Disk I/O, Network, Temperature, Battery,
+    and Apple Silicon memory/swap pressure metrics (including pageouts/swapouts rates).
     Updates thread-safely at a configurable interval.
     """
     def __init__(self, interval: float = 1.0):
@@ -36,6 +46,11 @@ class ResourceMonitor:
         self._last_net_recv = 0
         self._last_net_sent = 0
         self._last_io_time = time.time()
+
+        # Mach VM Stats tracking
+        self._last_pageouts = 0
+        self._last_swapouts = 0
+        self._last_vm_stat_time = time.time()
         
         self._init_io_counters()
 
@@ -55,6 +70,13 @@ class ResourceMonitor:
                 self._last_net_sent = net.bytes_sent
         except Exception:
             pass
+
+        # Mach VM statistics initialization
+        vm_stats = self._get_macos_vm_stat()
+        self._last_pageouts = vm_stats["pageouts"]
+        self._last_swapouts = vm_stats["swapouts"]
+        self._last_vm_stat_time = time.time()
+        
         self._last_io_time = time.time()
 
     def start(self):
@@ -104,14 +126,96 @@ class ResourceMonitor:
                 time.sleep(sleep_step)
                 elapsed += sleep_step
 
+    def _get_macos_swap(self) -> tuple[float, float, int]:
+        """Reads macOS swap metrics. Returns (used_gb, total_gb, file_count)."""
+        used_gb, total_gb, file_count = 0.0, 0.0, 0
+        try:
+            # Parse sysctl vm.swapusage
+            out = subprocess.check_output(["sysctl", "vm.swapusage"], text=True)
+            m = re.search(r"total\s*=\s*([\d.]+)M\s*used\s*=\s*([\d.]+)M", out)
+            if m:
+                total_gb = float(m.group(1)) / 1024.0
+                used_gb = float(m.group(2)) / 1024.0
+        except Exception:
+            try:
+                sw = psutil.swap_memory()
+                total_gb = sw.total / (1024**3)
+                used_gb = sw.used / (1024**3)
+            except Exception:
+                pass
+
+        # Count swap files in common macOS locations
+        try:
+            for path in ["/System/Volumes/VM", "/private/var/vm"]:
+                if os.path.exists(path):
+                    files = [f for f in os.listdir(path) if f.startswith("swapfile")]
+                    if files:
+                        file_count = len(files)
+                        break
+        except Exception:
+            pass
+
+        return used_gb, total_gb, file_count
+
+    def _get_macos_vm_stat(self) -> dict[str, int]:
+        """Reads Mach VM Stats from vm_stat."""
+        stats = {"pageouts": 0, "swapouts": 0, "compressed_pages": 0, "page_size": 4096}
+        try:
+            out = subprocess.check_output(["vm_stat"], text=True)
+            m_page = re.search(r"page size of (\d+) bytes", out)
+            if m_page:
+                stats["page_size"] = int(m_page.group(1))
+
+            m_comp = re.search(r"Pages occupied by compressor:\s*(\d+)", out)
+            if m_comp:
+                stats["compressed_pages"] = int(m_comp.group(1))
+
+            m_pageouts = re.search(r"Pages pageout:\s*(\d+)", out)
+            if not m_pageouts:
+                # Alternate header name in some versions
+                m_pageouts = re.search(r"Pageouts:\s*(\d+)", out)
+            if m_pageouts:
+                stats["pageouts"] = int(m_pageouts.group(1))
+
+            m_swapouts = re.search(r"Swapouts:\s*(\d+)", out)
+            if m_swapouts:
+                stats["swapouts"] = int(m_swapouts.group(1))
+        except Exception:
+            pass
+        return stats
+
+    def _get_macos_memory_pressure(self) -> AppleSiliconPressure:
+        """Reads macOS memory pressure status level and maps it to AppleSiliconPressure."""
+        try:
+            out = subprocess.check_output(["sysctl", "-n", "kern.memorystatus_level"], text=True).strip()
+            level = int(out)
+            if level >= 80:
+                return AppleSiliconPressure.NOMINAL
+            elif level >= 50:
+                return AppleSiliconPressure.WARN
+            else:
+                return AppleSiliconPressure.CRITICAL
+        except Exception:
+            pass
+        return AppleSiliconPressure.NOMINAL
+
     def _update_metrics(self):
+        try:
+            hb_path = os.path.expanduser("~/Desktop/kattappa_heartbeat_monitor.txt")
+            with open(hb_path, "w") as f:
+                f.write(f"{time.time()}\n")
+        except Exception:
+            pass
+
         now = time.time()
         time_delta = max(now - self._last_io_time, 0.001)
         self._last_io_time = now
 
         # 1. CPU and RAM
         cpu = psutil.cpu_percent(interval=None)
-        ram = psutil.virtual_memory().percent
+        vmem = psutil.virtual_memory()
+        ram = vmem.percent
+        total_ram_bytes = vmem.total
 
         # 2. Disk I/O Rates
         disk_read_bytes_sec = 0.0
@@ -148,27 +252,57 @@ class ResourceMonitor:
         except Exception:
             pass
 
-        # 5. GPU (MPS) memory usage
+        # 5. GPU (MPS) memory usage & recommended limit
         gpu_pct = 0.0
         unified_mem = 0.0
         vram_mem = 0.0
+        mps_recommended_max = 0.0
         if torch.backends.mps.is_available():
             try:
-                # Driver allocated memory in bytes
                 allocated = torch.mps.driver_allocated_memory()
-                unified_mem = allocated / (1024 ** 3)  # Convert to GB
-                # Estimated VRAM limit: VRAM and RAM are shared.
+                unified_mem = allocated / (1024 ** 3)
                 vram_mem = unified_mem
-                # Estimate GPU utilization based on thread occupancy or simulated load
-                if unified_mem > 0:
-                    gpu_pct = min(100.0, (unified_mem / 8.0) * 100.0)  # assume 8GB threshold
+                
+                if hasattr(torch.mps, "recommended_max_memory"):
+                    mps_recommended_max = torch.mps.recommended_max_memory() / (1024 ** 3)
+                else:
+                    # Estimate based on 16GB default or sysctl
+                    mps_recommended_max = (total_ram_bytes * 0.6) / (1024 ** 3)
+                
+                if mps_recommended_max > 0:
+                    gpu_pct = min(100.0, (unified_mem / mps_recommended_max) * 100.0)
             except Exception:
                 pass
 
         # 6. Temperature and power estimation
-        # If no raw sensor access, estimate thermal load based on CPU activity
         temp = 45.0 + (cpu * 0.4)
         power = 10.0 + (cpu * 0.3) + (gpu_pct * 0.5)
+
+        # 7. macOS specific metrics (swap, compressed, memory pressure level, SSD free)
+        swap_used, swap_total, swap_files = self._get_macos_swap()
+        mem_pressure = self._get_macos_memory_pressure()
+        
+        # Parse Mach VM stats & calculate rate
+        vm_stats = self._get_macos_vm_stat()
+        vm_now = time.time()
+        vm_delta = max(vm_now - self._last_vm_stat_time, 0.001)
+        self._last_vm_stat_time = vm_now
+
+        pageouts_rate = max(vm_stats["pageouts"] - self._last_pageouts, 0) / vm_delta
+        swapouts_rate = max(vm_stats["swapouts"] - self._last_swapouts, 0) / vm_delta
+
+        self._last_pageouts = vm_stats["pageouts"]
+        self._last_swapouts = vm_stats["swapouts"]
+
+        compressed_pct = 0.0
+        if total_ram_bytes > 0:
+            compressed_pct = (vm_stats["compressed_pages"] * vm_stats["page_size"] / total_ram_bytes) * 100.0
+
+        ssd_free = 500.0
+        try:
+            ssd_free = psutil.disk_usage('/').free / (1024 ** 3)
+        except Exception:
+            pass
 
         # Thread-safe write
         with self._lock:
@@ -178,6 +312,7 @@ class ResourceMonitor:
                 gpu_percent=gpu_pct,
                 unified_memory_used_gb=unified_mem,
                 vram_used_gb=vram_mem,
+                mps_recommended_max_memory_gb=mps_recommended_max,
                 disk_io_read_bytes_sec=disk_read_bytes_sec,
                 disk_io_write_bytes_sec=disk_write_bytes_sec,
                 net_io_recv_bytes_sec=net_recv_bytes_sec,
@@ -185,4 +320,12 @@ class ResourceMonitor:
                 temperature_c=temp,
                 battery_percent=battery_pct,
                 power_draw_watts=power,
+                swap_used_gb=swap_used,
+                swap_total_gb=swap_total,
+                swap_file_count=swap_files,
+                compressed_memory_pct=compressed_pct,
+                memory_pressure=mem_pressure,
+                ssd_free_gb=ssd_free,
+                pageouts_per_sec=pageouts_rate,
+                swapouts_per_sec=swapouts_rate
             )

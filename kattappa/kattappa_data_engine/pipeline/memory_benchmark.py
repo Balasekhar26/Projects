@@ -170,6 +170,23 @@ class MemoryBenchmark:
                         
             return "I am noted."
 
+        # Check if model is a custom PyTorch model (KattappaModel) and does not need Transformers
+        if self.model.__class__.__name__ == "KattappaModel":
+            history_str = ""
+            for t in context_turns:
+                history_str += f"{t['role']}: {t['content']}\n"
+            history_str += f"user: {prompt}\nassistant:"
+            
+            inputs = self.tokenizer(history_str, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                output_ids = self.model.generate(
+                    **inputs,
+                    max_new_tokens=64,
+                    eos_id=self.tokenizer.eos_token_id
+                )
+            actual_out = self.tokenizer.decode(output_ids[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+            return actual_out
+
         if not HAS_HF:
             raise ImportError("PyTorch and Transformers libraries are required for real model inference.")
 

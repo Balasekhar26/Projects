@@ -1,0 +1,7 @@
+[
+  {
+    "query": "Calculate 45 * 12",
+    "expected_tool": "calculator",
+    "expected_args": {"expression": "45 * 12"}
+  }
+]

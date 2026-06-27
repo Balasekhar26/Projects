@@ -113,6 +113,12 @@ class LearningEngine:
     # Public API
     # ------------------------------------------------------------------
 
+    def learn_from_reflection(self, reflection: Reflection) -> LearningRecord:
+        """
+        Wire reflection outcomes back into long-term memory.
+        """
+        return self.learn_from(reflection)
+
     def learn_from(self, reflection: Reflection) -> LearningRecord:
         """
         Derive a LearningRecord from a completed Reflection.

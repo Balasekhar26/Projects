@@ -1,0 +1,13 @@
+{
+  "eval_interval": 100,
+  "n_eval_batches": 20,
+  "gate_thresholds": {
+    "reasoning": 0.75,
+    "engineering": 0.70,
+    "memory": 0.85,
+    "tool_selection": 0.90,
+    "tool_json": 0.95,
+    "telugu": 0.85,
+    "forgetting": 0.95
+  }
+}

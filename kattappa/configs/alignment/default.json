@@ -1,0 +1,7 @@
+{
+  "sft_epochs": 3,
+  "lora_rank": 8,
+  "lora_alpha": 16,
+  "lora_dropout": 0.05,
+  "dpo_beta": 0.1
+}

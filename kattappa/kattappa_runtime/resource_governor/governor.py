@@ -1,14 +1,15 @@
 """
-Resource Governor — Step 30
-============================
+Resource Governor — Step 30 (Proactive Safety Hardening)
+=========================================================
 
 Implements the central ResourceGovernor coordinating permissions, thermal load
-scaling, budget checking, and training adaptivity.
+scaling, absolute subsystem budget checks, and training adaptivity.
 """
 
 from __future__ import annotations
 
 import gc
+import psutil
 from typing import Dict, Any, Optional
 import torch
 
@@ -27,15 +28,15 @@ class ResourceGovernor:
         self._init_default_budgets()
 
     def _init_default_budgets(self):
-        # Set default budgets if empty
+        # Set default absolute budgets (matching strict background budgets)
         if not self.config.subsystem_budgets:
             self.config.subsystem_budgets = {
-                "planner": SubsystemBudget(subsystem="planner", cpu_share=0.10, ram_share=0.10, gpu_share=0.10),
-                "research": SubsystemBudget(subsystem="research", cpu_share=0.15, ram_share=0.15, gpu_share=0.15),
-                "workflow": SubsystemBudget(subsystem="workflow", cpu_share=0.10, ram_share=0.10, gpu_share=0.10),
-                "memory": SubsystemBudget(subsystem="memory", cpu_share=0.05, ram_share=0.05, gpu_share=0.05),
-                "knowledge_graph": SubsystemBudget(subsystem="knowledge_graph", cpu_share=0.05, ram_share=0.05, gpu_share=0.05),
-                "model": SubsystemBudget(subsystem="model", cpu_share=0.05, ram_share=0.05, gpu_share=0.05),
+                "planner": SubsystemBudget(subsystem="planner", cpu_limit_percent=3.0, ram_limit_mb=500.0),
+                "research": SubsystemBudget(subsystem="research", cpu_limit_percent=3.0, ram_limit_mb=500.0),
+                "workflow": SubsystemBudget(subsystem="workflow", cpu_limit_percent=2.0, ram_limit_mb=300.0),
+                "memory": SubsystemBudget(subsystem="memory", cpu_limit_percent=2.0, ram_limit_mb=300.0),
+                "knowledge_graph": SubsystemBudget(subsystem="knowledge_graph", cpu_limit_percent=3.0, ram_limit_mb=500.0),
+                "model": SubsystemBudget(subsystem="model", cpu_limit_percent=2.0, ram_limit_mb=300.0),
             }
 
     def request_permission(
@@ -51,7 +52,7 @@ class ResourceGovernor:
         """
         metrics = self.monitor.get_metrics()
 
-        # 1. Global Hard Safety Limits Check (50% rule)
+        # 1. Global Hard Safety Limits Check (30% CPU, 35% RAM, 35% GPU rule)
         if metrics.cpu_percent + estimated_cpu > (self.config.global_cpu_limit * 100):
             return False
         if metrics.ram_percent + estimated_ram > (self.config.global_ram_limit * 100):
@@ -68,20 +69,25 @@ class ResourceGovernor:
         if total_net_io_mb > self.config.global_net_io_limit_mb_s:
             return False
 
-        # 2. Subsystem Budget Share Checks
+        # 2. Subsystem Budget Absolute Limits Checks
         budget = self.config.subsystem_budgets.get(subsystem)
         if budget:
-            # Subsystem's effective limit = share * global limit
-            subsystem_cpu_limit = budget.cpu_share * (self.config.global_cpu_limit * 100)
-            subsystem_ram_limit = budget.ram_share * (self.config.global_ram_limit * 100)
-            subsystem_gpu_limit = budget.gpu_share * (self.config.global_gpu_limit * 100)
+            # Check CPU absolute limit
+            if estimated_cpu > budget.cpu_limit_percent:
+                return False
 
-            # Check if estimation alone exceeds the subsystem's assigned portion
-            if estimated_cpu > subsystem_cpu_limit:
+            # Convert estimated_ram (percentage of total RAM) to MB
+            try:
+                total_ram_mb = psutil.virtual_memory().total / (1024 * 1024)
+            except Exception:
+                total_ram_mb = 16384.0 # default fallback
+            estimated_ram_mb = (estimated_ram / 100.0) * total_ram_mb
+
+            if estimated_ram_mb > budget.ram_limit_mb:
                 return False
-            if estimated_ram > subsystem_ram_limit:
-                return False
-            if estimated_gpu > subsystem_gpu_limit:
+
+            # Check GPU absolute limit
+            if estimated_gpu > budget.gpu_limit_percent:
                 return False
 
         return True

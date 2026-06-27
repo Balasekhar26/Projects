@@ -1,0 +1,6 @@
+[
+  {
+    "image_path": "mock_ocr_doc.png",
+    "expected_text": "Kattappa Project Specification"
+  }
+]

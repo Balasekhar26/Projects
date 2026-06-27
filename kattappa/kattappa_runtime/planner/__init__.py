@@ -28,6 +28,14 @@ Public API:
     print(planner.progress_report(goal.goal_id))
 """
 
+import warnings
+
+warnings.warn(
+    "kattappa_runtime.planner is deprecated and will be removed in K5. Use backend.core.executive_planner.py instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 from kattappa_runtime.planner.engine     import PlannerEngine
 from kattappa_runtime.planner.schema     import (
     Goal, Plan, Task,

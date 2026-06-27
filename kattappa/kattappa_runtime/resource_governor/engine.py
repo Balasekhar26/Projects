@@ -2,33 +2,53 @@
 Kattappa Resource Governor Engine (KRG) — Step 30
 ==================================================
 
-The unified facade coordinating monitoring, budgeting, thermal scaling, dynamic routing,
-context optimization, lazy loading, and hierarchical storage compression.
+The unified facade coordinating monitoring, safety gating, budgeting, thermal scaling,
+dynamic routing, context optimization, lazy loading, and hierarchical storage compression.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
-from kattappa_runtime.resource_governor.schema import GovernanceConfig, SystemResourceMetrics
-from kattappa_runtime.resource_governor.monitor import ResourceMonitor
 from kattappa_runtime.resource_governor.governor import ResourceGovernor
-from kattappa_runtime.resource_governor.router import DynamicModelRouter
+from kattappa_runtime.resource_governor.loader import (
+    AgentLifecycleManager,
+    LazyLoader,
+)
+from kattappa_runtime.resource_governor.monitor import ResourceMonitor
 from kattappa_runtime.resource_governor.optimizer import ContextOptimizer
-from kattappa_runtime.resource_governor.loader import LazyLoader, AgentLifecycleManager
-from kattappa_runtime.resource_governor.storage import StorageManager, HierarchicalMemoryManager
+from kattappa_runtime.resource_governor.router import DynamicModelRouter
+from kattappa_runtime.resource_governor.safety_controller import SafetyController
+from kattappa_runtime.resource_governor.schema import (
+    GovernanceConfig,
+    SafetyThresholds,
+    SystemResourceMetrics,
+    TrainerBudget,
+    TrainingConfig,
+)
+from kattappa_runtime.resource_governor.storage import (
+    HierarchicalMemoryManager,
+    StorageManager,
+)
 
 
 class ResourceGovernorEngine:
     """
     The unified entry point for all resource governance in Kattappa.
     """
-    def __init__(self, config: Optional[GovernanceConfig] = None):
+    def __init__(
+        self,
+        config: Optional[GovernanceConfig] = None,
+        safety_thresholds: Optional[SafetyThresholds] = None,
+        trainer_budget: Optional[TrainerBudget] = None,
+        training_config: Optional[TrainingConfig] = None,
+    ):
         self.config = config or GovernanceConfig()
         
         # Initialize modules
         self.monitor = ResourceMonitor()
         self.governor = ResourceGovernor(self.monitor, self.config)
+        self.safety = SafetyController(self.monitor, safety_thresholds, trainer_budget, training_config)
         self.router = DynamicModelRouter(self.governor)
         self.optimizer = ContextOptimizer(self.governor)
         self.loader = LazyLoader(self.governor)

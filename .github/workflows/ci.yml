@@ -1,0 +1,90 @@
+name: Kattappa CI/CD Workflows
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black
+    - name: Lint with flake8
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 kattappa/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings
+        flake8 kattappa/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f kattappa/requirements.txt ]; then pip install -r kattappa/requirements.txt; fi
+        pip install pytest psutil sentencepiece
+    - name: Run unit tests with pytest
+      run: |
+        PYTHONPATH=kattappa pytest kattappa/tests/
+
+  training-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f kattappa/requirements.txt ]; then pip install -r kattappa/requirements.txt; fi
+        pip install psutil sentencepiece torch
+    - name: Run training smoke test
+      run: |
+        PYTHONPATH=kattappa python3 kattappa/kattappa_native/training/trainer.py \
+          --steps 10 \
+          --batch 1 \
+          --seq-len 128 \
+          --no-monitor \
+          --no-eval \
+          --checkpoint-dir kattappa/kattappa_native/checkpoints/smoke \
+          --resume false \
+          --timeline-log-path kattappa/logs/smoke/timeline.csv \
+          --timing-log-path kattappa/logs/smoke/timing.jsonl
+
+  regression-scorecards:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f kattappa/requirements.txt ]; then pip install -r kattappa/requirements.txt; fi
+        pip install psutil sentencepiece torch
+    - name: Run validation and regression checks (Mock checkpoint)
+      run: |
+        mkdir -p kattappa/kattappa_native/checkpoints/ci/
+        # Create a mock checkpoint file for testing
+        python3 -c "import torch; torch.save({'model_state_dict': {}}, 'kattappa/kattappa_native/checkpoints/ci/checkpoint_step_0000000.pt')"
+        PYTHONPATH=kattappa python3 kattappa/run_eval.py --checkpoint kattappa/kattappa_native/checkpoints/ci/checkpoint_step_0000000.pt --device cpu

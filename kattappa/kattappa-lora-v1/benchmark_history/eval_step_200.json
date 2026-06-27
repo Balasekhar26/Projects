@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-06-27T09:51:29Z",
+  "elapsed_seconds": 1.2,
+  "metrics": {
+    "reasoning": 0.77,
+    "engineering": 0.71,
+    "memory": 0.86,
+    "tool_selection": 0.91,
+    "tool_json": 0.96,
+    "telugu": 0.86,
+    "forgetting": 0.95
+  },
+  "breakdown": {}
+}

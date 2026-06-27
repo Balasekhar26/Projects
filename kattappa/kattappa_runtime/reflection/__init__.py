@@ -25,6 +25,14 @@ Public API
   )
 """
 
+import warnings
+
+warnings.warn(
+    "kattappa_runtime.reflection is deprecated and will be removed in K5. Use backend.core.reflection_engine.py instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 from kattappa_runtime.reflection.engine import ReflectionEngine
 from kattappa_runtime.reflection.schema import Reflection, OutcomeLabel
 
