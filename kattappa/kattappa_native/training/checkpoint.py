@@ -160,7 +160,11 @@ class CheckpointManager:
         if val_ppl is not None and val_ppl < self.best_val_ppl:
             self.best_val_ppl = val_ppl
             best_path = self.checkpoint_dir / "checkpoint_best.pt"
-            torch.save(state, best_path)
+            import shutil
+            try:
+                shutil.copy(path, best_path)
+            except Exception:
+                torch.save(state, best_path)
             print(f"  🏆  New best val PPL: {val_ppl:.4f} → {best_path.name}")
 
         # Prune old checkpoints

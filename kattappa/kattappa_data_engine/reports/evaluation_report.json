@@ -1,14 +1,14 @@
 {
-  "timestamp": "2026-06-27T12:45:11Z",
-  "elapsed_seconds": 1098.42,
+  "timestamp": "2026-06-27T20:18:50Z",
+  "elapsed_seconds": 1195.68,
   "metrics": {
     "reasoning": 0.0,
     "engineering": 0.0111,
     "memory": 0.0,
     "tool_selection": 0.0,
     "tool_json": 0.0,
-    "telugu": 0.405,
-    "forgetting": 0.4667
+    "telugu": 0.425,
+    "forgetting": 0.4333
   },
   "breakdown": {
     "reasoning": {
@@ -35,13 +35,13 @@
       "tool_total_samples": 60
     },
     "telugu": {
-      "telugu_script_adherence": 0.81,
+      "telugu_script_adherence": 0.85,
       "telugu_content_accuracy": 0.0,
-      "telugu_aggregate_accuracy": 0.405,
+      "telugu_aggregate_accuracy": 0.425,
       "telugu_total_samples": 100
     },
     "forgetting": {
-      "general_forgetting_retention": 0.4667,
+      "general_forgetting_retention": 0.4333,
       "forgetting_total_samples": 60
     }
   }

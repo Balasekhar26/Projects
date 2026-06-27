@@ -105,8 +105,10 @@ def main():
     optimizer = build_optimizer(model, lr=3e-4)
     scheduler = CosineScheduler(optimizer, total_steps=100)
     
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    import shutil
+    tmp_dir = os.path.join(os.path.dirname(args.checkpoint), "test_val_tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    try:
         manager = CheckpointManager(tmp_dir, keep_last_n=1)
         
         t_save_start = time.time()
@@ -127,6 +129,9 @@ def main():
             except Exception:
                 pass
         print(f"  Total Save Latency:  {t_save:.4f} s")
+        
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         
     # 5. Memory footprint
     rss = get_current_rss()
