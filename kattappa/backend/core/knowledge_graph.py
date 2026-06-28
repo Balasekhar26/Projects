@@ -101,6 +101,8 @@ class KGNode:
     belief_state: str = "BELIEVED"
     evidence: List[str] = field(default_factory=list)
     last_verified_at: Optional[str] = None
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
     created_at: str = ""
     updated_at: str = ""
 
@@ -116,6 +118,8 @@ class KGEdge:
     confidence: float = 1.0
     evidence: List[str] = field(default_factory=list)
     source_layer: Optional[str] = None
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
     created_at: str = ""
 
 
@@ -155,6 +159,8 @@ class KnowledgeGraph:
         belief_state: str = "BELIEVED",
         evidence: Optional[List[str]] = None,
         last_verified_at: Optional[str] = None,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
     ) -> KGNode:
         """Add a new node to the knowledge graph."""
         etype = EntityType.coerce(entity_type).value if isinstance(entity_type, str) else entity_type.value
@@ -167,6 +173,8 @@ class KnowledgeGraph:
             belief_state=belief_state,
             evidence=evidence,
             last_verified_at=last_verified_at,
+            valid_from=valid_from,
+            valid_until=valid_until,
         )
         raw = self._store.get_node(nid)
         return self._to_kg_node(raw) if raw else KGNode(id=nid, name=name, entity_type=etype)
@@ -180,6 +188,8 @@ class KnowledgeGraph:
         confidence: float = 1.0,
         evidence: Optional[List[str]] = None,
         source_layer: Optional[str] = None,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
     ) -> KGEdge:
         """Add a directed edge between two entities (resolved by name).
 
@@ -197,6 +207,8 @@ class KnowledgeGraph:
             confidence=confidence,
             evidence=evidence,
             source_layer=source_layer,
+            valid_from=valid_from,
+            valid_until=valid_until,
         )
         edges = self._store.get_edges_from(src["id"], relation_type=rel)
         for e in edges:
@@ -532,6 +544,8 @@ class KnowledgeGraph:
             belief_state=raw.get("belief_state", "BELIEVED"),
             evidence=raw.get("evidence", []),
             last_verified_at=raw.get("last_verified_at"),
+            valid_from=raw.get("valid_from"),
+            valid_until=raw.get("valid_until"),
             created_at=raw.get("created_at", ""),
             updated_at=raw.get("updated_at", ""),
         )
@@ -548,5 +562,7 @@ class KnowledgeGraph:
             confidence=raw.get("confidence", 1.0),
             evidence=raw.get("evidence", []),
             source_layer=raw.get("source_layer"),
+            valid_from=raw.get("valid_from"),
+            valid_until=raw.get("valid_until"),
             created_at=raw.get("created_at", ""),
         )

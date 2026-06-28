@@ -74,6 +74,8 @@ class GraphStore:
                     belief_state TEXT DEFAULT 'BELIEVED',
                     evidence TEXT DEFAULT '[]',
                     last_verified_at TEXT,
+                    valid_from TEXT,
+                    valid_until TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -87,6 +89,8 @@ class GraphStore:
                     confidence REAL DEFAULT 1.0,
                     evidence TEXT DEFAULT '[]',
                     source_layer TEXT,
+                    valid_from TEXT,
+                    valid_until TEXT,
                     created_at TEXT NOT NULL
                 );
 
@@ -141,9 +145,21 @@ class GraphStore:
                 ("belief_state", "TEXT", "'BELIEVED'"),
                 ("evidence", "TEXT", "'[]'"),
                 ("last_verified_at", "TEXT", "NULL"),
+                ("valid_from", "TEXT", "NULL"),
+                ("valid_until", "TEXT", "NULL"),
             ]:
                 try:
                     conn.execute(f"ALTER TABLE kg_nodes ADD COLUMN {col} {col_type} DEFAULT {col_default}")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+
+            for col, col_type, col_default in [
+                ("valid_from", "TEXT", "NULL"),
+                ("valid_until", "TEXT", "NULL"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE kg_edges ADD COLUMN {col} {col_type} DEFAULT {col_default}")
                     conn.commit()
                 except sqlite3.OperationalError:
                     pass
@@ -170,22 +186,25 @@ class GraphStore:
         belief_state: str = "BELIEVED",
         evidence: Optional[List[str]] = None,
         last_verified_at: Optional[str] = None,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
     ) -> str:
         """Insert a new node and return its id."""
         nid = node_id or str(uuid.uuid4())
         now = _utcnow_iso()
         props_json = json.dumps(properties or {})
         ev_json = json.dumps(evidence or [])
+        val_from = valid_from or now
         with self._lock:
             conn = self._get_conn()
             try:
                 conn.execute(
                     """
                     INSERT INTO kg_nodes
-                        (id, name, entity_type, properties, confidence, source_layer, belief_state, evidence, last_verified_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, name, entity_type, properties, confidence, source_layer, belief_state, evidence, last_verified_at, valid_from, valid_until, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (nid, name.strip(), entity_type, props_json, confidence, source_layer, belief_state, ev_json, last_verified_at, now, now),
+                    (nid, name.strip(), entity_type, props_json, confidence, source_layer, belief_state, ev_json, last_verified_at, val_from, valid_until, now, now),
                 )
                 conn.commit()
             except Exception as exc:
@@ -208,6 +227,8 @@ class GraphStore:
         belief_state: Optional[str] = None,
         evidence: Optional[List[str]] = None,
         last_verified_at: Optional[str] = None,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
     ) -> bool:
         """Update an existing node. Returns True if a row was modified."""
         sets: list[str] = []
@@ -236,6 +257,12 @@ class GraphStore:
         if last_verified_at is not None:
             sets.append("last_verified_at = ?")
             params.append(last_verified_at)
+        if valid_from is not None:
+            sets.append("valid_from = ?")
+            params.append(valid_from)
+        if valid_until is not None:
+            sets.append("valid_until = ?")
+            params.append(valid_until)
         if not sets:
             return False
         sets.append("updated_at = ?")
@@ -342,21 +369,24 @@ class GraphStore:
         evidence: Optional[List[str]] = None,
         source_layer: Optional[str] = None,
         edge_id: Optional[str] = None,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
     ) -> str:
         """Insert a directed edge and return its id."""
         eid = edge_id or str(uuid.uuid4())
         now = _utcnow_iso()
+        val_from = valid_from or now
         with self._lock:
             conn = self._get_conn()
             try:
                 conn.execute(
                     """
                     INSERT INTO kg_edges
-                        (id, source_id, target_id, relation_type, weight, confidence, evidence, source_layer, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, source_id, target_id, relation_type, weight, confidence, evidence, source_layer, valid_from, valid_until, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (eid, source_id, target_id, relation_type, weight, confidence,
-                     json.dumps(evidence or []), source_layer, now),
+                     json.dumps(evidence or []), source_layer, val_from, valid_until, now),
                 )
                 conn.commit()
             except Exception as exc:
