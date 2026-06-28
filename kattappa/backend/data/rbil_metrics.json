@@ -1,9 +1,9 @@
 {
-  "llm_calls_avoided": 581,
-  "tokens_saved": 105320,
-  "time_saved": 871.5,
+  "llm_calls_avoided": 587,
+  "tokens_saved": 106400,
+  "time_saved": 880.5,
   "cache_hits": 0,
-  "rule_hits": 581,
+  "rule_hits": 587,
   "escalations": 464,
   "timeouts_prevented": 19
 }
