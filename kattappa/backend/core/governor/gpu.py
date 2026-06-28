@@ -9,6 +9,9 @@ class GpuGovernor(BaseGovernor):
     and driver allocation limits to prevent GPU out-of-memory events.
     """
     
+    def __init__(self):
+        super().__init__(priority=70)
+
     def get_metrics(self) -> Dict[str, Any]:
         metrics = {
             "mps_available": False,
@@ -23,12 +26,10 @@ class GpuGovernor(BaseGovernor):
                 allocated = torch.mps.driver_allocated_memory()
                 metrics["allocated_gb"] = allocated / (1024 ** 3)
                 
-                # Check for recommended max memory
                 if hasattr(torch.mps, "recommended_max_memory"):
                     recommended = torch.mps.recommended_max_memory()
                     metrics["recommended_max_gb"] = recommended / (1024 ** 3)
                 else:
-                    # Estimate based on 60% of total physical RAM
                     total_ram = psutil.virtual_memory().total
                     metrics["recommended_max_gb"] = (total_ram * 0.6) / (1024 ** 3)
                 
@@ -45,7 +46,8 @@ class GpuGovernor(BaseGovernor):
             return {
                 "available_capacity": 100.0,
                 "risk_score": 0.0,
-                "priority": 1,
+                "priority": self.priority,
+                "confidence": 0.0,  # Sensor has 0 confidence since GPU is not active/available
                 "recommended_action": GovernorAction.NONE,
                 "reason": "MPS (Metal Performance Shaders) is not active or available on this platform.",
                 "metrics": metrics
@@ -57,23 +59,21 @@ class GpuGovernor(BaseGovernor):
         if usage_pct > 90.0:
             action = GovernorAction.PAUSE
             risk_score = 0.95
-            priority = 9
             reason = f"GPU VRAM usage is critical at {metrics['allocated_gb']:.2f} GB / {metrics['recommended_max_gb']:.2f} GB ({usage_pct:.1f}%)."
         elif usage_pct > 75.0:
             action = GovernorAction.ECO
             risk_score = 0.70
-            priority = 6
             reason = f"GPU VRAM usage is elevated at {metrics['allocated_gb']:.2f} GB / {metrics['recommended_max_gb']:.2f} GB ({usage_pct:.1f}%)."
         else:
             action = GovernorAction.NONE
             risk_score = 0.10
-            priority = 1
             reason = f"GPU VRAM usage is nominal at {metrics['allocated_gb']:.2f} GB / {metrics['recommended_max_gb']:.2f} GB ({usage_pct:.1f}%)."
 
         return {
             "available_capacity": available_capacity,
             "risk_score": risk_score,
-            "priority": priority,
+            "priority": self.priority,
+            "confidence": self.confidence,
             "recommended_action": action,
             "reason": reason,
             "metrics": metrics

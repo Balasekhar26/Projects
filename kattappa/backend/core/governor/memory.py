@@ -13,6 +13,7 @@ class MemoryGovernor(BaseGovernor):
     """
     
     def __init__(self):
+        super().__init__(priority=95)
         self._last_pageouts = 0
         self._last_time = 0.0
         self._init_vm_stats()
@@ -95,22 +96,28 @@ class MemoryGovernor(BaseGovernor):
             except Exception:
                 pass
 
+        # Smooth out RAM percentage and pageouts rate over a 5s window to reduce oscillations
+        smoothed_ram = self.add_history_value("ram_pct", ram_percent, max_len=5)
+        smoothed_pageouts = self.add_history_value("pageouts_rate", pageouts_rate, max_len=5)
+
         return {
             "ram_percent": ram_percent,
+            "smoothed_ram_percent": round(smoothed_ram, 1),
             "total_ram_gb": total_ram_gb,
             "available_ram_gb": available_ram_gb,
             "swap_used_gb": swap_used_gb,
             "compressed_pct": compressed_pct,
-            "pageouts_rate": pageouts_rate
+            "pageouts_rate": pageouts_rate,
+            "smoothed_pageouts_rate": round(smoothed_pageouts, 2)
         }
 
     def assess(self) -> Dict[str, Any]:
         metrics = self.get_metrics()
-        ram_percent = metrics["ram_percent"]
+        ram_percent = metrics["smoothed_ram_percent"]
         available_ram_gb = metrics["available_ram_gb"]
         swap_used_gb = metrics["swap_used_gb"]
         compressed_pct = metrics["compressed_pct"]
-        pageouts_rate = metrics["pageouts_rate"]
+        pageouts_rate = metrics["smoothed_pageouts_rate"]
 
         available_capacity = max(0.0, 100.0 - ram_percent)
         
@@ -119,22 +126,18 @@ class MemoryGovernor(BaseGovernor):
         if ram_percent > 90.0 or available_ram_gb < 1.0:
             action = GovernorAction.PAUSE
             risk_score = 0.98
-            priority = 9
             reason = f"RAM usage is critical at {ram_percent}% (Only {available_ram_gb:.2f} GB free)."
         elif swap_used_gb > 8.0:
             action = GovernorAction.PAUSE
             risk_score = 0.90
-            priority = 8
             reason = f"Swap usage is critical at {swap_used_gb:.2f} GB (Max safe is 8.0 GB)."
         elif pageouts_rate > 20.0:
             action = GovernorAction.PAUSE
             risk_score = 0.88
-            priority = 8
             reason = f"Pageouts rate is critical at {pageouts_rate:.1f} pages/sec. High risk of disk thrashing."
         elif compressed_pct > 35.0:
             action = GovernorAction.PAUSE
             risk_score = 0.85
-            priority = 7
             reason = f"Memory compressor occupancy is critical at {compressed_pct:.1f}% of physical memory."
             
         # 2. Elevated conditions -> ECO (Yielding resources)
@@ -142,35 +145,31 @@ class MemoryGovernor(BaseGovernor):
             # Scale down when physical available RAM is less than 50%
             action = GovernorAction.ECO
             risk_score = 0.55
-            priority = 5
             reason = f"RAM available is less than 50% ({available_ram_gb:.2f} GB left). Restricting to ECO mode."
         elif swap_used_gb > 2.0:
             action = GovernorAction.ECO
             risk_score = 0.50
-            priority = 5
             reason = f"Swap usage is elevated at {swap_used_gb:.2f} GB."
         elif pageouts_rate > 5.0:
             action = GovernorAction.ECO
             risk_score = 0.45
-            priority = 4
             reason = f"Pageouts rate is elevated at {pageouts_rate:.1f} pages/sec."
         elif compressed_pct > 15.0:
             action = GovernorAction.ECO
             risk_score = 0.40
-            priority = 4
             reason = f"Memory compressor occupancy is elevated at {compressed_pct:.1f}%."
             
         # 3. Nominal conditions -> NONE
         else:
             action = GovernorAction.NONE
             risk_score = 0.10
-            priority = 1
             reason = "System memory indicators are nominal."
 
         return {
             "available_capacity": available_capacity,
             "risk_score": risk_score,
-            "priority": priority,
+            "priority": self.priority,
+            "confidence": self.confidence,
             "recommended_action": action,
             "reason": reason,
             "metrics": metrics

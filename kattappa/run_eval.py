@@ -60,6 +60,7 @@ def main():
     parser = argparse.ArgumentParser(description="Kattappa Model Evaluation & Continuous Regression Check")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint .pt file")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run evaluation on")
+    parser.add_argument("--suite-version", type=str, default="v1", help="Version of the evaluation suite to run/compare")
     args = parser.parse_args()
 
     checkpoint_path = Path(args.checkpoint)
@@ -124,7 +125,7 @@ def main():
             tokenizer = None
 
     # 3. Execute evaluation
-    output_report_path = WORKSPACE_ROOT / "kattappa_data_engine/reports/evaluation_report_current.json"
+    output_report_path = WORKSPACE_ROOT / f"kattappa_data_engine/reports/evaluation_suite_{args.suite_version}_current.json"
     report = run_comprehensive_evaluation(
         model=model,
         tokenizer=tokenizer,
@@ -134,7 +135,7 @@ def main():
 
     # 4. Continuous Regression Check
     # Rule: If new checkpoint drops in reasoning, coding, memory, or any metric by >5%, reject.
-    preceding_report_path = WORKSPACE_ROOT / "kattappa_data_engine/reports/evaluation_report.json"
+    preceding_report_path = WORKSPACE_ROOT / f"kattappa_data_engine/reports/evaluation_suite_{args.suite_version}.json"
     if preceding_report_path.exists():
         try:
             with open(preceding_report_path, "r") as f:

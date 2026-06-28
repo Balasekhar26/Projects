@@ -14,6 +14,9 @@ class DiskGovernor(BaseGovernor):
     LIMIT_WRITE_BYTES = 100 * 1024 * 1024  # 100 MB
     MIN_FREE_PHYSICAL_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
 
+    def __init__(self):
+        super().__init__(priority=80)
+
     def _get_db_path(self) -> Path:
         return runtime_data_root() / "backend" / "data" / "resource_governance.json"
 
@@ -32,7 +35,6 @@ class DiskGovernor(BaseGovernor):
                 pass
                 
         try:
-            # Check free space on the current drive
             usage = psutil.disk_usage(str(runtime_data_root()))
             metrics["physical_free_bytes"] = usage.free
         except Exception:
@@ -60,28 +62,25 @@ class DiskGovernor(BaseGovernor):
         if free_bytes > 0 and free_bytes < self.MIN_FREE_PHYSICAL_BYTES:
             action = GovernorAction.PAUSE
             risk_score = 0.98
-            priority = 9
             reason = f"Physical disk space is critically low at {free_bytes / (1024**3):.2f} GB (minimum required: {self.MIN_FREE_PHYSICAL_BYTES / (1024**3):.0f} GB)."
         elif written >= self.LIMIT_WRITE_BYTES:
             action = GovernorAction.PAUSE
             risk_score = 0.95
-            priority = 8
             reason = f"Workspace disk write quota exceeded ({written / (1024*1024):.2f} MB / {self.LIMIT_WRITE_BYTES / (1024*1024):.0f} MB)."
         elif written > (self.LIMIT_WRITE_BYTES * 0.85):
             action = GovernorAction.ECO
             risk_score = 0.60
-            priority = 4
             reason = f"Workspace disk write quota is nearing limit ({written / (1024*1024):.2f} MB)."
         else:
             action = GovernorAction.NONE
             risk_score = 0.10
-            priority = 1
             reason = "Disk space and quotas are healthy."
 
         return {
             "available_capacity": available_capacity,
             "risk_score": risk_score,
-            "priority": priority,
+            "priority": self.priority,
+            "confidence": self.confidence,
             "recommended_action": action,
             "reason": reason,
             "metrics": metrics

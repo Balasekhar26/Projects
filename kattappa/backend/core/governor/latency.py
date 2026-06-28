@@ -16,6 +16,9 @@ class LatencyGovernor(BaseGovernor):
     TARGET_LATENCY_MS = 2500.0  # 2.5 seconds max for deep reasoning
     CRITICAL_LATENCY_MS = 5000.0  # 5 seconds is critical
 
+    def __init__(self):
+        super().__init__(priority=40)
+
     @classmethod
     def report_latency(cls, latency_ms: float) -> None:
         """
@@ -47,35 +50,33 @@ class LatencyGovernor(BaseGovernor):
             return {
                 "available_capacity": 100.0,
                 "risk_score": 0.0,
-                "priority": 1,
+                "priority": self.priority,
+                "confidence": 0.5,  # Moderate confidence when there is no history yet
                 "recommended_action": GovernorAction.NONE,
                 "reason": "No recent execution latency records found.",
                 "metrics": metrics
             }
 
-        # Available capacity as remaining headroom percentage before critical
         available_capacity = max(0.0, (1.0 - avg_ms / self.CRITICAL_LATENCY_MS) * 100.0)
 
         if avg_ms >= self.CRITICAL_LATENCY_MS:
             action = GovernorAction.PAUSE
             risk_score = 0.90
-            priority = 7
             reason = f"Average response latency is critical at {avg_ms:.1f}ms (threshold: {self.CRITICAL_LATENCY_MS:.0f}ms). Recommend fast-path fallback."
         elif avg_ms >= self.TARGET_LATENCY_MS:
             action = GovernorAction.ECO
             risk_score = 0.60
-            priority = 5
             reason = f"Average response latency is elevated at {avg_ms:.1f}ms (target: {self.TARGET_LATENCY_MS:.0f}ms)."
         else:
             action = GovernorAction.NONE
             risk_score = 0.10
-            priority = 1
             reason = f"Average response latency is nominal at {avg_ms:.1f}ms."
 
         return {
             "available_capacity": available_capacity,
             "risk_score": risk_score,
-            "priority": priority,
+            "priority": self.priority,
+            "confidence": self.confidence,
             "recommended_action": action,
             "reason": reason,
             "metrics": metrics

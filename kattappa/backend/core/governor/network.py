@@ -13,6 +13,9 @@ class NetworkGovernor(BaseGovernor):
     LIMIT_DOWNLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
     LIMIT_REQUESTS = 100
 
+    def __init__(self):
+        super().__init__(priority=20)
+
     def _get_db_path(self) -> Path:
         return runtime_data_root() / "backend" / "data" / "resource_governance.json"
 
@@ -47,28 +50,25 @@ class NetworkGovernor(BaseGovernor):
         if req_count >= self.LIMIT_REQUESTS:
             action = GovernorAction.PAUSE
             risk_score = 0.95
-            priority = 8
             reason = f"Network requests limit reached ({req_count} / {self.LIMIT_REQUESTS})."
         elif dl_bytes >= self.LIMIT_DOWNLOAD_BYTES:
             action = GovernorAction.PAUSE
             risk_score = 0.95
-            priority = 8
             reason = f"Network download quota exhausted ({dl_bytes / (1024*1024):.2f} MB / {self.LIMIT_DOWNLOAD_BYTES / (1024*1024):.0f} MB)."
         elif req_count > (self.LIMIT_REQUESTS * 0.85) or dl_bytes > (self.LIMIT_DOWNLOAD_BYTES * 0.85):
             action = GovernorAction.ECO
             risk_score = 0.60
-            priority = 4
             reason = f"Network usage is elevated (Requests: {req_count}, Downloads: {dl_bytes / (1024*1024):.2f} MB)."
         else:
             action = GovernorAction.NONE
             risk_score = 0.10
-            priority = 1
             reason = "Network quotas are healthy."
 
         return {
             "available_capacity": available_capacity,
             "risk_score": risk_score,
-            "priority": priority,
+            "priority": self.priority,
+            "confidence": self.confidence,
             "recommended_action": action,
             "reason": reason,
             "metrics": metrics
