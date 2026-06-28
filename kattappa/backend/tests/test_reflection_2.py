@@ -16,6 +16,22 @@ def clean_databases():
     ReflectionMemory.clear_all()
     CognitiveStateManager.reset()
     BLACKBOARD.clear()
+    
+    from backend.core.semantic_memory import SemanticMemory
+    conn = SemanticMemory._get_sqlite_conn()
+    try:
+        conn.execute("DELETE FROM semantic_evidence")
+        conn.execute("DELETE FROM semantic_sources")
+        conn.execute("DELETE FROM semantic_edges")
+        conn.execute("DELETE FROM semantic_skills")
+        conn.execute("DELETE FROM semantic_aliases")
+        conn.execute("DELETE FROM semantic_nodes")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
+    
     yield
     ReflectionMemory.clear_all()
     CognitiveStateManager.reset()
