@@ -107,6 +107,24 @@ class TaskScheduler:
 
         log_event("orchestrator_task_start", f"Running task {task.task_id} on agent {task.agent_name}")
         
+        # ── K11: Register Action (Level 4) and Update Task (Level 3) ─────────
+        action_node_id = f"{task.task_id}_action"
+        try:
+            from backend.core.goal_hierarchy import GoalHierarchy, HierarchyLevel
+            # Update Task to ACTIVE
+            GoalHierarchy.update_node(task.task_id, status="ACTIVE", progress=0.1)
+            # Create Action node
+            GoalHierarchy.add_node(
+                node_id=action_node_id,
+                parent_id=task.task_id,
+                level=HierarchyLevel.ACTION,
+                title=f"Agent {task.agent_name} executing {task.action}",
+                status="ACTIVE",
+                progress=0.1,
+            )
+        except Exception as e:
+            log_event("scheduler_hierarchy_error", f"Error registering action node: {e}")
+
         try:
             agent = self.registry.get_or_raise(task.agent_name)
             agent.initialize()
@@ -116,11 +134,26 @@ class TaskScheduler:
                 with self._lock:
                     task.status = "COMPLETED"
                     task.output = result.output
+                try:
+                    from backend.core.goal_hierarchy import GoalHierarchy
+                    GoalHierarchy.update_node(action_node_id, status="COMPLETED", progress=1.0)
+                except Exception as e:
+                    log_event("scheduler_hierarchy_error", f"Error completing action node: {e}")
                 self.message_bus.publish(f"task/completed/{task.task_id}", result.output)
                 self.message_bus.publish("task/completed", task.task_id)
             else:
+                try:
+                    from backend.core.goal_hierarchy import GoalHierarchy
+                    GoalHierarchy.update_node(action_node_id, status="FAILED", progress=0.0)
+                except Exception as e:
+                    log_event("scheduler_hierarchy_error", f"Error failing action node: {e}")
                 self._handle_failure(task, graph_id, context, result.error or "Unknown failure")
         except Exception as e:
+            try:
+                from backend.core.goal_hierarchy import GoalHierarchy
+                GoalHierarchy.update_node(action_node_id, status="FAILED", progress=0.0)
+            except Exception as ex:
+                log_event("scheduler_hierarchy_error", f"Error failing action node: {ex}")
             self._handle_failure(task, graph_id, context, str(e))
         finally:
             with self._lock:
