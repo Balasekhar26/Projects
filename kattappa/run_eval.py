@@ -149,11 +149,21 @@ def main():
                 diff = current_val - prev_val
                 print(f"  - {metric_name}: Previous={prev_val:.4f}, Current={current_val:.4f} (diff={diff:+.4f})")
                 
-                # Check for drop > 5% (0.05)
-                if diff < -0.05:
+                # Check for drop > 5% (either absolute 0.05 OR relative 5% of previous value)
+                is_drop = False
+                drop_pct = 0.0
+                if diff < 0:
+                    if diff < -0.05:
+                        is_drop = True
+                        drop_pct = abs(diff) * 100
+                    elif prev_val > 0.0 and (current_val / prev_val) < 0.95:
+                        is_drop = True
+                        drop_pct = (abs(diff) / prev_val) * 100
+                
+                if is_drop:
                     regressed = True
                     regression_reasons.append(
-                        f"Regression detected in metric '{metric_name}': dropped by {abs(diff)*100:.2f}% (limit: 5%)"
+                        f"Regression detected in metric '{metric_name}': dropped from {prev_val:.4f} to {current_val:.4f} (diff={diff:+.4f}, drop={drop_pct:.2f}%)"
                     )
             
             if regressed:
