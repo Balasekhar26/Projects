@@ -315,6 +315,7 @@ class CognitiveMemoryBus:
             steps_json=steps_json,
             trust_level=data.get("trust_level", "USER_APPROVED"),
             derived_from_nodes=data.get("derived_from_nodes"),
+            failure_reason=data.get("failure_reason"),
         )
         return pid
 
