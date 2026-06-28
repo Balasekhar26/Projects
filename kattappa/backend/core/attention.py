@@ -143,14 +143,25 @@ class Attention:
             opportunity += 0.6
         opportunity = min(1.0, opportunity)
 
-        # F. Composite Score
-        # Composite = I(0.25) + U(0.20) + N(0.15) + R(0.25) + O(0.15)
+        # F. Composite Score based on dynamic Cognitive State weights
+        try:
+            from backend.core.state_manager import CognitiveStateManager
+            weights = CognitiveStateManager.get_attention_weights()
+        except Exception:
+            weights = {
+                "importance": 0.25,
+                "urgency": 0.20,
+                "novelty": 0.15,
+                "risk": 0.25,
+                "opportunity": 0.15,
+            }
+
         composite = (
-            (importance * 0.25) +
-            (urgency * 0.20) +
-            (novelty * 0.15) +
-            (risk * 0.25) +
-            (opportunity * 0.15)
+            (importance * weights["importance"]) +
+            (urgency * weights["urgency"]) +
+            (novelty * weights["novelty"]) +
+            (risk * weights["risk"]) +
+            (opportunity * weights["opportunity"])
         )
         score_obj = AttentionScore(
             importance=round(importance, 3),
