@@ -37,6 +37,7 @@ class WorldModelCoordinator:
     _parent_map: Dict[str, str] = {}
     _belief_states: Dict[str, BeliefState] = {}
     _revision_engines: Dict[str, BeliefRevisionEngine] = {}
+    _pkgs: Dict[str, Any] = {}
 
     _lock = uuid.uuid4()  # Dummy object for coordinate synchronization
 
@@ -48,6 +49,7 @@ class WorldModelCoordinator:
         cls._belief_states.clear()
         cls._parent_map.clear()
         cls._revision_engines.clear()
+        cls._pkgs.clear()
 
         # Initialize main branch
         cls._branches["main"] = {
@@ -60,6 +62,9 @@ class WorldModelCoordinator:
         }
         cls._belief_states["main"] = BeliefState(state_id="main_belief", branch_id="main", timestamp=time.time())
         cls._revision_engines["main"] = BeliefRevisionEngine(BeliefEngine(cls._belief_states["main"]))
+        
+        from backend.core.cos.pkg import ProbabilisticKnowledgeGraph
+        cls._pkgs["main"] = ProbabilisticKnowledgeGraph()
 
     @classmethod
     def get_entity(cls, domain: str, entity_id: str, branch_id: Optional[str] = None) -> Optional[Entity]:
@@ -88,10 +93,30 @@ class WorldModelCoordinator:
                 "economic": {},
                 "temporal": {}
             }
+        if branch not in cls._pkgs:
+            from backend.core.cos.pkg import ProbabilisticKnowledgeGraph
+            cls._pkgs[branch] = ProbabilisticKnowledgeGraph()
 
         # Resolve entity_id and alias
         AliasRegistry.register_alias(entity.canonical_id, entity.entity_id)
         cls._branches[branch].setdefault(domain_lower, {})[entity.entity_id] = entity
+        
+        # Sync immediately
+        cls.sync_branch_to_pkg(branch)
+
+    @classmethod
+    def sync_branch_to_pkg(cls, branch_id: str) -> None:
+        """Synchronizes branch entity states and relations into the PKG."""
+        if branch_id not in cls._branches or branch_id not in cls._pkgs:
+            return
+        
+        pkg = cls._pkgs[branch_id]
+        # Re-register all nodes and edges
+        for domain, entities in cls._branches[branch_id].items():
+            for entity_id, entity in entities.items():
+                pkg.register_node_confidence(entity_id, entity.confidence)
+                for rel in entity.relations:
+                    pkg.add_relation(rel)
 
     @classmethod
     def create_branch(cls, parent_branch_id: Optional[str] = None) -> str:
@@ -110,6 +135,9 @@ class WorldModelCoordinator:
         cls._belief_states[new_branch] = copy.deepcopy(cls._belief_states[parent])
         cls._belief_states[new_branch].branch_id = new_branch
         cls._revision_engines[new_branch] = BeliefRevisionEngine(BeliefEngine(cls._belief_states[new_branch]))
+        
+        # Copy PKG
+        cls._pkgs[new_branch] = copy.deepcopy(cls._pkgs[parent])
 
         log_event("branch_created", f"Created branch '{new_branch}' stemming from parent '{parent}'")
         return new_branch
@@ -238,6 +266,8 @@ class WorldModelCoordinator:
                                         parent_branch[d][entity_id].properties[k] = updated_pv.value
                     
                     rev_engine.tms.commit()
+                    # Sync to PKG
+                    cls.sync_branch_to_pkg(parent)
                 except Exception as e:
                     logger.error(f"Failed to merge branch: {e}")
                     rev_engine.tms.rollback(rev_engine.belief_engine.state)

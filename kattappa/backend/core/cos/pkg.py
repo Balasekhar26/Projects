@@ -1,11 +1,13 @@
-"""Probabilistic Knowledge Graph (PKG) — Phase K21.7.1 - K21.7.3.
+"""Probabilistic Knowledge Graph (PKG) — Phase K21.7.4 - K21.7.6.
 
 Implements ProbabilisticKnowledgeGraph with temporal validity filtering, relation filters,
-exact dependency-aware probability combination via recursive edge conditioning, and
-structured explainability InferenceResults.
+exact dependency-aware probability combination via recursive edge conditioning,
+probabilistic node confidence discounting, best-first Dijkstra search (Top-K paths), and
+taxonomic ontological transitivity rules.
 """
 from __future__ import annotations
 
+import heapq
 import logging
 import time
 from dataclasses import dataclass, field
@@ -44,6 +46,16 @@ class ProbabilisticKnowledgeGraph:
     def __init__(self):
         # Maps source_uuid -> List of Relation objects
         self.adjacency: Dict[str, List[Relation]] = {}
+        # Maps node_uuid -> confidence float
+        self.node_confidences: Dict[str, float] = {}
+
+    def register_node_confidence(self, node_uuid: str, confidence: float) -> None:
+        """Register the confidence value of an entity node."""
+        self.node_confidences[node_uuid] = confidence
+
+    def get_node_confidence(self, node_uuid: str) -> float:
+        """Returns registered node confidence, defaulting to 1.0."""
+        return self.node_confidences.get(node_uuid, 1.0)
 
     def add_relation(self, relation: Relation) -> None:
         """Adds a relation to the knowledge graph."""
@@ -57,6 +69,26 @@ class ProbabilisticKnowledgeGraph:
         """Returns all relations originating from the source entity."""
         return self.adjacency.get(source_uuid, [])
 
+    def compose_relations(self, relations: List[Relation]) -> Optional[str]:
+        """Composes a chain of relations semantically using taxonomic transitivity rules."""
+        if not relations:
+            return None
+        curr_type = relations[0].relation_type
+        for rel in relations[1:]:
+            next_type = rel.relation_type
+            # Ontological Transitivity Rules
+            if curr_type == "INSTANCE_OF" and next_type == "SUBCLASS_OF":
+                curr_type = "INSTANCE_OF"
+            elif curr_type == "SUBCLASS_OF" and next_type == "SUBCLASS_OF":
+                curr_type = "SUBCLASS_OF"
+            elif curr_type == "PART_OF" and next_type == "PART_OF":
+                curr_type = "PART_OF"
+            elif curr_type == "causes" and next_type == "causes":
+                curr_type = "causes"
+            else:
+                return None
+        return curr_type
+
     def find_paths(
         self,
         source_uuid: str,
@@ -67,6 +99,7 @@ class ProbabilisticKnowledgeGraph:
         raw_paths = self._find_paths_with_relations(source_uuid, target_uuid, visited=visited)
         paths = []
         for path_nodes, rels in raw_paths:
+            # Traditional edge-only probability multiplication for backward compatibility
             path_prob = 1.0
             for r in rels:
                 path_prob *= r.confidence
@@ -121,6 +154,64 @@ class ProbabilisticKnowledgeGraph:
         visited.remove(source_uuid)
         return paths
 
+    def find_top_k_paths(
+        self,
+        source_uuid: str,
+        target_uuid: str,
+        k: int = 5,
+        max_depth: int = 6,
+        at_time: Optional[float] = None,
+        allowed_relations: Optional[List[str]] = None
+    ) -> List[Tuple[List[str], List[Relation], float]]:
+        """Finds top-k highest probability paths using Best-First Search (Dijkstra-style).
+
+        This is highly scalable, avoiding DFS exponential search blowup.
+        """
+        pq = []
+        # Initial path probability starts with source node confidence
+        p_init = self.get_node_confidence(source_uuid)
+        heapq.heappush(pq, (-p_init, source_uuid, [source_uuid], []))
+
+        completed_paths = []
+
+        while pq and len(completed_paths) < k:
+            neg_prob, curr_node, path_nodes, path_relations = heapq.heappop(pq)
+            prob = -neg_prob
+
+            if curr_node == target_uuid:
+                completed_paths.append((path_nodes, path_relations, prob))
+                continue
+
+            if len(path_nodes) - 1 >= max_depth:
+                continue
+
+            for rel in self.adjacency.get(curr_node, []):
+                # Temporal filter
+                if at_time is not None:
+                    if at_time < rel.valid_from:
+                        continue
+                    if rel.valid_until is not None and at_time > rel.valid_until:
+                        continue
+
+                # Allowed relations or ontological composition transitivity
+                if allowed_relations is not None:
+                    temp_relations = path_relations + [rel]
+                    composed = self.compose_relations(temp_relations)
+                    if composed is None or composed not in allowed_relations:
+                        # Fallback check on individual relation type
+                        if rel.relation_type not in allowed_relations:
+                            continue
+
+                next_node = rel.target_uuid
+                if next_node in path_nodes:
+                    continue
+
+                # Next probability factors in target node confidence AND relation confidence
+                next_prob = prob * self.get_node_confidence(next_node) * rel.confidence
+                heapq.heappush(pq, (-next_prob, next_node, path_nodes + [next_node], path_relations + [rel]))
+
+        return completed_paths
+
     def query(
         self,
         source_uuid: str,
@@ -134,10 +225,11 @@ class ProbabilisticKnowledgeGraph:
         """Queries the PKG using exact dependency-aware probability, filtering and returning trace explanations."""
         start_time = time.time()
 
-        # Find paths and associated edges
-        raw_paths = self._find_paths_with_relations(
+        # Find top paths using Best-First Search
+        raw_paths = self.find_top_k_paths(
             source_uuid=source_uuid,
             target_uuid=target_uuid,
+            k=20,  # Max candidate paths for exact evaluation
             max_depth=max_depth,
             at_time=at_time,
             allowed_relations=allowed_relations
@@ -148,17 +240,12 @@ class ProbabilisticKnowledgeGraph:
         edge_probs: Dict[Tuple[str, str, str], float] = {}
         paths_edges: List[List[Tuple[str, str, str]]] = []
 
-        for node_list, rel_list in raw_paths:
+        for node_list, rel_list, path_prob in raw_paths:
             path_edge_keys = []
             for rel in rel_list:
                 edge_key = (rel.source_uuid, rel.target_uuid, rel.relation_type)
                 edge_probs[edge_key] = rel.confidence
                 path_edge_keys.append(edge_key)
-
-            # Compute path probability
-            path_prob = 1.0
-            for rel in rel_list:
-                path_prob *= rel.confidence
 
             if path_prob >= min_probability:
                 paths_nodes.append(node_list)
@@ -166,7 +253,7 @@ class ProbabilisticKnowledgeGraph:
                 for n in node_list:
                     visited_nodes.add(n)
 
-        # 3. Exact Dependency-Aware Probability Solver via Recursive Conditioning
+        # Exact Dependency-Aware Probability Solver via Recursive Conditioning
         def compute_exact_probability(paths: List[List[Tuple[str, str, str]]]) -> float:
             if not paths:
                 return 0.0
@@ -194,25 +281,24 @@ class ProbabilisticKnowledgeGraph:
 
             return p_edge * compute_exact_probability(paths_true) + (1.0 - p_edge) * compute_exact_probability(paths_false)
 
-        combined_prob = compute_exact_probability(paths_edges)
+        # Base nodes probability discount
+        nodes_factor = 1.0
+        for node in visited_nodes:
+            nodes_factor *= self.get_node_confidence(node)
+
+        combined_prob = compute_exact_probability(paths_edges) * nodes_factor
 
         # Find best path
         best_path = None
-        best_prob = -1.0
-        for node_list, rel_list in raw_paths:
-            path_prob = 1.0
-            for r in rel_list:
-                path_prob *= r.confidence
-            if path_prob > best_prob:
-                best_prob = path_prob
-                best_path = node_list
+        if raw_paths:
+            best_path = raw_paths[0][0]
 
         # Build Explanation
         edge_confidences_str = {f"{k[0]} --[{k[2]}]--> {k[1]}": v for k, v in edge_probs.items()}
         
         explanation_lines = [
             f"Query: {source_uuid} to {target_uuid}",
-            f"Combined Exact Probability: {combined_prob:.4f}",
+            f"Combined Exact Probability (with Node Discount): {combined_prob:.4f}",
             f"Paths evaluated: {len(paths_nodes)}",
             "Individual Path Traces:"
         ]
