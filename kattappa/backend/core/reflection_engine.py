@@ -1031,6 +1031,124 @@ class ReflectionEngine:
                 pass
 
     @classmethod
+    def reflect_and_learn(
+        cls,
+        task_id: str,
+        domain: str,
+        statement: str,
+        success: bool,
+        confidence: float = 0.8,
+    ) -> dict[str, Any]:
+        """Core Phase K12: analyze task outcome, generate hypothesis, run experiment,
+        and trigger attention boosts for failures.
+        """
+        # Map domain to valid domain if necessary
+        valid_domains = {"memory", "retrieval", "communication", "planning"}
+        mapped_domain = domain if domain in valid_domains else "planning"
+
+        outcome = "SUCCESS" if success else "FAILURE"
+
+        # 1. Track failure and potential attention boost in CognitiveStateManager
+        if not success:
+            try:
+                from backend.core.state_manager import CognitiveStateManager
+                # Log failure under both raw domain and mapped domain
+                CognitiveStateManager.track_failure(domain)
+                if mapped_domain != domain:
+                    CognitiveStateManager.track_failure(mapped_domain)
+            except Exception as e:
+                log_event("reflect_and_learn_state_error", str(e))
+
+        # 2. Add reflection observation
+        obs_id = None
+        try:
+            obs_id = ReflectionMemory.add_reflection_observation(
+                session_id=task_id or "system_reflection_v2",
+                domain=mapped_domain,
+                action_type="task_execution",
+                context_json=json.dumps({
+                    "task_id": task_id,
+                    "statement": statement,
+                    "raw_domain": domain,
+                }),
+                outcome=outcome,
+            )
+        except Exception as e:
+            log_event("reflect_and_learn_obs_error", str(e))
+
+        # 3. Generate hypothesis
+        hyp_id = None
+        try:
+            hyp_statement = f"Optimizing execution pathways for {mapped_domain} resolves issues with {statement}"
+            hyp_id = ReflectionMemory.add_reflection_hypothesis(
+                pattern_id=None,
+                domain=mapped_domain,
+                statement=hyp_statement,
+                predicted_metric_change="success_rate +15%",
+                lower_ci=max(0.0, confidence - 0.1),
+                upper_ci=min(1.0, confidence + 0.1),
+            )
+        except Exception as e:
+            log_event("reflect_and_learn_hyp_error", str(e))
+
+        # 4. Run experiment on hypothesis via ExperimentRunner
+        confirmed = False
+        experiment_logs = []
+        if hyp_id:
+            try:
+                from backend.core.experiment_runner import ExperimentRunner
+                exp_res = ExperimentRunner.run_experiment({
+                    "id": hyp_id,
+                    "statement": hyp_statement,
+                    "domain": mapped_domain,
+                    "confidence": confidence,
+                })
+                confirmed = exp_res.confirmed
+                experiment_logs.append(
+                    f"Experiment {hyp_id} run: confirmed={confirmed}, success_rate={exp_res.success_rate:.2f}"
+                )
+
+                # Update verification gate status
+                cls.verify_hypothesis(hyp_id, success=confirmed)
+
+                # If confirmed, promote / write back to memory (e.g. CognitiveMemoryBus or Semantic Memory)
+                if confirmed:
+                    from backend.core.cognitive_memory_bus import MEMORY_BUS
+                    MEMORY_BUS.write(
+                        memory_type="semantic",
+                        data={
+                            "concept": f"verified_hypothesis_{mapped_domain}",
+                            "description": f"Confirmed hypothesis: {hyp_statement}",
+                            "source_episode_id": task_id,
+                            "provenance": "reflection_engine_verification",
+                        },
+                        confidence=0.85,
+                        verified=True,
+                    )
+                else:
+                    # Write negative/refuted trace to EpisodicMemory
+                    from backend.core.cognitive_memory_bus import MEMORY_BUS
+                    MEMORY_BUS.write(
+                        memory_type="episodic",
+                        data={
+                            "session_id": "system_reflection_v2",
+                            "trace_type": "negative_pattern",
+                            "content": f"Refuted hypothesis: {hyp_statement}",
+                        },
+                        confidence=0.45,  # above episodic threshold
+                    )
+            except Exception as e:
+                log_event("reflect_and_learn_experiment_error", str(e))
+
+        return {
+            "observation_id": obs_id,
+            "hypothesis_id": hyp_id,
+            "confirmed": confirmed,
+            "outcome": outcome,
+            "logs": experiment_logs,
+        }
+
+    @classmethod
     def reset(cls) -> None:
         with cls._lock:
             cls._save({"reflections": []})

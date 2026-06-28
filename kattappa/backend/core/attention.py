@@ -163,6 +163,19 @@ class Attention:
             (risk * weights["risk"]) +
             (opportunity * weights["opportunity"])
         )
+
+        # Scale up composite score if domain matches any active failure boosts
+        try:
+            from backend.core.state_manager import CognitiveStateManager
+            boosts = CognitiveStateManager.get_domain_boosts()
+            boost_factor = 1.0
+            for domain, factor in boosts.items():
+                if domain in lower_msg or any(domain in kw for kw in focus_keywords):
+                    boost_factor = max(boost_factor, factor)
+            composite = min(1.0, composite * boost_factor)
+        except Exception:
+            pass
+
         score_obj = AttentionScore(
             importance=round(importance, 3),
             urgency=round(urgency, 3),

@@ -1,13 +1,15 @@
-"""Cognitive State Manager — Phase K11.5.
+"""Persisted Cognitive State Manager — Phase K11.5 & K12.
 
 Maintains and persists the global cognitive state of Kattappa (e.g., FOCUSED,
 EXPLORING, LEARNING, REFLECTING, IDLE, EMERGENCY). State transitions dynamically
 adjust attention weights, memory thresholds, and planning strategies.
+Also implements failure tracking to trigger domain-specific attention boosts.
 """
 from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -42,12 +44,23 @@ class CognitiveStateManager:
 
     @classmethod
     def _ensure_schema(cls, conn: sqlite3.Connection) -> None:
-        conn.execute(
+        conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS system_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
-            )
+            );
+
+            CREATE TABLE IF NOT EXISTS domain_failures (
+                domain TEXT NOT NULL,
+                timestamp REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS domain_boosts (
+                domain TEXT PRIMARY KEY,
+                boost_factor REAL NOT NULL,
+                expires_at REAL NOT NULL
+            );
             """
         )
         conn.commit()
@@ -93,11 +106,70 @@ class CognitiveStateManager:
                 conn.close()
 
     @classmethod
+    def track_failure(cls, domain: str) -> None:
+        """Record a task failure for a domain and apply attention boosts if >= 3 failures occur in 24h."""
+        dom = domain.strip().lower()
+        if not dom:
+            return
+
+        now = time.time()
+        one_day_ago = now - 86400
+
+        with cls._lock:
+            conn = cls._get_conn()
+            try:
+                # 1. Log failure
+                conn.execute("INSERT INTO domain_failures (domain, timestamp) VALUES (?, ?)", (dom, now))
+                # 2. Prune old failures
+                conn.execute("DELETE FROM domain_failures WHERE timestamp < ?", (one_day_ago,))
+                conn.commit()
+
+                # 3. Check failure count in last 24h
+                cnt = conn.execute(
+                    "SELECT COUNT(*) FROM domain_failures WHERE domain = ? AND timestamp >= ?",
+                    (dom, one_day_ago),
+                ).fetchone()[0]
+
+                if cnt >= 3:
+                    # Apply attention boost for 24h
+                    expires = now + 86400
+                    conn.execute(
+                        "INSERT OR REPLACE INTO domain_boosts (domain, boost_factor, expires_at) VALUES (?, 1.5, ?)",
+                        (dom, expires),
+                    )
+                    conn.commit()
+                    log_event("state_manager_boost", f"Attention boosted (1.5x) for domain '{dom}' due to {cnt} recent failures")
+            except Exception as e:
+                log_event("state_manager_failure_tracking_error", str(e))
+            finally:
+                conn.close()
+
+    @classmethod
+    def get_domain_boosts(cls) -> Dict[str, float]:
+        """Return all active, non-expired domain attention boosts."""
+        now = time.time()
+        boosts = {}
+        with cls._lock:
+            conn = cls._get_conn()
+            try:
+                # Clean up expired boosts
+                conn.execute("DELETE FROM domain_boosts WHERE expires_at < ?", (now,))
+                conn.commit()
+
+                rows = conn.execute("SELECT domain, boost_factor FROM domain_boosts").fetchall()
+                for row in rows:
+                    boosts[row["domain"]] = row["boost_factor"]
+            except Exception as e:
+                log_event("state_manager_boosts_read_error", str(e))
+            finally:
+                conn.close()
+        return boosts
+
+    @classmethod
     def get_attention_weights(cls) -> Dict[str, float]:
         """Return composite formula weights adjusted dynamically by state."""
         state = cls.get_state()
         
-        # Default weights: I(0.25) + U(0.20) + N(0.15) + R(0.25) + O(0.15)
         weights = {
             CognitiveState.FOCUSED: {
                 "importance": 0.40,
@@ -149,7 +221,6 @@ class CognitiveStateManager:
         """Dynamically adjust confidence thresholds depending on cognitive state."""
         state = cls.get_state()
         
-        # Base thresholds: Working=0.20, Episodic=0.45, Semantic=0.75, Procedural=0.90, KG=0.95
         base = {
             "working": 0.20,
             "episodic": 0.45,
@@ -159,7 +230,6 @@ class CognitiveStateManager:
         }
         
         if state == CognitiveState.EXPLORING:
-            # Relaxes thresholds to invite new/creative concept connections
             return {
                 "working": 0.15,
                 "episodic": 0.35,
@@ -168,7 +238,6 @@ class CognitiveStateManager:
                 "knowledge_graph": 0.85,
             }
         elif state == CognitiveState.EMERGENCY:
-            # Tighten rules to minimize risk
             return {
                 "working": 0.35,
                 "episodic": 0.60,
@@ -185,6 +254,8 @@ class CognitiveStateManager:
             conn = cls._get_conn()
             try:
                 conn.execute("DROP TABLE IF EXISTS system_state")
+                conn.execute("DROP TABLE IF EXISTS domain_failures")
+                conn.execute("DROP TABLE IF EXISTS domain_boosts")
                 conn.commit()
             finally:
                 conn.close()
