@@ -14,6 +14,7 @@ class Task:
         action: str,
         params: dict[str, Any],
         dependencies: list[str] | None = None,
+        priority: float = 0.5,
     ):
         self.task_id = task_id or str(uuid.uuid4())
         self.agent_name = agent_name
@@ -24,6 +25,7 @@ class Task:
         self.retry_count = 0
         self.error: str | None = None
         self.output: Any = None
+        self.priority = priority
 
 class TaskResult:
     def __init__(self, success: bool, output: Any = None, error: str | None = None):

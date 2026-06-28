@@ -57,6 +57,8 @@ class TaskGraph:
                     break
             if parents_completed:
                 ready.append(task)
+        # Sort ready tasks descending by priority (higher priority first)
+        ready.sort(key=lambda t: getattr(t, "priority", 0.5), reverse=True)
         return ready
 
     def complete_task(self, task_id: str, output: Any = None) -> None:
