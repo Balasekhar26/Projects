@@ -5,7 +5,7 @@
 *   **Evidence Level**: **E4** (Approved Blueprint)
 
 ### Context & Problem
-Up through K22, Kattappa's Cognitive Operating System has been built around symbolic structures (Blackboard, memory busses, belief states, coordinators, probabilistic graphs). However, to scale reasoning towards AGI-grade capabilities, the system must transition from a purely rule-based symbolic engine into a hybrid neural-symbolic platform that learns and generalizes representations continuously.
+Up through K22, Kattappa's Cognitive Operating System has been built around symbolic structures (Blackboard, memory buses, belief states, coordinators, probabilistic graphs). However, to scale reasoning towards AGI-grade capabilities, the system must transition from a purely rule-based symbolic engine into a hybrid neural-symbolic platform that learns and generalizes representations continuously.
 
 ### Decision
 Adopt the following multi-layer roadmap for building the unified learning and decision substrate of Kattappa:
@@ -23,8 +23,12 @@ Adopt the following multi-layer roadmap for building the unified learning and de
 - **K26.75: Meta-Cognition**: Implement cognitive control loops evaluating uncertainty, confidence bounds, and choosing whether to query, plan, act, or ask the user.
 
 #### Phase 2: Decision Intelligence (K27–K30.5)
-- **K27: Planner 2.0**: Implement POMDP planning, MCTS, HTN, and information-gathering actions under uncertainty.
-- **K28: Learned World Model**: Leverage deep neural transition models to predict future state distributions $P(\text{next\_state} \mid \text{action})$ when explicit symbolic rules are unavailable.
+- **K27: Planner 2.0**: Implement POMDP planning, MCTS, HTN, and information-gathering actions under uncertainty. (See [ADR-08](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/cos/adr_08.md) for specs).
+- **K28: Learned World Model Split**:
+  - **K28.1: Transition Model**: $P(s' \mid s, a)$ representing state transition distributions.
+  - **K28.2: Reward Model**: $R(s, a)$ determining utility payoffs.
+  - **K28.3: Uncertainty Model**: $\sigma(s)$ estimating state variance.
+  - **K28.4: Counterfactual Generator**: Generates "What-if" branches.
 - **K29: Autonomous Scientist**: Expand the scientist into a self-directed loop that formulates hypotheses, executes experiments, and publishes findings back to long-term memory.
 - **K30: Multi-Agent Cognitive Society**: Coordinate execution through specialized role-based agents (Planner, Scientist, Engineer, critic, etc.) communicating via workspaces.
 - **K30.5: Cognitive Reflection**: Execute offline reflection cycles during idle periods to replay episodes, compress memories, identify contradictions, and refine retrieval parameters.
@@ -35,6 +39,12 @@ Adopt the following multi-layer roadmap for building the unified learning and de
 - **K33: Embodied Execution** (robotics, IoT, operating systems)
 - **K34: Self-Optimization & AutoML**
 - **K35: Safe Self-Evolution** (formal verification and evaluation gates)
+
+---
+
+### The Predictive Processing Cycle
+To continuously predict incoming observations and adapt, the system loops on:
+$$\text{Predict} \rightarrow \text{Perceive} \rightarrow \text{Prediction Error Evaluation} \rightarrow \text{Update World Model} \rightarrow \text{Retrieve} \rightarrow \text{Reason} \rightarrow \text{Plan} \rightarrow \text{Act} \rightarrow \text{Repeat}$$
 
 ---
 
@@ -49,11 +59,25 @@ Adopt the following multi-layer roadmap for building the unified learning and de
 8. **K26.5**: Prediction error learning
 9. **ADR-04**: Cognitive execution engine specification
 10. **K27**: Planner 2.0
-11. **K28**: World model
+11. **K28**: World model split
 12. **K29**: Autonomous scientist
 13. **K30**: Multi-agent cognition
 14. **K30.5**: Cognitive reflection
 15. **K31-K35**: Distributed, embodied, and self-improving capabilities
+
+---
+
+### Long-Term Capability Families
+
+| Family | Focus Area |
+| :--- | :--- |
+| **Foundation** | Memory architectures, ontological representations, vector embeddings, hybrid retrievers. |
+| **Cognition** | Specialized reasoning engines, multi-step planners, learned world models. |
+| **Learning** | Continual adaptation, memory consolidation replay, meta-learning loops. |
+| **Agency** | Multi-agent society, collaboration protocols, executive OS controllers. |
+| **Embodiment** | Multimodal perceptual mapping (vision, audio, IoT, actuators). |
+| **Governance** | Strict permission gates, safety checks, p-value evaluation policies. |
+| **Optimization** | Distributed scaling, auto-tuning, custom hardware acceleration. |
 
 ---
 

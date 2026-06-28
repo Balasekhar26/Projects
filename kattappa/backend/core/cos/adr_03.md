@@ -45,10 +45,32 @@ class MemoryObject:
     activation_decay: float # Forgetting rate coefficient
     access_count: int
     
+    # 8. Enterprise & Metadata Metadata
+    schema_version: str
+    checksum: str
+    embedding_model: str
+    symbolic_hash: str
+    compression_level: int
+    encryption_state: str
+    privacy_level: str      # PUBLIC, PRIVATE, RESTRICTED
+    owner: str
+    ttl: Optional[float]
+    archive_state: str      # ACTIVE, ARCHIVED, COLD
+    
     relations: List[Relation]
     tags: List[str]
     metadata: Dict[str, Any]
 ```
+
+---
+
+### Working Memory Subsystem Specification
+Working Memory is isolated from Long-term Memory to prevent overloading reasoning engines:
+- **Capacity**: Constrained dynamically (e.g. max 7 active nodes/concepts).
+- **Focus Stack**: Tracks the current focus of attention using dynamic weighting.
+- **Goal Stack**: Tracks active subgoals currently under execution by the planner.
+- **Eviction Policy**: Least-Recently-Used (LRU) blended with Act-R activation values.
+- **Scratchpad**: Sandboxed area for temporary hypothetical testing.
 
 ---
 
@@ -60,7 +82,6 @@ $$\text{Score} = w_1 \cdot \text{VectorSimilarity} + w_2 \cdot \text{GraphConnec
 Where:
 - $\text{Activation}$ follows Act-R cognitive activation equations:
   $$A_i = B_i + \sum_j W_j S_{ji}$$
-  (where $B_i$ is base-level activation reflecting frequency and recency, and $S_{ji}$ is associative strength).
 - $\text{TemporalRecency}$ decay: $e^{-\lambda \cdot (t - \text{timestamp})}$.
 
 #### 2. Consolidation & Replay Policy
