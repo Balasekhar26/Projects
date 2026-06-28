@@ -151,3 +151,40 @@ class StepPrediction:
     adjustments: list[dict[str, Any]] = field(default_factory=list)
     evidence_count: int = 0
 
+
+@dataclass(frozen=True)
+class Risk:
+    name: str
+    probability: float
+    impact: float
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Risk":
+        return cls(
+            name=str(data.get("name", "risk")),
+            probability=max(0.0, min(1.0, float(data.get("probability", 0.0)))),
+            impact=max(0.0, min(1.0, float(data.get("impact", 0.0)))),
+        )
+
+
+@dataclass(frozen=True)
+class Scenario:
+    name: str
+    base_success_prob: float = 1.0
+    risks: tuple[Risk, ...] = ()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Scenario":
+        return cls(
+            name=str(data.get("name", "scenario")),
+            base_success_prob=max(0.0, min(1.0, float(data.get("base_success_prob", 1.0)))),
+            risks=tuple(Risk.from_dict(r) for r in data.get("risks", [])),
+        )
+
+
+@dataclass(frozen=True)
+class SimulationReport:
+    scenario: str
+    trials: int
+
+
