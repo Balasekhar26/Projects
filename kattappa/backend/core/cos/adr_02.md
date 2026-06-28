@@ -13,19 +13,21 @@ Adopt the following multi-layer roadmap for building the unified learning and de
 #### Pre-requisites & Foundations (K22.5)
 - **K22.5: Evaluation & Benchmark Infrastructure**: Define metrics and benchmarks (Retrieval Recall@K, Expected Calibration Error, planning success rate, world model prediction accuracy) to measure the effectiveness of subsequent phases.
 
-#### Phase 1: Hybrid Neural-Symbolic Foundation (K23–K26.5)
+#### Phase 1: Hybrid Neural-Symbolic Foundation (K23–K26.75)
 - **K23: Semantic Embedding Layer**: Represent every entity, relation, document, and procedure as dense vector embeddings (1536D / 3072D).
-- **K23.5: Differentiable Memory**: Unify symbolic facts and vector embeddings under a single canonical `MemoryObject` container.
+- **K23.5: Differentiable Memory**: Unify symbolic facts and vector embeddings under a single canonical `MemoryObject` container. (See [ADR-03](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/cos/adr_03.md) for specs).
 - **K24: Hybrid Retrieval Engine**: Rank memory lookups using a multi-factor scorer fusing Vector Similarity, Graph Connectivity, Belief Confidence, Temporal Recency, and Attention Priority.
 - **K25: Representation Learning**: Learn latent concepts by clustering embeddings and automatically proposing new ontological categories.
 - **K26: Continual Learning Engine**: Adapt continuously from experience (observations/actions) using memory consolidation techniques to prevent catastrophic forgetting.
 - **K26.5: Closed-Loop Decision Feedback**: Implement a prediction error loop ($Result - Prediction$) to continuously update planners, beliefs, and embeddings.
+- **K26.75: Meta-Cognition**: Implement cognitive control loops evaluating uncertainty, confidence bounds, and choosing whether to query, plan, act, or ask the user.
 
-#### Phase 2: Decision Intelligence (K27–K30)
+#### Phase 2: Decision Intelligence (K27–K30.5)
 - **K27: Planner 2.0**: Implement POMDP planning, MCTS, HTN, and information-gathering actions under uncertainty.
 - **K28: Learned World Model**: Leverage deep neural transition models to predict future state distributions $P(\text{next\_state} \mid \text{action})$ when explicit symbolic rules are unavailable.
 - **K29: Autonomous Scientist**: Expand the scientist into a self-directed loop that formulates hypotheses, executes experiments, and publishes findings back to long-term memory.
-- **K30: Multi-Agent Cognitive Society**: Coordinate execution through specialized role-based agents (Planner, Scientist, Engineer, critic, etc.) communicating via structured workspaces.
+- **K30: Multi-Agent Cognitive Society**: Coordinate execution through specialized role-based agents (Planner, Scientist, Engineer, critic, etc.) communicating via workspaces.
+- **K30.5: Cognitive Reflection**: Execute offline reflection cycles during idle periods to replay episodes, compress memories, identify contradictions, and refine retrieval parameters.
 
 #### Phase 3: Distributed & Embodied Cognition (K31–K35)
 - **K31: Distributed Memory & Knowledge Federation**
@@ -36,71 +38,22 @@ Adopt the following multi-layer roadmap for building the unified learning and de
 
 ---
 
-### Canonical Memory Object Specification
-To support branching hypotheses and activation dynamics without translation layers, all subsystems share this structure:
-```python
-class MemoryObject:
-    # Immutable Identity & Git-like revision history
-    memory_id: str
-    revision_id: str
-    parent_revision: Optional[str]
-    
-    # Memory System Taxonomy
-    # "semantic", "episodic", "procedural", "working", "simulation"
-    system_type: str  
-    
-    # Content & Semantic Fields
-    symbolic_data: Dict[str, Any]
-    embedding: Optional[List[float]]
-    
-    # Belief vs Truth separation
-    belief_probability: float
-    truth_status: str  # UNKNOWN, HYPOTHESIS, SUPPORTED, VERIFIED, REFUTED
-    
-    # Provenance Graph tracking
-    provenance_source: str
-    derived_from_revisions: List[str]  # links to parent MemoryObjects
-    
-    # Temporal metrics
-    timestamp: float
-    validity_interval: Tuple[float, Optional[float]]
-    
-    # Act-R styled activation dynamics
-    importance: float
-    attention_score: float
-    activation: float
-    last_activated: float
-    activation_decay: float
-    access_count: int
-    
-    relations: List[Relation]
-    tags: List[str]
-    metadata: Dict[str, Any]
-```
-
----
-
-### The Unified Cognitive Cycle
-Execution operates continuously on a single repeating loop:
-$$\text{Perceive} \rightarrow \text{Retrieve} \rightarrow \text{Reason} \rightarrow \text{Plan} \rightarrow \text{Predict} \rightarrow \text{Act} \rightarrow \text{Observe} \rightarrow \text{Learn} \rightarrow \text{Consolidate} \rightarrow \text{Sleep/Replay} \rightarrow \text{Repeat}$$
-
----
-
-### Architecture Maturity Model
-To track absolute engineering progress independently of feature implementation detail:
-
-| Level | Name | Primary Capability |
-| :--- | :--- | :--- |
-| **L0** | Symbolic Reasoning | Graph paths, Truth Maintenance, rule logic |
-| **L1** | Hybrid Memory | Unification of vector embeddings and facts |
-| **L2** | Learned Retrieval | Adaptive multi-factor ranking and scoring |
-| **L3** | Continual Learning | Closed-loop prediction error reinforcement |
-| **L4** | World Modeling | Probabilistic state distribution forecasting |
-| **L5** | Autonomous Planning | POMDP under partial observability |
-| **L6** | Scientific Reasoning | Hypothesis generation and autonomous experiments |
-| **L7** | Multi-agent Cognition | Role-based agent societies and consensus |
-| **L8** | Embodied Cognition | Real-time multi-modal perceptual loops |
-| **L9** | Self-Improving OS | Full self-directed code adaptation and auto-tuning |
+### Suggested Implementation Order
+1. **K22.5**: Evaluation framework (See [ADR-05](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/cos/adr_05.md))
+2. **ADR-03**: Memory architecture specification
+3. **K23**: Embedding layer
+4. **K23.5**: Differentiable memory
+5. **K24**: Hybrid retrieval
+6. **K26.75**: Meta-cognition
+7. **K26**: Continual learning
+8. **K26.5**: Prediction error learning
+9. **ADR-04**: Cognitive execution engine specification
+10. **K27**: Planner 2.0
+11. **K28**: World model
+12. **K29**: Autonomous scientist
+13. **K30**: Multi-agent cognition
+14. **K30.5**: Cognitive reflection
+15. **K31-K35**: Distributed, embodied, and self-improving capabilities
 
 ---
 
