@@ -98,6 +98,9 @@ class KGNode:
     properties: Dict[str, Any] = field(default_factory=dict)
     confidence: float = 1.0
     source_layer: Optional[str] = None
+    belief_state: str = "BELIEVED"
+    evidence: List[str] = field(default_factory=list)
+    last_verified_at: Optional[str] = None
     created_at: str = ""
     updated_at: str = ""
 
@@ -149,6 +152,9 @@ class KnowledgeGraph:
         properties: Optional[Dict[str, Any]] = None,
         confidence: float = 1.0,
         source_layer: Optional[str] = None,
+        belief_state: str = "BELIEVED",
+        evidence: Optional[List[str]] = None,
+        last_verified_at: Optional[str] = None,
     ) -> KGNode:
         """Add a new node to the knowledge graph."""
         etype = EntityType.coerce(entity_type).value if isinstance(entity_type, str) else entity_type.value
@@ -158,6 +164,9 @@ class KnowledgeGraph:
             properties=properties,
             confidence=confidence,
             source_layer=source_layer,
+            belief_state=belief_state,
+            evidence=evidence,
+            last_verified_at=last_verified_at,
         )
         raw = self._store.get_node(nid)
         return self._to_kg_node(raw) if raw else KGNode(id=nid, name=name, entity_type=etype)
@@ -437,6 +446,59 @@ class KnowledgeGraph:
         adapter = EpisodicSyncAdapter()
         return adapter.sync(self._store, db_path)
 
+    def decay_unrefreshed_nodes(self, decay_rate: float, now: Optional[float] = None) -> int:
+        """Decay confidence of unrefreshed facts over time.
+        
+        Formula: C_new = C_old * e^(-lambda * dt)
+        """
+        import math
+        current_time = now or datetime.now(timezone.utc).timestamp()
+        
+        decayed_count = 0
+        with self._store._lock:
+            conn = self._store._get_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT id, confidence, belief_state, updated_at FROM kg_nodes WHERE belief_state != 'REFUTED' AND entity_type != 'GOAL'"
+                ).fetchall()
+                
+                for row in rows:
+                    node_id = row["id"]
+                    old_conf = row["confidence"]
+                    updated_at_str = row["updated_at"]
+                    
+                    try:
+                        clean_iso = updated_at_str.replace("Z", "+00:00")
+                        updated_ts = datetime.fromisoformat(clean_iso).timestamp()
+                    except Exception:
+                        updated_ts = current_time
+                    
+                    dt = current_time - updated_ts
+                    if dt <= 0:
+                        continue
+                    
+                    new_conf = old_conf * math.exp(-decay_rate * dt)
+                    new_conf = max(0.0, min(1.0, new_conf))
+                    
+                    if abs(old_conf - new_conf) >= 0.01:
+                        belief = row["belief_state"]
+                        if new_conf < 0.20 and belief == "BELIEVED":
+                            belief = "HYPOTHETICAL"
+                        
+                        conn.execute(
+                            "UPDATE kg_nodes SET confidence = ?, belief_state = ?, updated_at = ? WHERE id = ?",
+                            (new_conf, belief, datetime.fromtimestamp(current_time, timezone.utc).isoformat(), node_id)
+                        )
+                        decayed_count += 1
+                        
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                logger.error("decay_unrefreshed_nodes failed: %s", e)
+            finally:
+                conn.close()
+        return decayed_count
+
     def full_sync(
         self,
         semantic_db: Optional[str] = None,
@@ -467,6 +529,9 @@ class KnowledgeGraph:
             properties=raw.get("properties", {}),
             confidence=raw.get("confidence", 1.0),
             source_layer=raw.get("source_layer"),
+            belief_state=raw.get("belief_state", "BELIEVED"),
+            evidence=raw.get("evidence", []),
+            last_verified_at=raw.get("last_verified_at"),
             created_at=raw.get("created_at", ""),
             updated_at=raw.get("updated_at", ""),
         )

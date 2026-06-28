@@ -71,6 +71,9 @@ class GraphStore:
                     properties TEXT DEFAULT '{}',
                     confidence REAL DEFAULT 1.0,
                     source_layer TEXT,
+                    belief_state TEXT DEFAULT 'BELIEVED',
+                    evidence TEXT DEFAULT '[]',
+                    last_verified_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -133,6 +136,18 @@ class GraphStore:
                 END;
                 """
             )
+            # Add columns if they do not exist (to support migration/existing DBs)
+            for col, col_type, col_default in [
+                ("belief_state", "TEXT", "'BELIEVED'"),
+                ("evidence", "TEXT", "'[]'"),
+                ("last_verified_at", "TEXT", "NULL"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE kg_nodes ADD COLUMN {col} {col_type} DEFAULT {col_default}")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+
             fts_count = conn.execute("SELECT COUNT(*) AS c FROM kg_nodes_fts").fetchone()["c"]
             core_count = conn.execute("SELECT COUNT(*) AS c FROM kg_nodes").fetchone()["c"]
             if fts_count == 0 and core_count > 0:
@@ -152,21 +167,25 @@ class GraphStore:
         confidence: float = 1.0,
         source_layer: Optional[str] = None,
         node_id: Optional[str] = None,
+        belief_state: str = "BELIEVED",
+        evidence: Optional[List[str]] = None,
+        last_verified_at: Optional[str] = None,
     ) -> str:
         """Insert a new node and return its id."""
         nid = node_id or str(uuid.uuid4())
         now = _utcnow_iso()
         props_json = json.dumps(properties or {})
+        ev_json = json.dumps(evidence or [])
         with self._lock:
             conn = self._get_conn()
             try:
                 conn.execute(
                     """
                     INSERT INTO kg_nodes
-                        (id, name, entity_type, properties, confidence, source_layer, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, name, entity_type, properties, confidence, source_layer, belief_state, evidence, last_verified_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (nid, name.strip(), entity_type, props_json, confidence, source_layer, now, now),
+                    (nid, name.strip(), entity_type, props_json, confidence, source_layer, belief_state, ev_json, last_verified_at, now, now),
                 )
                 conn.commit()
             except Exception as exc:
@@ -186,6 +205,9 @@ class GraphStore:
         properties: Optional[Dict[str, Any]] = None,
         confidence: Optional[float] = None,
         source_layer: Optional[str] = None,
+        belief_state: Optional[str] = None,
+        evidence: Optional[List[str]] = None,
+        last_verified_at: Optional[str] = None,
     ) -> bool:
         """Update an existing node. Returns True if a row was modified."""
         sets: list[str] = []
@@ -205,6 +227,15 @@ class GraphStore:
         if source_layer is not None:
             sets.append("source_layer = ?")
             params.append(source_layer)
+        if belief_state is not None:
+            sets.append("belief_state = ?")
+            params.append(belief_state)
+        if evidence is not None:
+            sets.append("evidence = ?")
+            params.append(json.dumps(evidence))
+        if last_verified_at is not None:
+            sets.append("last_verified_at = ?")
+            params.append(last_verified_at)
         if not sets:
             return False
         sets.append("updated_at = ?")
@@ -508,6 +539,7 @@ class GraphStore:
         """Convert a SQLite row to a node dict with parsed JSON fields."""
         d = dict(row)
         d["properties"] = json.loads(d.get("properties") or "{}")
+        d["evidence"] = json.loads(d.get("evidence") or "[]")
         return d
 
     @staticmethod

@@ -63,6 +63,13 @@ def start_startup_tasks():
     except Exception:
         pass
 
+    # Start Phase K13 KG Sync Scheduler
+    try:
+        from backend.core.kg_scheduler import start_kg_scheduler
+        start_kg_scheduler()
+    except Exception:
+        pass
+
     # Run Experiment Sandbox startup orphan cleanup scan
     try:
         from backend.core.experiment_sandbox import ExperimentManager
@@ -83,6 +90,13 @@ def start_startup_tasks():
 def stop_shutdown_tasks():
     """Stop background scheduler threads on shutdown."""
     try:
+        from backend.core.research_scheduler import ResearchScheduler
         ResearchScheduler.stop()
+    except Exception:
+        pass
+
+    try:
+        from backend.core.kg_scheduler import stop_kg_scheduler
+        stop_kg_scheduler()
     except Exception:
         pass
