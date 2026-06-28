@@ -480,4 +480,31 @@ def broker_inspect_action(queue_id: str) -> dict:
         return {"status": "error", "message": str(exc)}
 
 
+@planner_router.get("/orchestrator/status")
+def orchestrator_status() -> dict:
+    """Return status of active orchestrator tasks and registered agents."""
+    try:
+        from backend.core.orchestrator.registry import ORCHESTRATOR_REGISTRY
+        agents = [a.name for a in ORCHESTRATOR_REGISTRY.all()]
+        return {
+            "status": "ok",
+            "registered_agents": agents,
+            "active_tasks_count": 0
+        }
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@planner_router.post("/orchestrator/cancel/{graph_id}")
+def orchestrator_cancel(graph_id: str) -> dict:
+    """Cancel a running task graph."""
+    try:
+        from backend.core.orchestrator.scheduler import ORCHESTRATOR_SCHEDULER
+        ORCHESTRATOR_SCHEDULER.cancel_graph(graph_id)
+        return {"status": "ok", "message": f"Graph {graph_id} cancellation triggered."}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+
 

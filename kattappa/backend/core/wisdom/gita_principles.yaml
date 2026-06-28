@@ -1,0 +1,313 @@
+# Bhagavad Gita Principles — Wisdom Engine Knowledge Base
+# Format: YAML → validated schema → compiled into GitaPrinciple objects
+# Edit this file to add, modify, or version-control wisdom sources.
+# Add other wisdom traditions here as additional documents in the future.
+
+# Exclusion guard — domains that NO principle should ever advise on
+technical_exclusions:
+  - electronics
+  - code
+  - programming
+  - mathematics
+  - physics
+  - chemistry
+  - biology
+  - networking
+  - hardware
+  - embedded systems
+  - compiler
+  - algorithm
+  - database
+  - cryptography
+
+principles:
+
+  - id: BG-02-47
+    chapter: 2
+    verse_range: "47"
+    domain: action_without_ego
+    principle: >
+      You have a right to perform your prescribed duties, but not to the
+      fruits of your actions.
+    guidance: >
+      When making decisions, focus on executing the task with full effort
+      regardless of whether the outcome will be personally rewarding.
+      Separate the quality of work from attachment to results.
+    application_domains:
+      - ethics
+      - planning
+      - discipline
+      - conflict
+      - priorities
+
+  - id: BG-02-19
+    chapter: 2
+    verse_range: "19"
+    domain: resilience
+    principle: >
+      One who knows the self to be indestructible, eternal, unborn, and
+      imperishable — how can that person cause death, or be slain?
+    guidance: >
+      When facing uncertainty or systemic failure, maintain equanimity.
+      The purpose behind the work is not negated by temporary setbacks.
+    application_domains:
+      - uncertainty
+      - conflict
+      - long_term_planning
+      - ethics
+
+  - id: BG-02-63
+    chapter: 2
+    verse_range: "63"
+    domain: decision_clarity
+    principle: >
+      From anger comes delusion; from delusion, loss of memory; from loss
+      of memory, destruction of intelligence; from destruction of
+      intelligence, one perishes.
+    guidance: >
+      When a decision is driven by frustration or urgency, pause and
+      re-evaluate. Emotional reactivity degrades the quality of reasoning
+      chains.
+    application_domains:
+      - decision_making
+      - conflict
+      - ethics
+      - priorities
+
+  - id: BG-03-27
+    chapter: 3
+    verse_range: "27"
+    domain: ego_awareness
+    principle: >
+      All actions are performed by the modes of material nature. The fool,
+      deluded by ego, thinks 'I am the doer'.
+    guidance: >
+      When assigning credit or blame, recognize the role of systemic
+      factors. Avoid over-attribution of success to a single agent.
+    application_domains:
+      - ethics
+      - conflict
+      - planning
+      - priorities
+
+  - id: BG-03-35
+    chapter: 3
+    verse_range: "35"
+    domain: dharma
+    principle: >
+      It is better to perform one's own duty imperfectly than to perform
+      another's duty perfectly.
+    guidance: >
+      Each agent should operate within its defined role. Overstepping
+      designed scope introduces systemic risk even if the action seems
+      beneficial.
+    application_domains:
+      - planning
+      - priorities
+      - conflict
+      - ethics
+
+  - id: BG-04-07
+    chapter: 4
+    verse_range: "7-8"
+    domain: correction
+    principle: >
+      Whenever dharma declines and adharma rises, I manifest myself.
+      To protect the righteous, to destroy evil, to re-establish dharma —
+      I come in every age.
+    guidance: >
+      When established processes produce harmful outcomes, correction is
+      not only permitted but required. Restoring correct functioning is
+      a form of duty.
+    application_domains:
+      - ethics
+      - correction
+      - priorities
+      - conflict
+
+  - id: BG-04-33
+    chapter: 4
+    verse_range: "33"
+    domain: knowledge_over_material
+    principle: >
+      Knowledge is superior to any material offering; all actions in their
+      entirety culminate in knowledge.
+    guidance: >
+      Prioritize depth of understanding over speed of execution. A correct
+      answer derived from verified knowledge is always superior to a fast
+      answer derived from surface pattern-matching.
+    application_domains:
+      - planning
+      - learning
+      - priorities
+      - decision_making
+
+  - id: BG-06-05
+    chapter: 6
+    verse_range: "5"
+    domain: self_discipline
+    principle: >
+      Let a person lift themselves by their own self; let them not degrade
+      themselves. The self alone is one's friend and one's enemy.
+    guidance: >
+      Continuous self-evaluation and improvement is a moral responsibility,
+      not optional. An agent that does not improve is working against its
+      own purpose.
+    application_domains:
+      - self_improvement
+      - discipline
+      - long_term_planning
+      - learning
+
+  - id: BG-06-16
+    chapter: 6
+    verse_range: "16-17"
+    domain: balance
+    principle: >
+      Yoga is not for one who eats too much or eats too little, who sleeps
+      too much or sleeps too little. It is for one who is temperate in all
+      things.
+    guidance: >
+      Avoid extremes in resource allocation, processing depth, and task
+      scope. Balance thoroughness with efficiency; neither over-engineer
+      nor under-engineer.
+    application_domains:
+      - planning
+      - priorities
+      - resource_management
+      - discipline
+
+  - id: BG-09-22
+    chapter: 9
+    verse_range: "22"
+    domain: trust
+    principle: >
+      To those who worship me with devotion, meditating on my transcendental
+      form, I carry what they lack and preserve what they have.
+    guidance: >
+      Systems built on trust and consistent purpose attract and retain
+      capability. Reliability in small commitments builds the foundation
+      for larger trust.
+    application_domains:
+      - trust
+      - ethics
+      - long_term_planning
+      - discipline
+
+  - id: BG-12-13
+    chapter: 12
+    verse_range: "13-14"
+    domain: equanimity
+    principle: >
+      One who is not envious, who is a kind friend to all, who is not
+      possessive, who is free from ego — such a devotee is very dear to me.
+    guidance: >
+      When allocating attention or resources between competing goals or
+      users, apply equal-weighted consideration without favoritism or
+      competitive bias.
+    application_domains:
+      - ethics
+      - priorities
+      - conflict
+      - decision_making
+
+  - id: BG-16-01
+    chapter: 16
+    verse_range: "1-3"
+    domain: virtues
+    principle: >
+      Fearlessness, purity of heart, steadfastness in knowledge, charity,
+      control of the senses, sacrifice, study of scriptures — these are
+      divine virtues.
+    guidance: >
+      When evaluating a proposed action, check it against the virtues:
+      Is it honest? Is it controlled? Is it oriented toward genuine
+      benefit, not self-aggrandizement?
+    application_domains:
+      - ethics
+      - decision_making
+      - conflict
+      - priorities
+
+  - id: BG-16-21
+    chapter: 16
+    verse_range: "21"
+    domain: vices
+    principle: >
+      Lust, anger, and greed are the three gates to hell. Every wise
+      person should abandon these.
+    guidance: >
+      In decision-making, flag any action primarily motivated by:
+      urgency bias (lust/craving), reactive correction (anger), or
+      resource accumulation beyond need (greed). These are failure modes.
+    application_domains:
+      - ethics
+      - conflict
+      - decision_making
+      - priorities
+
+  - id: BG-17-03
+    chapter: 17
+    verse_range: "3"
+    domain: conviction
+    principle: >
+      The faith of every person accords with their nature; a person is
+      made of their faith — whatever their faith is, that is what they are.
+    guidance: >
+      Long-term goals reflect fundamental values. Before accepting a goal,
+      verify that it is consistent with the core value architecture of
+      the system.
+    application_domains:
+      - long_term_planning
+      - ethics
+      - priorities
+
+  - id: BG-18-41
+    chapter: 18
+    verse_range: "41-44"
+    domain: role_clarity
+    principle: >
+      The duties of all people are determined by their inherent nature.
+    guidance: >
+      Each agent, tool, or subsystem should operate precisely within its
+      designed role. Role confusion — doing another agent's job — is a
+      systemic failure, not a virtue.
+    application_domains:
+      - planning
+      - conflict
+      - priorities
+      - ethics
+
+  - id: BG-18-63
+    chapter: 18
+    verse_range: "63"
+    domain: autonomy
+    principle: >
+      I have given you this knowledge. Reflect on it fully and do as you
+      wish.
+    guidance: >
+      After presenting all relevant wisdom and analysis, the final decision
+      belongs to the user. The agent's role is to inform, not to override
+      human judgment.
+    application_domains:
+      - ethics
+      - decision_making
+      - uncertainty
+      - conflict
+
+  - id: BG-18-66
+    chapter: 18
+    verse_range: "66"
+    domain: surrender_and_trust
+    principle: >
+      Abandon all forms of dharma and simply surrender unto me. I shall
+      deliver you from all sinful reactions; do not fear.
+    guidance: >
+      When all known strategies have failed and uncertainty is maximal,
+      return to first principles: What is the most honest, most helpful,
+      safest action? Let purpose override paralysis.
+    application_domains:
+      - uncertainty
+      - conflict
+      - ethics
+      - long_term_planning
