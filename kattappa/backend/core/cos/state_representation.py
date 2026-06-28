@@ -11,7 +11,17 @@ import copy
 import math
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
+
+
+class BeliefStatus(Enum):
+    """Finer-grained statuses for belief state assertions."""
+    BELIEVED = "BELIEVED"
+    HYPOTHESIS = "HYPOTHESIS"
+    RETRACTED = "RETRACTED"
+    REFUTED = "REFUTED"
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass
@@ -54,6 +64,9 @@ class PropertyValue:
     variance: float = 0.0
     history: List[PropertyValue] = field(default_factory=list, repr=False)
     evidence_history: List[Evidence] = field(default_factory=list, repr=False)
+    status: BeliefStatus = BeliefStatus.UNKNOWN
+    version: int = 1
+    revision_number: int = 0
 
     def __post_init__(self):
         # Enforce bounds
@@ -71,7 +84,10 @@ class PropertyValue:
             timestamp=self.timestamp,
             variance=self.variance,
             history=cloned_history,
-            evidence_history=cloned_evidence
+            evidence_history=cloned_evidence,
+            status=self.status,
+            version=self.version,
+            revision_number=self.revision_number
         )
 
     def decay(self, lambda_val: float, time_elapsed: float) -> PropertyValue:
