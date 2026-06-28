@@ -26,6 +26,16 @@ class EvidenceSource:
 
 
 @dataclass
+class Evidence:
+    """A single piece of supporting or refuting evidence for a property state."""
+    evidence_id: str
+    value: Any
+    confidence: float
+    source: EvidenceSource
+    timestamp: float
+
+
+@dataclass
 class PropertyValue:
     """Explicitly represents value uncertainty, metadata, and origin."""
     value: Any
@@ -34,6 +44,7 @@ class PropertyValue:
     timestamp: float = field(default_factory=time.time)
     variance: float = 0.0
     history: List[PropertyValue] = field(default_factory=list, repr=False)
+    evidence_history: List[Evidence] = field(default_factory=list, repr=False)
 
     def __post_init__(self):
         # Enforce bounds
@@ -42,15 +53,16 @@ class PropertyValue:
 
     def clone(self) -> PropertyValue:
         """Returns a cloned copy of the PropertyValue."""
-        # Clean copy of history list containing elements
         cloned_history = [h.clone() for h in self.history]
+        cloned_evidence = [copy.deepcopy(e) for e in self.evidence_history]
         return PropertyValue(
             value=copy.deepcopy(self.value),
             confidence=self.confidence,
             source=copy.deepcopy(self.source),
             timestamp=self.timestamp,
             variance=self.variance,
-            history=cloned_history
+            history=cloned_history,
+            evidence_history=cloned_evidence
         )
 
     def decay(self, lambda_val: float, time_elapsed: float) -> PropertyValue:
@@ -65,14 +77,23 @@ class PropertyValue:
         alpha = other.source.reliability
         combined_confidence = self.confidence + alpha * (other.confidence - self.confidence)
         
-        # New value inherits the latest timestamp and values, saving historical states
+        # Build fresh Evidence entry
+        new_ev = Evidence(
+            evidence_id=f"ev_{int(time.time() * 1000)}",
+            value=other.value,
+            confidence=other.confidence,
+            source=copy.deepcopy(other.source),
+            timestamp=other.timestamp
+        )
+
         new_val = PropertyValue(
             value=copy.deepcopy(other.value),
             confidence=combined_confidence,
             source=copy.deepcopy(other.source),
             timestamp=other.timestamp,
             variance=(self.variance + other.variance) / 2.0,
-            history=[self.clone()] + [h.clone() for h in self.history]
+            history=[self.clone()] + [h.clone() for h in self.history],
+            evidence_history=[new_ev] + [copy.deepcopy(e) for e in self.evidence_history]
         )
         return new_val
 
