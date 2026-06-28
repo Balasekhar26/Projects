@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from backend.core.logger import log_event
 
@@ -111,3 +111,43 @@ class SimulationEngine:
                 }
                 return plan
         return candidate_plans[0]
+
+
+@dataclass(frozen=True)
+class PlanStep:
+    step_id: str
+    agent: str
+    action: str
+    reason: str = ""
+    expected_outcome: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], index: int) -> "PlanStep":
+        return cls(
+            step_id=str(data.get("step_id") or data.get("id") or f"step_{index + 1}"),
+            agent=str(data.get("agent") or data.get("owner") or "unknown").strip().lower(),
+            action=str(data.get("action") or data.get("action_type") or "UNKNOWN").strip().upper(),
+            reason=str(data.get("reason") or data.get("description") or ""),
+            expected_outcome=str(data.get("expected_outcome") or data.get("expected") or ""),
+            metadata={k: v for k, v in data.items() if k not in {
+                "step_id", "id", "agent", "owner", "action", "action_type",
+                "reason", "description", "expected_outcome", "expected",
+            }},
+        )
+
+
+@dataclass(frozen=True)
+class StepPrediction:
+    step_id: str
+    agent: str
+    action: str
+    success_probability: float
+    failure_probability: float
+    resource_cost: float = 0.0
+    risk_score: float = 0.0
+    rollback_risk: float = 0.0
+    expected_duration_ms: int = 0
+    adjustments: list[dict[str, Any]] = field(default_factory=list)
+    evidence_count: int = 0
+
