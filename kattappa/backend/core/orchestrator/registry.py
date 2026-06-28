@@ -33,6 +33,7 @@ from backend.core.orchestrator.agents.memory import MemoryKeeperAgent
 from backend.core.orchestrator.agents.tool_exec import ToolExecutorAgent
 from backend.core.orchestrator.agents.reasoning import ReasoningAgent
 from backend.core.orchestrator.agents.reflection import ReflectionAgent
+from backend.core.orchestrator.agents.scientist import ScientistAgent
 
 ORCHESTRATOR_REGISTRY.register(ExecutiveAgent())
 ORCHESTRATOR_REGISTRY.register(PlannerAgent())
@@ -40,3 +41,4 @@ ORCHESTRATOR_REGISTRY.register(MemoryKeeperAgent())
 ORCHESTRATOR_REGISTRY.register(ToolExecutorAgent())
 ORCHESTRATOR_REGISTRY.register(ReasoningAgent())
 ORCHESTRATOR_REGISTRY.register(ReflectionAgent())
+ORCHESTRATOR_REGISTRY.register(ScientistAgent())
