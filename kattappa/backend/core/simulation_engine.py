@@ -7,6 +7,7 @@ the optimal plan branch.
 from __future__ import annotations
 
 import logging
+import random
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,7 @@ class SimulationBranchResult:
 
 class SimulationEngine:
     """Simulates plan scenarios and computes optimal execution paths."""
+    REVIEW_THRESHOLD = 0.10
 
     @classmethod
     def simulate_plans(
@@ -112,6 +114,51 @@ class SimulationEngine:
                 return plan
         return candidate_plans[0]
 
+    @classmethod
+    def simulate(cls, scenario: Scenario, *, trials: int = 1000, seed: int = 42) -> SimulationReport:
+        rng = random.Random(seed)
+        success = 0
+        fail_attrib: dict[str, int] = {r.name: 0 for r in scenario.risks}
+
+        for _ in range(trials):
+            failed = False
+            cause: str | None = None
+            if rng.random() > scenario.base_success_prob:
+                failed = True  # base uncertainty (unattributed)
+            for r in scenario.risks:
+                occurred = rng.random() < r.probability
+                if occurred and rng.random() < r.impact:
+                    if not failed:
+                        cause = r.name
+                    failed = True
+            if failed:
+                if cause is not None:
+                    fail_attrib[cause] += 1
+            else:
+                success += 1
+
+        success_rate = success / trials if trials else 0.0
+        failure_rate = 1.0 - success_rate
+        top_risks = sorted(
+            ({"risk": name, "failure_contribution": round(count / trials, 4)}
+             for name, count in fail_attrib.items() if count > 0),
+            key=lambda d: d["failure_contribution"], reverse=True,
+        )
+        if failure_rate > cls.REVIEW_THRESHOLD:
+            recommendation = "human review advised: failure risk exceeds threshold"
+        else:
+            recommendation = "acceptable risk: proceed to validation"
+        return SimulationReport(
+            scenario=scenario.name, trials=trials, seed=seed,
+            success_rate=success_rate, failure_rate=failure_rate,
+            top_risks=top_risks, recommendation=recommendation,
+        )
+
+    @classmethod
+    def simulate_dict(cls, raw: dict[str, Any], *, trials: int = 1000, seed: int = 42) -> SimulationReport:
+        return cls.simulate(Scenario.from_dict(raw), trials=trials, seed=seed)
+
+
 
 @dataclass(frozen=True)
 class PlanStep:
@@ -186,5 +233,28 @@ class Scenario:
 class SimulationReport:
     scenario: str
     trials: int
+    seed: int
+    success_rate: float
+    failure_rate: float
+    top_risks: list[dict[str, Any]] = field(default_factory=list)
+    recommendation: str = ""
+
+    @property
+    def success_pct(self) -> float:
+        return round(self.success_rate * 100, 1)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scenario": self.scenario,
+            "trials": self.trials,
+            "seed": self.seed,
+            "success_rate": round(self.success_rate, 4),
+            "failure_rate": round(self.failure_rate, 4),
+            "success_pct": self.success_pct,
+            "failure_pct": round(self.failure_rate * 100, 1),
+            "top_risks": self.top_risks,
+            "recommendation": self.recommendation,
+        }
+
 
 
