@@ -5,6 +5,7 @@ import time
 import pytest
 from backend.core.cos.state_representation import (
     BeliefState,
+    EvidenceSource,
     HistoricalState,
     HypotheticalState,
     ObservedState,
@@ -14,14 +15,15 @@ from backend.core.cos.state_representation import (
 
 
 def test_property_value_clamping():
+    src = EvidenceSource(name="test", source_type="sensor")
     # Verify confidence clamping bounds
-    pv_high = PropertyValue(value="online", confidence=1.5, source="test")
+    pv_high = PropertyValue(value="online", confidence=1.5, source=src)
     assert pv_high.confidence == 1.0
 
-    pv_low = PropertyValue(value="offline", confidence=-0.3, source="test")
+    pv_low = PropertyValue(value="offline", confidence=-0.3, source=src)
     assert pv_low.confidence == 0.0
 
-    pv_valid = PropertyValue(value=80, confidence=0.82, source="sensor", variance=2.5)
+    pv_valid = PropertyValue(value=80, confidence=0.82, source=src, variance=2.5)
     assert pv_valid.confidence == 0.82
     assert pv_valid.variance == 2.5
     assert pv_valid.timestamp > 0
@@ -30,9 +32,10 @@ def test_property_value_clamping():
 def test_state_set_and_get():
     # Create a state
     state = BeliefState(state_id="state_1", branch_id="main", timestamp=100.0)
+    src = EvidenceSource(name="system", source_type="sensor")
     
     # Define property value
-    pv = PropertyValue(value="3.5GHz", confidence=0.9, source="system", timestamp=100.0)
+    pv = PropertyValue(value="3.5GHz", confidence=0.9, source=src, timestamp=100.0)
     
     # Set property
     state.set_property("entity_cpu", "frequency", pv)
@@ -42,7 +45,7 @@ def test_state_set_and_get():
     assert retrieved is not None
     assert retrieved.value == "3.5GHz"
     assert retrieved.confidence == 0.9
-    assert retrieved.source == "system"
+    assert retrieved.source.name == "system"
     assert retrieved.timestamp == 100.0
 
     # Get non-existent
