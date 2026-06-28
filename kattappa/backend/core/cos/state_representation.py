@@ -33,6 +33,15 @@ class Evidence:
     confidence: float
     source: EvidenceSource
     timestamp: float
+    correlation_id: Optional[str] = None
+    half_life: float = 3600.0
+    freshness_score: float = 1.0
+
+    def get_freshness(self, current_time: float) -> float:
+        """Returns the decayed confidence value based on elapsed time and half life."""
+        elapsed = max(0.0, current_time - self.timestamp)
+        decay_constant = math.log(2.0) / max(1.0, self.half_life)
+        return self.confidence * math.exp(-decay_constant * elapsed)
 
 
 @dataclass

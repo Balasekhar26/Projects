@@ -31,7 +31,7 @@ class Contradiction:
     incoming_value: Any
     incoming_confidence: float
     timestamp: float
-    resolved: bool = False
+    status: str = "OPEN"  # OPEN, UNDER_REVIEW, AUTO_RESOLVED, HUMAN_RESOLVED, STALE, ARCHIVED
 
 
 class EvidenceFusion:
@@ -51,14 +51,30 @@ class EvidenceFusion:
 
     @classmethod
     def fuse_properties(cls, prior: PropertyValue, incoming: PropertyValue) -> PropertyValue:
-        """Fuses incoming observation with prior belief using Bayesian Likelihood Ratios."""
+        """Fuses incoming observation with prior belief using Bayesian Likelihood Ratios with Correlation Discounting."""
         R = incoming.source.reliability
         C = incoming.confidence
+
+        # 1. Correlation Discounting
+        correlation_id = None
+        if incoming.evidence_history:
+            correlation_id = incoming.evidence_history[0].correlation_id
+
+        if correlation_id:
+            has_correlation = any(e.correlation_id == correlation_id for e in prior.evidence_history)
+            if has_correlation:
+                R = R * 0.5  # Halve the reliability (diminishing returns)
+                log_event("correlation_detected", f"Correlated evidence source discount applied for correlation ID: {correlation_id}")
+
+        # 2. Freshness Decay of Prior Confidence
+        elapsed = max(0.0, incoming.timestamp - prior.timestamp)
+        # Apply standard decay over elapsed time (lambda = 0.01 per second)
+        decayed_prior_conf = prior.confidence * math.exp(-0.01 * elapsed)
 
         p_match = R * C + (1.0 - R) * (1.0 - C)
         p_miss = (1.0 - R) * C + R * (1.0 - C)
 
-        lo_prior = cls._to_log_odds(prior.confidence)
+        lo_prior = cls._to_log_odds(decayed_prior_conf)
 
         if prior.value == incoming.value:
             # Supporting evidence: increase confidence
@@ -85,7 +101,8 @@ class EvidenceFusion:
             value=incoming.value,
             confidence=incoming.confidence,
             source=copy.deepcopy(incoming.source),
-            timestamp=incoming.timestamp
+            timestamp=incoming.timestamp,
+            correlation_id=correlation_id
         )
 
         return PropertyValue(
@@ -126,8 +143,7 @@ class ContradictionDetector:
                 prior_confidence=prior.confidence,
                 incoming_value=incoming.value,
                 incoming_confidence=incoming.confidence,
-                timestamp=time.time(),
-                resolved=False
+                timestamp=time.time()
             )
             self.contradictions.append(conflict)
             log_event(
