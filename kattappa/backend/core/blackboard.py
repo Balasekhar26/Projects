@@ -6,6 +6,7 @@ shared global blackboard, allowing other subsystems to react asynchronously.
 """
 from __future__ import annotations
 
+import enum
 import threading
 import time
 import uuid
@@ -153,3 +154,141 @@ class CognitiveBlackboard:
 
 # Global instance
 BLACKBOARD = CognitiveBlackboard()
+
+
+# ---------------------------------------------------------------------------
+# High-level Blackboard API (used by graph.py and cognitive pipeline)
+# ---------------------------------------------------------------------------
+
+class EntryKind(enum.Enum):
+    """Semantic category of a blackboard workspace entry."""
+    FACT = "fact"
+    ASSUMPTION = "assumption"
+    CONSTRAINT = "constraint"
+    AGENT_OUTPUT = "agent_output"
+
+
+@dataclass
+class BlackboardEntry:
+    """A single typed entry in a session-scoped Blackboard workspace."""
+    entry_id: str
+    key: str
+    value: Any
+    kind: EntryKind
+    timestamp: float = field(default_factory=time.time)
+
+    @property
+    def source(self) -> str:
+        return self.key
+
+    @property
+    def content(self) -> Any:
+        return self.value
+
+
+@dataclass
+class SharedContext:
+    """Immutable context attached to a Blackboard workspace session."""
+    session_id: str
+    user_intent: str
+    working_memory: Any = None
+
+
+class Blackboard:
+    """Session-scoped cognitive workspace used by the LangGraph pipeline.
+
+    Provides typed entry methods (add_fact, add_assumption, add_constraint,
+    add_agent_output) and a unified entries() iterator so that downstream
+    nodes can inspect the accumulated workspace state.
+    """
+
+    def __init__(self, context: SharedContext) -> None:
+        self.context = context
+        self._entries: List[BlackboardEntry] = []
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Write methods
+    # ------------------------------------------------------------------
+
+    def add_fact(self, key: str, value: Any) -> BlackboardEntry:
+        """Record a verified fact (high confidence, read-only claim)."""
+        return self._add(key, value, EntryKind.FACT)
+
+    def add_assumption(self, key: str, value: Any) -> BlackboardEntry:
+        """Record a tentative assumption (may be revised)."""
+        return self._add(key, value, EntryKind.ASSUMPTION)
+
+    def add_constraint(self, key: str, value: Any) -> BlackboardEntry:
+        """Record a hard constraint or policy violation."""
+        return self._add(key, value, EntryKind.CONSTRAINT)
+
+    def add_agent_output(self, key: str, value: Any) -> BlackboardEntry:
+        """Record structured output produced by an agent node."""
+        return self._add(key, value, EntryKind.AGENT_OUTPUT)
+
+    def _add(self, key: str, value: Any, kind: EntryKind) -> BlackboardEntry:
+        entry = BlackboardEntry(
+            entry_id=str(uuid.uuid4()),
+            key=key,
+            value=value,
+            kind=kind,
+        )
+        with self._lock:
+            self._entries.append(entry)
+        log_event("blackboard_entry", f"[{kind.value}] {key}")
+        return entry
+
+    # ------------------------------------------------------------------
+    # Read methods
+    # ------------------------------------------------------------------
+
+    def entries(self, kind: Optional[EntryKind] = None) -> List[BlackboardEntry]:
+        """Return all entries, optionally filtered by kind."""
+        with self._lock:
+            if kind is None:
+                return list(self._entries)
+            return [e for e in self._entries if e.kind == kind]
+
+    def get(self, key: str) -> Optional[BlackboardEntry]:
+        """Return the most recent entry matching *key*, or None."""
+        with self._lock:
+            for entry in reversed(self._entries):
+                if entry.key == key:
+                    return entry
+        return None
+
+    def by_source(self, source: str) -> List[BlackboardEntry]:
+        """Return all entries matching the given source (key)."""
+        with self._lock:
+            return [e for e in self._entries if e.source == source]
+        return None
+
+    def clear(self) -> None:
+        """Reset the workspace (primarily for tests)."""
+        with self._lock:
+            self._entries.clear()
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        from pydantic_core import core_schema
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.any_schema(),
+            python_schema=core_schema.is_instance_schema(cls),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda instance: {
+                    "session_id": instance.context.session_id if hasattr(instance.context, "session_id") else str(instance.context),
+                    "entries": [
+                        {
+                            "entry_id": e.entry_id,
+                            "key": e.key,
+                            "value": e.value,
+                            "kind": e.kind.value,
+                            "timestamp": e.timestamp,
+                        }
+                        for e in instance.entries()
+                    ]
+                }
+            )
+        )
+

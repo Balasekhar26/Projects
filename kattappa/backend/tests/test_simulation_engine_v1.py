@@ -14,9 +14,20 @@ def isolated_simulation(tmp_path, monkeypatch):
     import backend.core.simulation_engine as simulation_engine_module
     import backend.core.simulation_calibration as simulation_calibration_module
 
+    from backend.core.config import load_config
+    from dataclasses import replace
+    cfg = load_config()
+    mock_config = replace(cfg, sqlite_path=tmp_path / "kattappa_test.db")
+
+    monkeypatch.setenv("KATTAPPA_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("backend.core.config.load_config", lambda: mock_config)
+    monkeypatch.setattr("backend.core.simulation_calibration.load_config", lambda: mock_config)
+    
     monkeypatch.setattr(action_memory_module, "runtime_data_root", lambda: tmp_path)
     monkeypatch.setattr(simulation_engine_module, "runtime_data_root", lambda: tmp_path)
     monkeypatch.setattr(simulation_calibration_module, "runtime_data_root", lambda: tmp_path)
+    
+    monkeypatch.setattr(simulation_calibration_module.SimulationCalibrator, "get_all_weights", lambda: {})
     simulation_calibration_module.SimulationCalibrator._cached_weights = {}
     return tmp_path, action_memory_module.ActionMemory, simulation_engine_module.SimulationEngine
 

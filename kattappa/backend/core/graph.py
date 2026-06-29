@@ -20,6 +20,7 @@ from backend.agents.vision import vision_node
 from backend.agents.voice import voice_node
 from backend.agents.monitoring import monitoring_node
 from backend.agents.executive import executive_node
+from backend.agents.memory_agent import memory_node as memory_agent_node
 from backend.core.logger import log_event
 from backend.core.state import AgentState
 
@@ -76,6 +77,8 @@ def route_agent(state: AgentState) -> str:
     if state.get("approval_required") and state.get("result"):
         return "evaluator"
     selected = state.get("selected_agent") or "evaluator"
+    if selected == "memory":
+        return "memory_agent"
     return (
         selected
         if selected
@@ -202,6 +205,21 @@ def attention_node(state: AgentState) -> AgentState:
         if "logs" in payload:
             state["logs"].extend(payload["logs"])
         state["logs"].append(f"cognitive: early exit via {exit_type}")
+        
+        # Populate related_messages for early exits to ensure API responses receive context history
+        try:
+            from backend.core.memory import memory
+            session_id = state.get("chat_session_id") or "kattappa-main-chat"
+            exclude_id = state.get("current_chat_message_id")
+            related = memory.search_chat_messages(
+                state["user_input"],
+                limit=5,
+                session_id=session_id,
+                exclude_message_id=exclude_id,
+            )
+            state["related_messages"] = related
+        except Exception:
+            pass
     else:
         state["logs"].append("cognitive: attention focused")
     return state
@@ -514,6 +532,14 @@ def reasoning_node(state: AgentState) -> AgentState:
 
 
 def council_debate_node(state: AgentState) -> AgentState:
+    approved_id = state.get("approved_approval_id")
+    if approved_id:
+        from backend.agents.safety_agent import _approved_continuation_matches
+        if _approved_continuation_matches(str(approved_id), state["user_input"]):
+            state["logs"].append(f"cognitive: council debate approved continuation {approved_id}")
+            state["approval_required"] = False
+            return state
+
     reasoning_hyp = state.get("reasoning_hypothesis")
     # Read from blackboard if available
     if state.get("blackboard"):
@@ -561,12 +587,45 @@ def council_debate_node(state: AgentState) -> AgentState:
         state["approval_required"] = True
         state["risk_level"] = "medium"
         state["logs"].append("cognitive: Personality Council requires human approval")
+        
+        from backend.agents.planner import route_task
+        state["selected_agent"] = route_task(state["user_input"])["agent"]
+        
+        # Create pending approval record in database
+        from backend.core.memory import memory
+        approval_id = memory.create_approval(
+            state["user_input"],
+            state["risk_level"],
+            continuation_type="chat",
+            continuation_payload=json.dumps(
+                {
+                    "message": state["user_input"],
+                    "memory_query": state.get("memory_query") or state["user_input"],
+                    "chat_session_id": state.get("chat_session_id"),
+                    "chat_message_id": state.get("current_chat_message_id"),
+                    "source": "council",
+                }
+            ),
+        )
+        state["approval_id"] = approval_id
+        state["result"] = "Approval needed. Approve to continue."
     else:
         state["logs"].append("cognitive: Personality Council approved hypothesis")
     return state
 
 
 def safety_review_node(state: AgentState) -> AgentState:
+    approved_id = state.get("approved_approval_id")
+    if approved_id:
+        from backend.agents.safety_agent import _approved_continuation_matches
+        if _approved_continuation_matches(str(approved_id), state["user_input"]):
+            state["approval_required"] = False
+            state["approved"] = True
+            state["logs"].append(f"cognitive: safety review approved continuation {approved_id}")
+            if state.get("blackboard"):
+                state["blackboard"].add_fact("safety_review", {"is_safe": True, "approved": True})
+            return state
+
     plan_data = {
         "steps": [
             {
@@ -607,6 +666,24 @@ def safety_review_node(state: AgentState) -> AgentState:
             state["blackboard"].add_constraint("safety_review", {"is_safe": False, "rejection_reason": res.get("rejection_reason")})
             
         state["logs"].append(f"cognitive: safety review blocked - {res.get('rejection_reason')}")
+        
+        # Create pending approval record in database
+        from backend.core.memory import memory
+        approval_id = memory.create_approval(
+            state["user_input"],
+            state["risk_level"],
+            continuation_type="chat",
+            continuation_payload=json.dumps(
+                {
+                    "message": state["user_input"],
+                    "memory_query": state.get("memory_query") or state["user_input"],
+                    "chat_session_id": state.get("chat_session_id"),
+                    "chat_message_id": state.get("current_chat_message_id"),
+                    "source": "safety",
+                }
+            ),
+        )
+        state["approval_id"] = approval_id
     else:
         # Write fact to blackboard
         if state.get("blackboard"):
@@ -801,6 +878,7 @@ def build_graph():
     graph.add_node("finance", finance_node)
     graph.add_node("self_improver", self_improver_node)
     graph.add_node("monitoring", monitoring_node)
+    graph.add_node("memory_agent", memory_agent_node)
     graph.add_node("evaluator", evaluator_node)
 
     # entry & routing edges
@@ -869,6 +947,7 @@ def build_graph():
             "finance": "finance",
             "self_improver": "self_improver",
             "monitoring": "monitoring",
+            "memory_agent": "memory_agent",
             "evaluator": "evaluator",
         },
     )
@@ -886,6 +965,7 @@ def build_graph():
         "finance",
         "self_improver",
         "monitoring",
+        "memory_agent",
     ]:
         graph.add_edge(node, "evaluator")
 

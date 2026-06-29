@@ -110,13 +110,32 @@ def _run_graph(
 ) -> dict[str, object]:
     from backend.core.graph import run_graph
 
-    return run_graph(
+    state = run_graph(
         message,
         approved_approval_id=approved_approval_id,
         chat_session_id=chat_session_id,
         current_chat_message_id=current_chat_message_id,
         memory_query=memory_query,
     )
+    if isinstance(state, dict) and "blackboard" in state and state["blackboard"] is not None:
+        board = state["blackboard"]
+        if hasattr(board, "entries"):
+            state["blackboard"] = {
+                "session_id": board.context.session_id if hasattr(board.context, "session_id") else str(board.context),
+                "entries": [
+                    {
+                        "entry_id": e.entry_id,
+                        "key": e.key,
+                        "value": e.value,
+                        "kind": e.kind.value if hasattr(e.kind, "value") else str(e.kind),
+                        "timestamp": e.timestamp,
+                    }
+                    for e in board.entries()
+                ]
+            }
+        else:
+            state["blackboard"] = str(board)
+    return state
 
 
 class ChatRequest(BaseModel):
@@ -1111,11 +1130,18 @@ def _trigger_voice_response(state: dict[str, Any]) -> None:
         text = str(state.get("result") or "")
         if text:
             import threading
+            import backend.api.v1.common as _common_mod
+
+            def _speak_task(text: str, purpose: str) -> None:
+                # Import the caller's module namespace so monkeypatch works in tests
+                import backend.main as _main_mod
+                _speak_fn = getattr(_main_mod, "speak", None) or _common_mod.speak
+                _speak_fn(text, purpose=purpose)
+
             threading.Thread(
-                target=speak,
-                args=(text,),
-                kwargs={"purpose": "assistant_response"},
-                daemon=True
+                target=_speak_task,
+                args=(text, "assistant_response"),
+                daemon=True,
             ).start()
 
 

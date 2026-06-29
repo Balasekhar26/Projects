@@ -99,6 +99,25 @@ def continue_approved_chat(approval_id: str) -> dict[str, Any]:
         current_chat_message_id=current_message_id,
         memory_query=memory_query,
     )
+    state = dict(state)
+    if "blackboard" in state and state["blackboard"] is not None:
+        board = state["blackboard"]
+        if hasattr(board, "entries"):
+            state["blackboard"] = {
+                "session_id": board.context.session_id if hasattr(board.context, "session_id") else str(board.context),
+                "entries": [
+                    {
+                        "entry_id": e.entry_id,
+                        "key": e.key,
+                        "value": e.value,
+                        "kind": e.kind.value if hasattr(e.kind, "value") else str(e.kind),
+                        "timestamp": e.timestamp,
+                    }
+                    for e in board.entries()
+                ]
+            }
+        else:
+            state["blackboard"] = str(board)
     response = str(state.get("result") or "")
     assistant_message = memory.add_chat_message(
         chat_session["id"],

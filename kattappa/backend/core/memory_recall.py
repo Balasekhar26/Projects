@@ -71,6 +71,12 @@ class MemoryRecall:
 
         has_failed = False
 
+        # Default values in case any future times out or fails
+        episodic_history: list = []
+        semantic_context: list = []
+        cognitive_episodes: list = []
+        relationship_notes: list = []
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             future_episodic = executor.submit(cls._fetch_episodic_messages, session_id)
             future_semantic = executor.submit(
@@ -101,6 +107,7 @@ class MemoryRecall:
                 relationship_notes = future_relationship.result(timeout=0.045)
             except Exception:
                 has_failed = True
+
 
         return {
             "episodic_history": episodic_history,

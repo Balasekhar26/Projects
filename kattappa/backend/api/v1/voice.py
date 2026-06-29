@@ -15,11 +15,15 @@ def voice_speak(request: VoiceSpeakRequest) -> dict[str, object]:
     spoken_text = normalize_spoken_text(request.text, purpose=request.purpose)
     if not spoken_text:
         return {"ok": False, "result": "empty_text", "pipeline": voice_pipeline_status()}
+    import sys
+    import backend.tools.voice_tools as _voice_tools
+    _main_mod = sys.modules.get("backend.main")
+    _speak_fn = getattr(_main_mod, "speak", None) or _voice_tools.speak
     return {
         "ok": True,
         "purpose": request.purpose,
         "spoken_text": spoken_text,
-        "result": speak(spoken_text, purpose=request.purpose),
+        "result": _speak_fn(spoken_text, purpose=request.purpose),
         "pipeline": voice_pipeline_status(),
     }
 

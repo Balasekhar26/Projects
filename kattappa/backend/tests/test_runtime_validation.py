@@ -22,9 +22,16 @@ import backend.agents.desktop
 @pytest.fixture(autouse=True)
 def isolated_db(tmp_path, monkeypatch):
     import backend.core.memory as mem_module
+    from backend.core.config import load_config
+    from dataclasses import replace
+    cfg = load_config()
+    mock_config = replace(cfg, sqlite_path=tmp_path / "kattappa_test.db")
+    monkeypatch.setattr("backend.core.config.load_config", lambda: mock_config)
     monkeypatch.setenv("KATTAPPA_DATA_DIR", str(tmp_path))
-    # Clear memory schema cache if any
+    
     mem_module._schema_ensured = False
+    mem_module.memory.config = mock_config
+    mem_module.memory._init_sqlite()
     yield
 
 

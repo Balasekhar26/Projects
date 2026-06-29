@@ -12,7 +12,27 @@ from backend.core.cognitive_memory_bus import MEMORY_BUS
 
 
 @pytest.fixture(autouse=True)
-def clean_databases():
+def clean_databases(tmp_path, monkeypatch):
+    import backend.core.memory as mem_module
+    import backend.core.config as config_module
+    from backend.core.config import load_config
+    from dataclasses import replace
+    cfg = load_config()
+    mock_config = replace(
+        cfg,
+        sqlite_path=tmp_path / "kattappa_test.db",
+        chroma_path=tmp_path / "chroma",
+    )
+    monkeypatch.setattr(config_module, "load_config", lambda: mock_config)
+    monkeypatch.setattr("backend.core.reflection_engine.load_config", lambda: mock_config)
+    monkeypatch.setattr("backend.core.reflection_memory.load_config", lambda: mock_config)
+    monkeypatch.setattr("backend.core.semantic_memory.load_config", lambda: mock_config)
+    monkeypatch.setenv("KATTAPPA_DATA_DIR", str(tmp_path))
+    
+    mem_module._schema_ensured = False
+    mem_module.memory.config = mock_config
+    mem_module.memory._init_sqlite()
+
     ReflectionMemory.clear_all()
     CognitiveStateManager.reset()
     BLACKBOARD.clear()
@@ -38,7 +58,21 @@ def clean_databases():
     BLACKBOARD.clear()
 
 
-def test_reflect_and_learn_success_path():
+def test_reflect_and_learn_success_path(monkeypatch):
+    from backend.core.experiment_runner import ExperimentRunner, ExperimentResult
+    monkeypatch.setattr(
+        ExperimentRunner,
+        "run_experiment",
+        classmethod(lambda cls, hyp: ExperimentResult(
+            hypothesis_id=hyp.get("id") or "hyp-unknown",
+            confirmed=True,
+            trials_run=5,
+            success_rate=1.0,
+            metric_delta=10.0,
+            timestamp=12345.0
+        ))
+    )
+
     res = ReflectionEngine.reflect_and_learn(
         task_id="task_success_1",
         domain="retrieval",
@@ -51,6 +85,13 @@ def test_reflect_and_learn_success_path():
     assert res["hypothesis_id"] is not None
     
     if res["confirmed"]:
+        # Flush first call's embeddings to make sure it is in Chroma before second call
+        try:
+            from backend.core.semantic_memory import SemanticMemory
+            SemanticMemory.flush_embeddings()
+        except Exception:
+            pass
+
         # Invoke a second time to increment the evidence count to 2, promoting the semantic node
         ReflectionEngine.reflect_and_learn(
             task_id="task_success_2",

@@ -2,6 +2,17 @@ import os
 import shutil
 import tempfile
 import pytest
+import psutil
+
+# Globally mock psutil to return stable CPU/RAM values during tests
+psutil.cpu_percent = lambda *args, **kwargs: 10.0
+
+class MockVirtualMemory:
+    total = 16 * 1024 * 1024 * 1024    # 16 GB total
+    available = 8 * 1024 * 1024 * 1024  # 8 GB available
+    percent = 50.0
+
+psutil.virtual_memory = lambda *args, **kwargs: MockVirtualMemory()
 
 # Globally mock DefaultEmbeddingFunction to prevent HuggingFace model download attempts in tests
 try:
@@ -100,7 +111,16 @@ def reset_all_schemas():
             for attr_name in dir(module):
                 try:
                     obj = getattr(module, attr_name)
-                    if isinstance(obj, type) and hasattr(obj, "_schema_ensured"):
-                        setattr(obj, "_schema_ensured", False)
+                    if isinstance(obj, type):
+                        if hasattr(obj, "_schema_ensured") and not callable(getattr(obj, "_schema_ensured")):
+                            setattr(obj, "_schema_ensured", False)
+                        if hasattr(obj, "_chroma_client") and not callable(getattr(obj, "_chroma_client")):
+                            setattr(obj, "_chroma_client", None)
+                        if hasattr(obj, "_collection") and not callable(getattr(obj, "_collection")):
+                            setattr(obj, "_collection", None)
+                        if hasattr(obj, "_cached_weights") and not callable(getattr(obj, "_cached_weights")):
+                            setattr(obj, "_cached_weights", {})
+                        if hasattr(obj, "_calibration_modifier") and not callable(getattr(obj, "_calibration_modifier")):
+                            setattr(obj, "_calibration_modifier", 1.0)
                 except Exception:
                     pass

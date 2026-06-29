@@ -38,11 +38,13 @@ def mock_db_and_weights(tmp_path, monkeypatch):
         hardware_profile=original_config.hardware_profile,
         context_budget=original_config.context_budget,
     )
+    monkeypatch.setenv("KATTAPPA_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("backend.core.config.load_config", lambda: test_config)
     monkeypatch.setattr("backend.core.simulation_calibration.load_config", lambda: test_config)
     monkeypatch.setattr("backend.core.workflow_memory.load_config", lambda: test_config)
     monkeypatch.setattr("backend.core.simulation_calibration.runtime_data_root", lambda: tmp_path)
     monkeypatch.setattr("backend.core.action_memory.runtime_data_root", lambda: tmp_path)
+    monkeypatch.setattr("backend.core.simulation_engine.runtime_data_root", lambda: tmp_path)
 
     # Reset calibrator caches
     SimulationCalibrator._schema_ensured = False

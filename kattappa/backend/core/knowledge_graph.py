@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -20,6 +21,13 @@ from backend.core.graph_query import GraphQueryEngine
 from backend.core.kg_sync import SyncManager
 
 logger = logging.getLogger(__name__)
+
+
+def load_config() -> Any:
+    """Helper to support legacy configuration monkeypatching."""
+    from backend.core.config import load_config as _load_config
+    return _load_config()
+
 
 
 def _utcnow_iso() -> str:
@@ -46,6 +54,9 @@ class EntityType(str, Enum):
     FACT = "FACT"
     HYPOTHESIS = "HYPOTHESIS"
     EVENT = "EVENT"
+    AGENT = "AGENT"
+    ARTIFACT = "ARTIFACT"
+    CONSTRAINT = "CONSTRAINT"
 
     @classmethod
     def coerce(cls, value: "EntityType | str") -> "EntityType":
@@ -61,6 +72,8 @@ class RelationType(str, Enum):
     DEPENDS_ON = "DEPENDS_ON"
     LEARNED_FROM = "LEARNED_FROM"
     RELATED_TO = "RELATED_TO"
+    EXECUTED_BY = "EXECUTED_BY"
+    REQUIRES_TOOL = "REQUIRES_TOOL"
     PART_OF = "PART_OF"
     WORKED_ON = "WORKED_ON"
     CAUSED = "CAUSED"
@@ -127,6 +140,22 @@ class KGEdge:
 # KnowledgeGraph
 # ---------------------------------------------------------------------------
 
+class hybridmethod:
+    """Descriptor to support hybrid class-level and instance-level methods."""
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            def class_wrapper(*args, **kwargs):
+                return self.func(owner, *args, **kwargs)
+            return class_wrapper
+        else:
+            def instance_wrapper(*args, **kwargs):
+                return self.func(instance, *args, **kwargs)
+            return instance_wrapper
+
+
 class KnowledgeGraph:
     """Unified Knowledge Graph combining structured storage, graph queries,
     and cross-layer synchronization.
@@ -136,6 +165,19 @@ class KnowledgeGraph:
     data_dir:
         Directory where the ``knowledge_graph.db`` SQLite file is stored.
     """
+    _instance = None
+    _lock = threading.RLock()
+    _schema_ensured = False
+
+    @classmethod
+    def get_instance(cls) -> "KnowledgeGraph":
+        with cls._lock:
+            if cls._instance is None:
+                from backend.core.config import load_config as _load_config
+                config = _load_config()
+                data_dir = str(config.sqlite_path.parent / "knowledge_graph")
+                cls._instance = cls(data_dir)
+            return cls._instance
 
     def __init__(self, data_dir: str) -> None:
         import os
@@ -149,10 +191,11 @@ class KnowledgeGraph:
     #  CRUD                                                               #
     # ------------------------------------------------------------------ #
 
+    @hybridmethod
     def add_node(
-        self,
-        name: str,
-        entity_type: str | EntityType,
+        self_or_cls,
+        name: str = "",
+        entity_type: str | EntityType = "",
         properties: Optional[Dict[str, Any]] = None,
         confidence: float = 1.0,
         source_layer: Optional[str] = None,
@@ -161,13 +204,51 @@ class KnowledgeGraph:
         last_verified_at: Optional[str] = None,
         valid_from: Optional[str] = None,
         valid_until: Optional[str] = None,
-    ) -> KGNode:
+        node_id: Optional[str] = None,
+        *args,
+        **kwargs,
+    ) -> Any:
         """Add a new node to the knowledge graph."""
-        etype = EntityType.coerce(entity_type).value if isinstance(entity_type, str) else entity_type.value
+        name_val = name
+        etype_val = entity_type
+        props_val = properties
+
+        if not name_val and node_id:
+            name_val = node_id
+        if not name_val and "node_id" in kwargs:
+            name_val = kwargs["node_id"]
+        if not etype_val and "node_type" in kwargs:
+            etype_val = kwargs["node_type"]
+        if not props_val and "properties" in kwargs:
+            props_val = kwargs["properties"]
+
+        if isinstance(self_or_cls, type):
+            inst = self_or_cls.get_instance()
+            return inst.add_node(
+                name=name_val,
+                entity_type=etype_val,
+                properties=props_val,
+                node_id=name_val,
+            )
+
+        self = self_or_cls
+        etype = EntityType.coerce(etype_val).value if isinstance(etype_val, str) else etype_val.value
+        target_nid = name_val if node_id is None else node_id
+        
+        # Idempotency check
+        existing = self.get_node(target_nid)
+        if existing:
+            if props_val:
+                self.update_node(target_nid, properties=props_val)
+                raw = self._store.get_node(target_nid)
+                if raw:
+                    return self._to_kg_node(raw)
+            return KGNode(id=existing["id"], name=name_val, entity_type=etype, properties=existing.get("properties", {}))
+
         nid = self._store.insert_node(
-            name=name,
+            name=name_val,
             entity_type=etype,
-            properties=properties,
+            properties=props_val,
             confidence=confidence,
             source_layer=source_layer,
             belief_state=belief_state,
@@ -175,30 +256,80 @@ class KnowledgeGraph:
             last_verified_at=last_verified_at,
             valid_from=valid_from,
             valid_until=valid_until,
+            node_id=target_nid,
         )
         raw = self._store.get_node(nid)
-        return self._to_kg_node(raw) if raw else KGNode(id=nid, name=name, entity_type=etype)
+        return self._to_kg_node(raw) if raw else KGNode(id=nid, name=name_val, entity_type=etype)
 
+    @hybridmethod
+    def get_node(self_or_cls, node_id: str) -> Any:
+        """Retrieve a node by node_id."""
+        if isinstance(self_or_cls, type):
+            inst = self_or_cls.get_instance()
+            return inst.get_node(node_id)
+
+        self = self_or_cls
+        raw = self._store.get_node(node_id)
+        if not raw:
+            return None
+        return {
+            "id": raw.get("id"),
+            "type": raw.get("entity_type").lower() if raw.get("entity_type") else None,
+            "properties": json.loads(raw.get("properties") or "{}") if isinstance(raw.get("properties"), str) else (raw.get("properties") or {}),
+        }
+
+
+
+    @hybridmethod
     def add_edge(
-        self,
-        source_name: str,
-        target_name: str,
-        relation_type: str | RelationType,
+        self_or_cls,
+        source_name: str = "",
+        target_name: str = "",
+        relation_type: str | RelationType = "",
         weight: float = 1.0,
         confidence: float = 1.0,
         evidence: Optional[List[str]] = None,
         source_layer: Optional[str] = None,
         valid_from: Optional[str] = None,
         valid_until: Optional[str] = None,
-    ) -> KGEdge:
-        """Add a directed edge between two entities (resolved by name).
+        properties: Optional[Dict[str, Any]] = None,
+        source_id: Optional[str] = None,
+        target_id: Optional[str] = None,
+        *args,
+        **kwargs,
+    ) -> Any:
+        """Add a directed edge between two entities."""
+        src_name = source_name or source_id
+        tgt_name = target_name or target_id
+        rel_type = relation_type
 
-        If either endpoint does not exist yet, it will be auto-created
-        with entity_type CONCEPT.
-        """
-        rel = RelationType.coerce(relation_type).value if isinstance(relation_type, str) else relation_type.value
-        src = self._resolve_name(source_name)
-        tgt = self._resolve_name(target_name)
+        if "source_id" in kwargs:
+            src_name = kwargs["source_id"]
+        if "target_id" in kwargs:
+            tgt_name = kwargs["target_id"]
+        if "relation_type" in kwargs:
+            rel_type = kwargs["relation_type"]
+
+        if isinstance(self_or_cls, type):
+            inst = self_or_cls.get_instance()
+            return inst.add_edge(
+                source_name=src_name,
+                target_name=tgt_name,
+                relation_type=rel_type,
+                properties=properties,
+            )
+
+        self = self_or_cls
+        rel = RelationType.coerce(rel_type).value if isinstance(rel_type, str) else rel_type.value
+        src = self._resolve_name(src_name)
+        tgt = self._resolve_name(tgt_name)
+        if not src:
+            self.add_node(name=src_name, entity_type=EntityType.CONCEPT, node_id=src_name)
+            src = self._resolve_name(src_name)
+        if not tgt:
+            self.add_node(name=tgt_name, entity_type=EntityType.CONCEPT, node_id=tgt_name)
+            tgt = self._resolve_name(tgt_name)
+
         eid = self._store.insert_edge(
             source_id=src["id"],
             target_id=tgt["id"],
@@ -215,6 +346,91 @@ class KnowledgeGraph:
             if e["id"] == eid:
                 return self._to_kg_edge(e)
         return KGEdge(id=eid, source_id=src["id"], target_id=tgt["id"], relation_type=rel)
+
+    @hybridmethod
+    def query_neighbors(
+        self_or_cls,
+        node_id: str,
+        direction: str = "both",
+        relation_type: Optional[str] = None,
+        *args,
+        **kwargs,
+    ) -> List[Dict[str, Any]]:
+        """Query neighbor nodes and return legacy relation formats."""
+        rel_type = relation_type or kwargs.get("relation_type")
+
+        if isinstance(self_or_cls, type):
+            inst = self_or_cls.get_instance()
+            return inst.query_neighbors(node_id, direction=direction, relation_type=rel_type)
+
+        self = self_or_cls
+        edges = []
+        if direction in {"out", "both"}:
+            edges.extend(self._store.get_edges_from(node_id))
+        if direction in {"in", "both"}:
+            edges.extend(self._store.get_edges_to(node_id))
+
+        results = []
+        for e in edges:
+            if rel_type and e["relation_type"] != rel_type:
+                continue
+
+            other_id = e["target_id"] if e["source_id"] == node_id else e["source_id"]
+            other_node = self._store.get_node(other_id)
+            node_type_val = other_node.get("entity_type").lower() if (other_node and other_node.get("entity_type")) else None
+
+            results.append({
+                "node_id": other_id,
+                "type": node_type_val,
+                "relation": e["relation_type"],
+                "relation_type": e["relation_type"],
+            })
+        return results
+
+    @hybridmethod
+    def find_shortest_path(
+        self_or_cls,
+        source_id: str = "",
+        target_id: str = "",
+        *args,
+        **kwargs,
+    ) -> Optional[List[str]]:
+        """Find the shortest node ID path between source and target."""
+        src_id = source_id
+        tgt_id = target_id
+        if args:
+            if len(args) >= 1:
+                src_id = args[0]
+            if len(args) >= 2:
+                tgt_id = args[1]
+
+        if not src_id:
+            src_id = kwargs.get("source") or kwargs.get("start_name") or ""
+        if not tgt_id:
+            tgt_id = kwargs.get("target") or kwargs.get("end_name") or ""
+
+        if isinstance(self_or_cls, type):
+            inst = self_or_cls.get_instance()
+            return inst.find_shortest_path(source_id=src_id, target_id=tgt_id)
+
+        self = self_or_cls
+        queue = [[src_id]]
+        visited = {src_id}
+        while queue:
+            path = queue.pop(0)
+            node = path[-1]
+            if node == tgt_id:
+                return path
+            neighbors = self.query_neighbors(node, direction="out")
+            for n in neighbors:
+                nid = n["node_id"]
+                if nid not in visited:
+                    visited.add(nid)
+                    new_path = list(path)
+                    new_path.append(nid)
+                    queue.append(new_path)
+        return None
+
 
     def update_node(
         self,
@@ -425,12 +641,73 @@ class KnowledgeGraph:
         raw_edges = self._query.find_shortest_path(src["id"], tgt["id"])
         return [self._to_kg_edge(e) for e in raw_edges]
 
-    def get_subgraph(self, center_name: str, radius: int = 2) -> Dict[str, Any]:
-        """Extract a subgraph around *center_name*."""
+    @hybridmethod
+    def get_subgraph(
+        self_or_cls,
+        center_name_or_ids: str | List[str] = "",
+        radius_or_depth: int = 2,
+        *args,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Extract a subgraph around node(s) with fallback parameter support."""
+        node_ids = center_name_or_ids
+        depth_val = radius_or_depth
+
+        if args:
+            if len(args) >= 1:
+                depth_val = args[0]
+
+        if "node_ids" in kwargs:
+            node_ids = kwargs["node_ids"]
+        if "depth" in kwargs:
+            depth_val = kwargs["depth"]
+        if "radius" in kwargs:
+            depth_val = kwargs["radius"]
+
+        if isinstance(node_ids, str):
+            node_ids = [node_ids]
+
+        if isinstance(self_or_cls, type):
+            inst = self_or_cls.get_instance()
+            visited_nodes = set(node_ids)
+            edges = []
+            current_layer = list(node_ids)
+            for _ in range(depth_val):
+                next_layer = []
+                for nid in current_layer:
+                    adj = inst._store.get_edges_from(nid) + inst._store.get_edges_to(nid)
+                    for e in adj:
+                        edge_key = (e["source_id"], e["target_id"], e["relation_type"])
+                        if edge_key not in [(x["source_id"], x["target_id"], x["relation_type"]) for x in edges]:
+                            edges.append({
+                                "source_id": e.get("source_id"),
+                                "target_id": e.get("target_id"),
+                                "relation_type": e.get("relation_type"),
+                                "properties": json.loads(e.get("properties") or "{}") if isinstance(e.get("properties"), str) else (e.get("properties") or {}),
+                            })
+                        neighbor = e["target_id"] if e["source_id"] == nid else e["source_id"]
+                        if neighbor not in visited_nodes:
+                            visited_nodes.add(neighbor)
+                            next_layer.append(neighbor)
+                current_layer = next_layer
+
+            nodes = []
+            for nid in visited_nodes:
+                n = inst._store.get_node(nid)
+                if n:
+                    nodes.append({
+                        "id": n.get("id"),
+                        "type": n.get("entity_type").lower() if n.get("entity_type") else None,
+                        "properties": json.loads(n.get("properties") or "{}") if isinstance(n.get("properties"), str) else (n.get("properties") or {}),
+                    })
+            return {"nodes": nodes, "edges": edges}
+
+        self = self_or_cls
+        center_name = node_ids[0] if node_ids else ""
         node = self._resolve_name(center_name)
         if not node:
             return {"nodes": [], "edges": []}
-        raw = self._query.get_subgraph(node["id"], radius=radius)
+        raw = self._query.get_subgraph(node["id"], radius=depth_val)
         return {
             "nodes": [self._to_kg_node(n) for n in raw.get("nodes", [])],
             "edges": [self._to_kg_edge(e) for e in raw.get("edges", [])],
