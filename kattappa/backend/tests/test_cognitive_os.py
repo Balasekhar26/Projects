@@ -38,7 +38,7 @@ def test_cognitive_kernel_routing():
     KERNEL.events.subscribe("test_topic", lambda p: events_triggered.append(p))
     KERNEL.events.publish("test_agent", "test_topic", {"data": "ok"})
     assert len(events_triggered) == 1
-    assert events_triggered[0].payload["data"] == "ok"
+    assert events_triggered[0]["payload"]["data"] == "ok"
 
     # 2. Goal creation routing
     gid = KERNEL.goals.add_goal("g_kernel_test", None, HierarchyLevel.GOAL, "Kernel Goal", "Description")

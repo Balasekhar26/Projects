@@ -87,7 +87,12 @@ class GoalMemory:
                     urgency REAL NOT NULL DEFAULT 5.0,
                     strategic_alignment REAL NOT NULL DEFAULT 5.0,
                     resource_cost REAL NOT NULL DEFAULT 2.0,
-                    priority_score REAL NOT NULL DEFAULT 1.0
+                    priority_score REAL NOT NULL DEFAULT 1.0,
+                    max_retries INTEGER DEFAULT 0,
+                    retry_count INTEGER DEFAULT 0,
+                    last_attempt_at REAL DEFAULT NULL,
+                    backoff_delay_sec REAL DEFAULT 0.0,
+                    workspace_snapshot_json TEXT DEFAULT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS milestones (
@@ -193,6 +198,11 @@ class GoalMemory:
                 ("definition_of_done", "TEXT", "NULL"),
                 ("ttl", "REAL", "NULL"),
                 ("last_reaffirmed_at", "REAL", "NULL"),
+                ("max_retries", "INTEGER", "0"),
+                ("retry_count", "INTEGER", "0"),
+                ("last_attempt_at", "REAL", "NULL"),
+                ("backoff_delay_sec", "REAL", "0.0"),
+                ("workspace_snapshot_json", "TEXT", "NULL"),
             ]:
                 try:
                     conn.execute(f"ALTER TABLE goals ADD COLUMN {col} {dtype} DEFAULT {dflt}")
