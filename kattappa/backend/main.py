@@ -943,6 +943,8 @@ from backend.api.v1.memory import memory_router
 from backend.api.v1.planner import planner_router
 from backend.api.v1.safety import safety_router
 from backend.api.v1.models import models_router
+from backend.api.v1.world import world_router
+from backend.api.v1.cognitive import cognitive_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(chat_router)
@@ -961,6 +963,13 @@ app.include_router(safety_router)
 
 app.include_router(models_router, prefix="/api/v1")
 app.include_router(models_router)
+
+# Stage 3 — Kattappa OS v2: World Model + Cognitive Pipeline
+app.include_router(world_router, prefix="/api/v1")
+app.include_router(world_router)
+
+app.include_router(cognitive_router, prefix="/api/v1")
+app.include_router(cognitive_router)
 
 app.add_middleware(
     CORSMiddleware,
