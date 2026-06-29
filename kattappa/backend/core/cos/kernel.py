@@ -162,12 +162,14 @@ class CognitiveKernel:
     def __init__(self) -> None:
         if hasattr(self, "_initialized"):
             return
+        from backend.core.cos.executive_controller import CONTROLLER
         self.memory = MemoryBus()
         self.goals = GoalBus()
         self.events = EventBus()
         self.context = ContextBus()
         self.tools = ToolBus()
         self.agents = AgentBus()
+        self.executive = CONTROLLER
         self._initialized = True
 
 
