@@ -98,10 +98,11 @@ class EventBus:
         payload: Dict[str, Any],
         confidence: float = 1.0,
     ) -> str:
-        return BLACKBOARD.publish(publisher, topic, payload, confidence=confidence)
+        post = BLACKBOARD.publish(publisher, topic, payload, confidence=confidence)
+        return post.post_id
 
     def subscribe(self, topic: str, callback: Callable[[Dict[str, Any]], None]) -> None:
-        BLACKBOARD.subscribe(topic, callback)
+        BLACKBOARD.subscribe(topic, lambda post: callback(post.to_dict()))
 
 
 class ContextBus:
