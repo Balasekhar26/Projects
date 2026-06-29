@@ -342,3 +342,148 @@ def visualize_plan_graph(req: CompileGraphRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Constraint Engine Endpoints (Program 5G-4)
+# ---------------------------------------------------------------------------
+
+class ValidateConstraintsRequest(BaseModel):
+    plan_id: str
+    steps: List[Dict[str, Any]] = Field(..., description="Linear plan steps sequence")
+    world_state: Dict[str, Any] = Field(..., description="Active world state context variables")
+
+
+class EnableValidatorRequest(BaseModel):
+    validator_id: str
+    enabled: bool
+
+
+@router.post("/constraints/validate", summary="Validate plan graph constraints")
+def validate_plan_constraints(req: ValidateConstraintsRequest) -> Dict[str, Any]:
+    """Compiles the plan to a DAG and runs all enabled constraint validation checks."""
+    try:
+        from backend.core.planning.plan_graph import PlanCompiler
+        from backend.core.planning.task import Plan, Operator
+        from backend.core.planning.constraints.engine import ConstraintEngine
+
+        steps = []
+        for step in req.steps:
+            steps.append(Operator(
+                operator_id=step["operator_id"],
+                name=step["name"],
+                parameters=step.get("parameters", {}),
+                preconditions=step.get("preconditions", {}),
+                effects=step.get("effects", {}),
+            ))
+
+        plan = Plan(
+            plan_id=req.plan_id,
+            goal_id="unknown_goal",
+            steps=steps,
+        )
+
+        graph = PlanCompiler.compile_plan_to_graph(plan)
+        engine = ConstraintEngine.get_instance()
+        report = engine.validate(graph, req.world_state)
+
+        return {
+            "status": "ok",
+            "passed": report.passed,
+            "violations": [
+                {
+                    "constraint_id": v.constraint_id,
+                    "node_id": v.node_id,
+                    "explanation": v.explanation,
+                    "severity": v.severity,
+                    "suggested_fix": v.suggested_fix,
+                }
+                for v in report.violations
+            ],
+            "warnings": [
+                {
+                    "constraint_id": w.constraint_id,
+                    "node_id": w.node_id,
+                    "explanation": w.explanation,
+                    "severity": w.severity,
+                    "suggested_fix": w.suggested_fix,
+                }
+                for w in report.warnings
+            ],
+            "metrics": report.metrics,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/constraints/repair", summary="Get suggested fixes for plan violations")
+def get_constraint_repairs(req: ValidateConstraintsRequest) -> Dict[str, Any]:
+    """Compiles plan to DAG, runs constraints, and compiles unique repair suggestions."""
+    try:
+        from backend.core.planning.plan_graph import PlanCompiler
+        from backend.core.planning.task import Plan, Operator
+        from backend.core.planning.constraints.engine import ConstraintEngine
+
+        steps = []
+        for step in req.steps:
+            steps.append(Operator(
+                operator_id=step["operator_id"],
+                name=step["name"],
+                parameters=step.get("parameters", {}),
+                preconditions=step.get("preconditions", {}),
+                effects=step.get("effects", {}),
+            ))
+
+        plan = Plan(
+            plan_id=req.plan_id,
+            goal_id="unknown_goal",
+            steps=steps,
+        )
+
+        graph = PlanCompiler.compile_plan_to_graph(plan)
+        engine = ConstraintEngine.get_instance()
+        report = engine.validate(graph, req.world_state)
+        repairs = engine.get_repair_suggestions(report)
+
+        return {
+            "status": "ok",
+            "passed": report.passed,
+            "suggested_repairs": repairs,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/constraints/types", summary="Get list of registered validators")
+def get_validator_types() -> Dict[str, Any]:
+    """Returns the ID, name, and enable status of all registered validators."""
+    try:
+        from backend.core.planning.constraints.engine import ConstraintEngine
+        engine = ConstraintEngine.get_instance()
+        return {
+            "status": "ok",
+            "validators": engine.get_validators(),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/constraints/enable", summary="Enable/disable a validator")
+def enable_constraint_validator(req: EnableValidatorRequest) -> Dict[str, Any]:
+    """Enables or disables a target constraint validator dynamically at runtime."""
+    try:
+        from backend.core.planning.constraints.engine import ConstraintEngine
+        engine = ConstraintEngine.get_instance()
+        if req.enabled:
+            engine.enable_validator(req.validator_id)
+        else:
+            engine.disable_validator(req.validator_id)
+
+        return {
+            "status": "ok",
+            "validator_id": req.validator_id,
+            "enabled": req.enabled,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+

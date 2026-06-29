@@ -95,7 +95,7 @@ class DependencyGraph:
                     visit(child)
                 order.insert(0, node_id)
 
-        for node_id in self.nodes:
+        for node_id in reversed(list(self.nodes.keys())):
             if node_id not in visited:
                 visit(node_id)
 
