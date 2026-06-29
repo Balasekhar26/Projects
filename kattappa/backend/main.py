@@ -20,6 +20,7 @@ from backend.api.v1.ecl import ecl_router
 from backend.api.v1.mce import router as mce_router
 from backend.api.v1.wse import router as wse_router
 from backend.api.v1.provenance import router as provenance_router
+from backend.api.v1.beliefs import router as beliefs_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(chat_router)
@@ -56,6 +57,10 @@ app.include_router(wse_router)
 
 app.include_router(provenance_router, prefix="/api/v1")
 app.include_router(provenance_router)
+
+app.include_router(beliefs_router, prefix="/api/v1")
+app.include_router(beliefs_router)
+
 
 
 
