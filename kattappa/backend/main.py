@@ -23,6 +23,8 @@ from backend.api.v1.provenance import router as provenance_router
 from backend.api.v1.beliefs import router as beliefs_router
 from backend.api.v1.planning import router as core_planning_router
 from backend.api.v1.execution import router as execution_router
+from backend.api.v1.reflection import router as reflection_router
+
 
 
 app.include_router(chat_router, prefix="/api/v1")
@@ -70,6 +72,10 @@ app.include_router(core_planning_router)
 
 app.include_router(execution_router, prefix="/api/v1")
 app.include_router(execution_router)
+
+app.include_router(reflection_router, prefix="/api/v1")
+app.include_router(reflection_router)
+
 
 
 
