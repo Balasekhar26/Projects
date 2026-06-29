@@ -486,4 +486,81 @@ def enable_constraint_validator(req: EnableValidatorRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Scheduler Endpoints (Program 5G-5)
+# ---------------------------------------------------------------------------
+
+class CreateScheduleRequest(BaseModel):
+    plan_id: str
+    steps: List[Dict[str, Any]] = Field(..., description="Linear plan steps sequence")
+    resource_limits: Dict[str, int] = Field(
+        default_factory=lambda: {"cpu": 4, "gpu": 1, "camera": 1},
+        description="System resource capacities"
+    )
+
+
+@router.post("/schedule", summary="Calculate resource-constrained schedule timeline")
+def schedule_plan_timeline(req: CreateScheduleRequest) -> Dict[str, Any]:
+    """Compiles steps to plan graph, runs CPM critical path solver, and allocates resource slots."""
+    try:
+        from backend.core.planning.plan_graph import PlanCompiler
+        from backend.core.planning.task import Plan, Operator
+        from backend.core.planning.scheduler import Scheduler
+
+        steps = []
+        for step in req.steps:
+            steps.append(Operator(
+                operator_id=step["operator_id"],
+                name=step["name"],
+                parameters=step.get("parameters", {}),
+                preconditions=step.get("preconditions", {}),
+                effects=step.get("effects", {}),
+                estimated_time=float(step.get("estimated_time", 1.0)),
+            ))
+
+        plan = Plan(
+            plan_id=req.plan_id,
+            goal_id="unknown_goal",
+            steps=steps,
+        )
+
+        graph = PlanCompiler.compile_plan_to_graph(plan)
+        schedule_result = Scheduler.schedule_with_resources(graph, req.resource_limits)
+
+        return {
+            "status": "ok",
+            "plan_id": req.plan_id,
+            "schedule": {
+                node_id: {
+                    "node_id": t.node_id,
+                    "earliest_start": t.earliest_start,
+                    "earliest_finish": t.earliest_finish,
+                    "latest_start": t.latest_start,
+                    "latest_finish": t.latest_finish,
+                    "slack": t.slack,
+                    "allocated_resources": t.allocated_resources,
+                    "is_critical": t.is_critical,
+                }
+                for node_id, t in schedule_result.items()
+            }
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/schedule/resources", summary="Get active allocator bounds")
+def get_scheduler_resource_bounds() -> Dict[str, Any]:
+    """Returns default system capacities for planning scheduler resource pools."""
+    return {
+        "status": "ok",
+        "default_resource_limits": {
+            "cpu": 4,
+            "gpu": 1,
+            "camera": 1,
+            "network_bandwidth_mbps": 100,
+        }
+    }
+
+
+
 
