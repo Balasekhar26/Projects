@@ -141,3 +141,79 @@ def explain_probability_shift(belief_id: str) -> Dict[str, Any]:
     explanation = bayesian_coord.engine.explain_probability_shift(belief_id)
     return {"status": "ok", "belief_id": belief_id, "explanation": explanation}
 
+
+# ---------------------------------------------------------------------------
+# Probabilistic Reasoning Engine Endpoints (Program 5D)
+# ---------------------------------------------------------------------------
+
+class DecisionTreeRequest(BaseModel):
+    tree: Dict[str, Any] = Field(..., description="Nested JSON representation of the decision tree")
+    risk_threshold: Optional[float] = Field(0.0, description="Threshold utility for risk assessment")
+
+
+def parse_decision_tree(data: Dict[str, Any]) -> Any:
+    """Helper to parse raw JSON dictionary into DecisionTreeNode instances."""
+    from backend.core.beliefs.probabilistic_reasoning import UtilityNode, ChanceNode, DecisionNode
+    node_type = data.get("type")
+    node_id = data.get("node_id", "node")
+
+    if node_type == "utility":
+        return UtilityNode(node_id=node_id, utility=float(data["utility"]))
+
+    elif node_type == "chance":
+        outcomes = []
+        for out in data.get("outcomes", []):
+            prob = float(out["probability"])
+            child = parse_decision_tree(out["child"])
+            name = out.get("name", "")
+            outcomes.append((prob, child, name))
+        return ChanceNode(node_id=node_id, outcomes=outcomes)
+
+    elif node_type == "decision":
+        choices = []
+        for ch in data.get("choices", []):
+            child = parse_decision_tree(ch["child"])
+            name = ch.get("name", "")
+            choices.append((child, name))
+        return DecisionNode(node_id=node_id, choices=choices)
+
+    raise ValueError(f"Unknown node type: {node_type}")
+
+
+@router.post("/probabilistic/evaluate", summary="Evaluate a decision tree")
+def evaluate_decision_tree(req: DecisionTreeRequest) -> Dict[str, Any]:
+    """Recursively evaluates a decision tree, returning the optimal choices and expected utilities."""
+    try:
+        from backend.core.beliefs.probabilistic_reasoning import ProbabilisticReasoningEngine, DecisionExplanationGenerator
+        root = parse_decision_tree(req.tree)
+        engine = ProbabilisticReasoningEngine()
+        explainer = DecisionExplanationGenerator()
+
+        expected_utility, best_choice = engine.evaluate_decision_tree(root)
+        explanation = explainer.generate_explanation(root, threshold=req.risk_threshold or 0.0)
+
+        return {
+            "status": "ok",
+            "expected_utility": expected_utility,
+            "best_choice": best_choice,
+            "explanation": explanation,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/probabilistic/risk", summary="Assess risk on a decision tree")
+def assess_risk(req: DecisionTreeRequest) -> Dict[str, Any]:
+    """Calculates path risk (probability that utility falls below threshold) for a decision tree."""
+    try:
+        from backend.core.beliefs.probabilistic_reasoning import ProbabilisticReasoningEngine
+        root = parse_decision_tree(req.tree)
+        risk = ProbabilisticReasoningEngine.assess_risk(root, req.risk_threshold or 0.0)
+        return {
+            "status": "ok",
+            "risk_probability": risk,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
