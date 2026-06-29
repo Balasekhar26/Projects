@@ -19,6 +19,7 @@ from backend.api.v1.knowledge_graph import knowledge_graph_router
 from backend.api.v1.ecl import ecl_router
 from backend.api.v1.mce import router as mce_router
 from backend.api.v1.wse import router as wse_router
+from backend.api.v1.provenance import router as provenance_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(chat_router)
@@ -52,6 +53,10 @@ app.include_router(mce_router)
 
 app.include_router(wse_router, prefix="/api/v1")
 app.include_router(wse_router)
+
+app.include_router(provenance_router, prefix="/api/v1")
+app.include_router(provenance_router)
+
 
 
 app.add_middleware(

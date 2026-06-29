@@ -233,16 +233,19 @@ def test_graph_integrator_writes_to_kg():
             source_episode_id="ep_001",
         )
     ]
-    mock_kg = MagicMock()
+    mock_kg_helper = MagicMock()
+    mock_prov = MagicMock()
+    mock_prov.kg = mock_kg_helper
 
-    with patch("backend.core.mce.graph_integrator.KnowledgeGraph.get_instance", return_value=mock_kg):
+    with patch("backend.core.mce.graph_integrator.ProvenanceCoordinator.get_instance", return_value=mock_prov):
         report = MCEGraphIntegrator.integrate(triples)
 
     assert report.nodes_added == 2, "Should add subject and object nodes"
     assert report.relations_added == 1, "Should add one edge"
     assert report.errors == 0
-    assert mock_kg.add_node.call_count == 2
-    assert mock_kg.add_edge.call_count == 1
+    assert mock_kg_helper.add_node_with_provenance.call_count == 2
+    assert mock_kg_helper.add_edge_with_provenance.call_count == 1
+
 
 
 # ---------------------------------------------------------------------------
@@ -282,11 +285,14 @@ def test_archive_manager_no_deletes(patch_episodic_db):
 def test_consolidation_engine_run_cycle():
     mock_bus_result = MagicMock()
     mock_bus_result.success = True
-    mock_kg = MagicMock()
+    mock_kg_helper = MagicMock()
+    mock_prov = MagicMock()
+    mock_prov.kg = mock_kg_helper
 
     with patch("backend.core.mce.episodic_promoter.MEMORY_BUS") as mock_bus, \
          patch("backend.core.mce.episodic_promoter.MCEEpisodicPromoter._mark_promoted"), \
-         patch("backend.core.mce.graph_integrator.KnowledgeGraph.get_instance", return_value=mock_kg), \
+         patch("backend.core.mce.graph_integrator.ProvenanceCoordinator.get_instance", return_value=mock_prov), \
+         patch("backend.core.mce.consolidation_engine.WSEEventBus") as mock_eb_cls, \
          patch("backend.core.mce.semantic_extractor.ask_model", side_effect=Exception("offline")):
         mock_bus.write.return_value = mock_bus_result
         report = MCEConsolidationEngine.run_cycle(
