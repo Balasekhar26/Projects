@@ -14,6 +14,7 @@ from backend.api.v1.memory import memory_router
 from backend.api.v1.planner import planner_router
 from backend.api.v1.safety import safety_router
 from backend.api.v1.models import models_router
+from backend.api.v1.telemetry import telemetry_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(chat_router)
@@ -33,6 +34,9 @@ app.include_router(safety_router)
 app.include_router(models_router, prefix="/api/v1")
 app.include_router(models_router)
 
+app.include_router(telemetry_router, prefix="/api/v1")
+app.include_router(telemetry_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -50,15 +54,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 def start_startup_tasks():
     from backend.core.cluster_runtime import internet_hub_worker_poll_loop
+
     thread = threading.Thread(target=internet_hub_worker_poll_loop, daemon=True)
     thread.start()
 
     # Start Step 9.0 Daily Research Loop
     try:
         from backend.core.research_scheduler import ResearchScheduler
+
         ResearchScheduler.start()
     except Exception:
         pass
@@ -66,6 +73,7 @@ def start_startup_tasks():
     # Start Phase K13 KG Sync Scheduler
     try:
         from backend.core.kg_scheduler import start_kg_scheduler
+
         start_kg_scheduler()
     except Exception:
         pass
@@ -73,6 +81,7 @@ def start_startup_tasks():
     # Run Experiment Sandbox startup orphan cleanup scan
     try:
         from backend.core.experiment_sandbox import ExperimentManager
+
         ExperimentManager.cleanup_orphans()
     except Exception:
         pass
@@ -80,23 +89,27 @@ def start_startup_tasks():
     # Warm up default fast and coder models in the background on startup
     from backend.core.config import load_config
     from backend.core.adaptive_runtime import WarmupManager
+
     try:
         cfg = load_config()
         WarmupManager.warm_model_background(cfg.model_map["fast"], cfg.ollama_host)
     except Exception:
         pass
 
+
 @app.on_event("shutdown")
 def stop_shutdown_tasks():
     """Stop background scheduler threads on shutdown."""
     try:
         from backend.core.research_scheduler import ResearchScheduler
+
         ResearchScheduler.stop()
     except Exception:
         pass
 
     try:
         from backend.core.kg_scheduler import stop_kg_scheduler
+
         stop_kg_scheduler()
     except Exception:
         pass

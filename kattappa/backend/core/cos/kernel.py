@@ -177,6 +177,12 @@ class CognitiveKernel:
         if hasattr(self, "_initialized"):
             return
         from backend.core.cos.executive_controller import CONTROLLER
+        from backend.core.config import load_config
+        from backend.core.ledger.stores.sqlite_store import SQLiteLedgerStore
+
+        config = load_config()
+        config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path = config.sqlite_path.parent / "ledger.db"
 
         self.memory = MemoryBus()
         self.goals = GoalBus()
@@ -185,6 +191,7 @@ class CognitiveKernel:
         self.tools = ToolBus()
         self.agents = AgentBus()
         self.executive = CONTROLLER
+        self.ledger = SQLiteLedgerStore(str(db_path))
         self._initialized = True
 
 
