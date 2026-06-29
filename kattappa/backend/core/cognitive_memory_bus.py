@@ -81,9 +81,41 @@ POLICIES: dict[str, StoragePolicy] = {
     ),
     "knowledge_graph": StoragePolicy(
         name="knowledge_graph",
-        ttl_days=None,
-        min_confidence=0.95,    # highest bar — KG is the shared truth substrate
+        ttl_days=None,          # highest bar — KG is the shared truth substrate
+        min_confidence=0.95,
         requires_verification=True,
+        human_approval_required=False,
+        triggers_kg_sync=True,
+    ),
+    "preference": StoragePolicy(
+        name="preference",
+        ttl_days=None,
+        min_confidence=0.50,
+        requires_verification=False,
+        human_approval_required=False,
+        triggers_kg_sync=False,
+    ),
+    "relationship": StoragePolicy(
+        name="relationship",
+        ttl_days=None,
+        min_confidence=0.60,
+        requires_verification=False,
+        human_approval_required=False,
+        triggers_kg_sync=False,
+    ),
+    "goal": StoragePolicy(
+        name="goal",
+        ttl_days=None,
+        min_confidence=0.30,
+        requires_verification=False,
+        human_approval_required=False,
+        triggers_kg_sync=False,
+    ),
+    "belief_graph": StoragePolicy(
+        name="belief_graph",
+        ttl_days=None,
+        min_confidence=0.60,
+        requires_verification=False,
         human_approval_required=False,
         triggers_kg_sync=True,
     ),
@@ -350,6 +382,60 @@ class CognitiveMemoryBus:
                 )
         return node_id
 
+    def _write_preference(self, data: dict[str, Any]) -> str | None:
+        from backend.core.preference_memory import PreferenceMemory
+        key = data.get("key", "")
+        value = data.get("value")
+        confidence = data.get("confidence", 1.0)
+        res = PreferenceMemory.set_preference(key, value, confidence)
+        return key
+
+    def _write_relationship(self, data: dict[str, Any]) -> str | None:
+        from backend.core.relationship_memory import RelationshipMemory
+        entity_id = data.get("entity_id", "user")
+        name = data.get("name", "User")
+        entity_type = data.get("entity_type", "user")
+        trust_level = data.get("trust_level", "TRUST_UNVERIFIED")
+        RelationshipMemory.get_or_create_entity(entity_id, name, entity_type, trust_level)
+        if "emotion" in data:
+            RelationshipMemory.set_emotional_state(entity_id, data["emotion"], data.get("confidence", 1.0))
+        return entity_id
+
+    def _write_goal(self, data: dict[str, Any]) -> str | None:
+        from backend.core.goal_manager import GoalManager
+        goal = GoalManager.add_goal(
+            title=data.get("title", ""),
+            description=data.get("description"),
+            priority=data.get("priority", "MEDIUM"),
+            parent_id=data.get("parent_id"),
+            depends_on=data.get("depends_on"),
+            max_retries=data.get("max_retries", 0),
+        )
+        return goal["goal_id"]
+
+    def _write_belief_graph(self, data: dict[str, Any]) -> str | None:
+        from backend.core.cos.belief_engine import BeliefEngine
+        from backend.core.cos.state_representation import BeliefState, EvidenceSource, ObservedState, PropertyValue
+        import uuid
+        b_state = BeliefState(state_id=data.get("state_id", "default_state"), branch_id=data.get("branch_id", "main"))
+        engine = BeliefEngine(b_state)
+        obs = ObservedState(state_id=f"obs_{uuid.uuid4().hex[:8]}", branch_id=data.get("branch_id", "main"))
+        src = EvidenceSource(
+            name=data.get("source_name", "sensor"),
+            source_type=data.get("source_type", "sensor"),
+            reliability=data.get("reliability", 0.8)
+        )
+        pv = PropertyValue(
+            value=data.get("value"),
+            confidence=data.get("confidence", 0.7),
+            source=src
+        )
+        entity_id = data.get("entity_id", "system")
+        prop_name = data.get("prop_name", "status")
+        obs.set_property(entity_id, prop_name, pv)
+        engine.process_observation(obs)
+        return b_state.state_id
+
     # ── Per-type read handlers ─────────────────────────────────────────────
 
     def _read_working(
@@ -379,9 +465,8 @@ class CognitiveMemoryBus:
             limit=limit,
             session_id=session_id,
         )
-        if isinstance(results, dict):
-            return results.get("episodes", [])
-        return results or []
+        episodes = results.get("episodes", []) if isinstance(results, dict) else (results or [])
+        return self._apply_act_r_ranking(episodes, limit)
 
     def _read_semantic(
         self,
@@ -390,12 +475,11 @@ class CognitiveMemoryBus:
         limit: int = 10,
     ) -> list[dict[str, Any]]:
         from backend.core.semantic_memory import SemanticMemory
-        # traverse_graph takes a node_id, not concept text; use recall for text queries
         results = SemanticMemory.recall(
             query=query,
             limit=limit,
         )
-        return results or []
+        return self._apply_act_r_ranking(results or [], limit)
 
     def _read_procedural(
         self,
@@ -418,6 +502,76 @@ class CognitiveMemoryBus:
         config = load_config()
         store = GraphStore(str(config.sqlite_path))
         return store.search_nodes_fts(query, limit=limit)
+
+    def _read_preference(
+        self,
+        query: str,
+        session_id: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        from backend.core.preference_memory import PreferenceMemory
+        if query:
+            pref = PreferenceMemory.get_preference(query)
+            return [pref] if pref else []
+        return PreferenceMemory.list_preferences()[:limit]
+
+    def _read_relationship(
+        self,
+        query: str,
+        session_id: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        from backend.core.relationship_memory import RelationshipMemory
+        ent = RelationshipMemory.get_entity(query or "user")
+        return [ent] if ent else []
+
+    def _read_goal(
+        self,
+        query: str,
+        session_id: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        from backend.core.goal_manager import GoalManager
+        goals = GoalManager.list_goals()
+        if query:
+            goals = [g for g in goals if query.lower() in g["title"].lower() or query.lower() in (g.get("description") or "").lower()]
+        return goals[:limit]
+
+    def _read_belief_graph(
+        self,
+        query: str,
+        session_id: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        from backend.core.cos.state_representation import BeliefState
+        b_state = BeliefState(state_id="default_state", branch_id="main")
+        return [{"state_id": b_state.state_id, "branch_id": b_state.branch_id, "query": query}]
+
+    def _apply_act_r_ranking(self, records: list[Any], limit: int) -> list[dict[str, Any]]:
+        """Rank records using Act-R dynamic activation formula."""
+        import math
+        import time
+        now = time.time()
+        ranked = []
+        for r in records:
+            r_dict = dict(r) if hasattr(r, "to_dict") or not isinstance(r, dict) else dict(r)
+            sim = r_dict.get("similarity", 1.0)
+            if sim is None:
+                sim = 1.0
+            act = r_dict.get("act_r_activation", 1.0) or r_dict.get("importance", 1.0) or 1.0
+            created = r_dict.get("created_at") or r_dict.get("timestamp") or now
+            decay_rate = r_dict.get("decay_rate", 0.05) or 0.05
+            
+            # Δt in hours
+            dt = max(0.0, (now - created) / 3600.0)
+            recency = math.exp(-decay_rate * dt)
+            
+            score = 0.5 * sim + 0.3 * act + 0.2 * recency
+            r_dict["recall_score"] = score
+            ranked.append(r_dict)
+            
+        ranked.sort(key=lambda x: x["recall_score"], reverse=True)
+        return ranked[:limit]
 
     # ── KG sync trigger ────────────────────────────────────────────────────
 

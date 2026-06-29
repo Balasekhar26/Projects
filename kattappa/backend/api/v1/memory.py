@@ -311,4 +311,23 @@ def memory_context(q: str) -> dict[str, object]:
     return {"context": build_memory_context(q)}
 
 
+@memory_router.get("/preferences")
+def get_preferences() -> dict[str, object]:
+    from backend.core.preference_memory import PreferenceMemory
+    return {"items": PreferenceMemory.list_preferences()}
+
+
+@memory_router.post("/preferences")
+def set_preference(key: str = Body(...), value: Any = Body(...), confidence: float = Body(1.0)) -> dict[str, object]:
+    from backend.core.preference_memory import PreferenceMemory
+    return {"item": PreferenceMemory.set_preference(key, value, confidence)}
+
+
+@memory_router.post("/preferences/reinforce")
+def reinforce_preference(key: str = Body(...), positive: bool = Body(...)) -> dict[str, object]:
+    from backend.core.preference_memory import PreferenceMemory
+    res = PreferenceMemory.reinforce_preference(key, positive)
+    return {"item": res, "evicted": res is None}
+
+
 

@@ -279,6 +279,11 @@ class GoalMemory:
         original_goal_text: Optional[str] = None,
         definition_of_done: Optional[str] = None,
         ttl: Optional[float] = None,
+        max_retries: int = 0,
+        retry_count: int = 0,
+        last_attempt_at: Optional[float] = None,
+        backoff_delay_sec: float = 0.0,
+        workspace_snapshot_json: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Creates a goal with Human-Like Goal System cognitive attributes and logs the creation event."""
         now = time.time()
@@ -298,7 +303,12 @@ class GoalMemory:
             owner_agent is not None or
             parent_goal_id is not None or
             horizon_type != "SHORT_TERM" or
-            current_state != "PROPOSED"
+            current_state != "PROPOSED" or
+            max_retries != 0 or
+            retry_count != 0 or
+            last_attempt_at is not None or
+            backoff_delay_sec != 0.0 or
+            workspace_snapshot_json is not None
         ):
             is_cognitive = True
 
@@ -328,9 +338,9 @@ class GoalMemory:
                         parent_goal_id, owner_agent, horizon_type, current_state, state_reason,
                         importance_score, urgency_score, estimated_value, confidence_score, energy_required, risk_profile,
                         attention_score, decay_rate, last_reviewed_at, provenance, original_goal_text, definition_of_done,
-                        ttl, last_reaffirmed_at
+                        ttl, last_reaffirmed_at, max_retries, retry_count, last_attempt_at, backoff_delay_sec, workspace_snapshot_json
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         g_id, title, description, priority, current_state, now, target_date, sc_json, owner, meta_json,
@@ -338,7 +348,7 @@ class GoalMemory:
                         parent_goal_id, owner_agent, horizon_type, current_state, state_reason,
                         float(importance_score), float(urgency_score), float(estimated_value), float(confidence_score), energy_required, float(risk_profile),
                         float(attention_score), float(decay_rate), now, provenance, orig_text, def_done,
-                        ttl, last_reaff
+                        ttl, last_reaff, int(max_retries), int(retry_count), last_attempt_at, float(backoff_delay_sec), workspace_snapshot_json
                     )
                 )
                 cls._log_event_conn(conn, g_id, "GOAL_CREATED", {"title": title, "priority": priority, "created_at": now})
@@ -616,12 +626,58 @@ class GoalMemory:
                 "definition_of_done": grow["definition_of_done"],
                 "ttl": grow["ttl"],
                 "last_reaffirmed_at": grow["last_reaffirmed_at"],
+                "max_retries": grow["max_retries"],
+                "retry_count": grow["retry_count"],
+                "last_attempt_at": grow["last_attempt_at"],
+                "backoff_delay_sec": grow["backoff_delay_sec"],
+                "workspace_snapshot_json": grow["workspace_snapshot_json"],
                 "conflicts": [dict(c) for c in conflict_rows],
                 "values": [dict(v) for v in val_rows],
                 "metrics": dict(metric_row) if metric_row else None
             }
         finally:
             conn.close()
+
+    @classmethod
+    def update_goal_scheduler_fields(
+        cls,
+        goal_id: str,
+        retry_count: Optional[int] = None,
+        last_attempt_at: Optional[float] = None,
+        backoff_delay_sec: Optional[float] = None,
+        workspace_snapshot_json: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Updates scheduler state fields on a goal."""
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                updates = []
+                params = []
+                if retry_count is not None:
+                    updates.append("retry_count = ?")
+                    params.append(retry_count)
+                if last_attempt_at is not None:
+                    updates.append("last_attempt_at = ?")
+                    params.append(last_attempt_at)
+                if backoff_delay_sec is not None:
+                    updates.append("backoff_delay_sec = ?")
+                    params.append(backoff_delay_sec)
+                if workspace_snapshot_json is not None:
+                    updates.append("workspace_snapshot_json = ?")
+                    params.append(workspace_snapshot_json)
+                if updates:
+                    params.append(goal_id)
+                    conn.execute(
+                        f"UPDATE goals SET {', '.join(updates)} WHERE goal_id = ?",
+                        tuple(params)
+                    )
+                    conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+        return cls.get_goal(goal_id)
 
     @classmethod
     def list_goals(cls, status: Optional[str] = None) -> List[Dict[str, Any]]:

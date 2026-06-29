@@ -1,92 +1,127 @@
-# Project State Report & Master Implementation Plan
+# Implementation Plan: Goal Manager & Memory Fabric Partitions
 
-This document presents a comprehensive audit of the **Kattappa Cognitive OS** repository, mapping the current codebase status, identifying gaps, outlining dependencies, and presenting the priority matrix for the next implementation steps.
-
----
-
-## 1. Project State Summary
-
-* **Current Completion**: **94%** (Core Cognitive OS Backend, Data Engine, Executive Controller, and Execution Ledger v1 Core Stores, DAG traversals, Replay, and Snapshot modules are fully implemented and verified. The remaining 6% consists of visual telemetry dashboards, full desktop/mobile UI integration, and active streaming voice models).
-* **Roadmap Progress**: Phase K23 (Executive Controller) and Milestones 1A, 1B, and 1C of the Execution Ledger are fully complete, verified, formatted, type-checked, and committed.
+This plan outlines the design and technical steps for implementing the **Goal Manager** process scheduler, partitioning the **Cognitive Memory Fabric** into its 8 dedicated subsystems, resolving the broken test, and refactoring the React dashboard UI.
 
 ---
 
-## 2. Component Audits
+## User Review Required
 
-### Implemented Components (94%)
-* **COS Runtime**: [executive_controller.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/cos/executive_controller.py) & [kernel.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/cos/kernel.py).
-* **Execution Ledger v1 Core & DAG**: [interfaces/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/ledger/interfaces/), [models/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/ledger/models/), and [stores/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/ledger/stores/).
-* **Replay & Snapshot Engine**: [replay/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/ledger/replay/).
-* **Belief & Revision Engine**: `belief_engine.py`, `belief_revision.py`, `tms.py`, and `state_representation.py` under [cos/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/cos/).
-* **Orchestrator Agent Framework**: `base.py`, `scheduler.py`, `task_graph.py` under [orchestrator/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/orchestrator/) and agent files under `agents/`.
-* **Wisdom Engine**: Gita principles classifier and Yaml rules under [wisdom/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/wisdom/).
-* **Safety Arbiter & Governor**: resource and safety limits under [governor/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/governor/).
-* **Dataset Engine**: deduplication, synthetic generation, and distillation scripts under [kattappa_data_engine/](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/kattappa_data_engine/).
+> [!IMPORTANT]
+> **SQLite WAL Concurrency Locks**: With parallel write processes from the Goal Manager, Agent Tasks, and Memory Consolidation running, we must ensure connection locking. All SQLite connections will utilize Write-Ahead Logging (WAL) and busy timeouts of 30 seconds.
 
-### Missing Components (3%)
-* **Milestone 1D (Telemetry & live operational metrics)**: The `telemetry/` package under `core/ledger/` is not yet implemented.
-* **Milestone 1E (Visual Dashboard/DAG explorer)**: Frontend telemetry timeline, goal DAG browser, and interrupt monitor are missing.
-
-### Incomplete Components (3%)
-* **Active voice streaming**: Voice models (`faster-whisper`, `piper-tts`) are unit-tested but not wired to the live frontend audio pipeline.
-
-### Duplicate Components
-* **ADR-11** & **ADR-27**: Both define "Executive Controller Specification".
-* **ADR-09** & **ADR-29**: Both define "Learning Architecture Specification".
+> [!WARNING]
+> **Act-R Forgetting & Eviction**: Activation-based memory decay will automatically migrate low-activation episodic items to cold storage. Pinned memories or goals bypass decay.
 
 ---
 
-## 3. Dependency Graph & Architecture Mapping
+## Open Questions
 
-```mermaid
-graph TD
-    classDef comp fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef contract fill:#bbf,stroke:#333,stroke-width:2px;
-
-    User[User Interface] --> Personality[Personality & Conversation Layer];
-    Personality --> Scheduler[Executive Controller Scheduler];
-    Scheduler --> Planning[Planning & Simulation Engine];
-    Planning --> Memory[Cognitive Memory Fabric];
-    Memory --> Tools[Tool Runtime & Adapters];
-    
-    subgraph Operational Foundation
-        Scheduler -.-> Ledger[Execution Ledger Store];
-        Planning -.-> Ledger;
-        Tools -.-> Ledger;
-        Ledger --> DB[(SQLite/Memory Store)];
-        Ledger -.-> Telemetry[Telemetry & Observability Layer];
-    end
-
-    class User,Personality,Scheduler,Planning,Memory,Tools comp;
-    class Ledger,DB,Telemetry contract;
-```
+> [!NOTE]
+> *   **Q1**: Should low-priority active goals be automatically suspended immediately upon a higher-priority goal entering the queue, or should we allow a grace time (e.g. 5 seconds) for the current tick to conclude cleanly?
+>     *   *Proposed Answer*: Suspend immediately on the next tick boundaries during the scheduler's check loop to prevent unwanted execution resource usage on lower-priority items.
+> *   **Q2**: What should be the default retry policy for failed goals?
+>     *   *Proposed Answer*: Max 3 retries, using exponential backoff ($2^n \times 1\text{s}$) with jitter.
 
 ---
 
-## 4. Implementation Order & Critical Path
+## Proposed Changes
 
-We will implement the remaining telemetry infrastructure in Milestone 1D next:
+### Component 1: Test Suite Stabilization
 
-```mermaid
-gantt
-    title Execution Ledger v1 Roadmap (Milestones 1D & 1E)
-    dateFormat  X
-    axisFormat %d
-    
-    section Milestone 1D
-    Telemetry Metrics Collector :active, 0, 2
-    Live Dashboard Telemetry Backend APIs : 2, 4
-    Telemetry unit tests : 4, 5
-    
-    section Milestone 1E
-    Visual Observability UI frontend : 5, 8
-```
+Fix the type conversion and attribute access mismatch in the Cognitive OS integration test.
+
+#### [MODIFY] [test_cognitive_os.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/tests/test_cognitive_os.py)
+*   Update `test_cognitive_kernel_routing` to assert `events_triggered[0]["payload"]["data"] == "ok"` instead of accessing `.payload` directly, aligning with the dict callback type.
 
 ---
 
-## 5. Next High-Priority Step: Milestone 1D
+### Component 2: Goal Manager & Process Scheduler
 
-We will implement **Milestone 1D (Telemetry & live operational metrics)**:
-1. **`MetricsCollector`** (`backend/core/ledger/telemetry/metrics_collector.py`): Thread-safe sliding window metrics collector tracking tick latencies, CPU/memory stats, active/interrupted goal counts, and token throughput.
-2. **`TelemetryService`** (`backend/core/ledger/telemetry/telemetry_service.py`): Aggregation service computing statistical metrics (percentiles, sum, averages) and outputting a JSON-serializable status report.
-3. **Verification**: Write unit tests in `backend/tests/test_telemetry.py` validating collector windowing, token calculations, and metric rollups.
+Upgrade `GoalManager` to act as a topological process scheduler (differentiating from the static Pydantic registry).
+
+#### [MODIFY] [goal_manager.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/goal_manager.py)
+*   **Topological Queueing**: Implement a scheduling queue that resolves goal topological dependencies. Only goals whose dependencies are `COMPLETED` can transition to `ACTIVE`.
+*   **Goal Suspend & Snapshot Resume**: Implement `suspend(goal_id: str)` and `resume(goal_id: str)`. When a higher-priority goal starts, lower-priority active goals transition to `PAUSED`/`SUSPENDED`. The workspace state (scratchpad/reasoning stack registers) is serialized and persisted. Resuming restores these registers.
+*   **Retry Policy & Backoff**: Add retry tracking (fields: `retry_count`, `max_retries`, `last_attempt_at`, `backoff_delay_sec`). If a goal fails, the scheduler checks if `retry_count < max_retries`, waits for backoff, and automatically retries.
+*   **Ledger Integration**: Log all state changes (proposed, suspended, active, completed, retried) to `KERNEL.ledger` as events.
+
+#### [MODIFY] [goal_hierarchy.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/goal_hierarchy.py)
+*   Update database schema and class model to support `max_retries`, `retry_count`, `last_attempt_at`, `backoff_delay`, `priority_score` (computed dynamically), and `workspace_snapshot_json` for task state serialization.
+
+#### [MODIFY] [test_goal_manager.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/tests/test_goal_manager.py)
+*   Add tests for:
+    *   Topological order scheduling (blocking goals with unmet dependencies).
+    *   Goal suspension and workspace register snapshot serialization/restoration.
+    *   Exponential backoff retries.
+    *   Execution Ledger logs.
+
+---
+
+### Component 3: Cognitive Memory Fabric Partitions
+
+Implement distinct memory partitions under `CognitiveMemoryBus`.
+
+#### [NEW] [memory_object.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/memory_object.py)
+*   Define the unified `MemoryObject` data model matching ADR-03 (immutable `memory_id`, `revision_id`, `parent_revision`, `system_type`, content, belief confidence, Act-R activation parameters, tags).
+
+#### [NEW] [preference_memory.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/preference_memory.py)
+*   Implement `PreferenceMemory` subsystem tracking user profile/habit preferences. Includes:
+    *   *SQLite Store*: Schema with confidence ratings, evidence counts, and states.
+    *   *Retrieval Strategy*: Quick key-value and semantic category lookups.
+    *   *Aging Policy*: Evicts low-confidence or superseded values.
+    *   *Ledger*: Records updates to the execution ledger.
+
+#### [MODIFY] [cognitive_memory_bus.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/cognitive_memory_bus.py)
+*   Update the read/write routers to support all 8 memory partitions: Episodic, Semantic, Procedural, Preference, Relationship, Goal, Belief Graph, and Knowledge Graph.
+*   Enforce Act-R activation score calculations on retrieval:
+    $$\text{RecallScore} = w_1 \cdot \text{Similarity} + w_2 \cdot \text{Activation} + w_3 \cdot \text{RecencyDecay}$$
+
+#### [NEW] [test_preference_memory.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/tests/test_preference_memory.py)
+*   Add unit tests for preference creation, retrieval, and evidence-based reinforcement.
+
+---
+
+### Component 4: Monolithic React UI Decomposition
+
+Refactor the React dashboard frontend.
+
+#### [NEW] [MemoryPanel.tsx](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/dashboard/src/components/MemoryPanel.tsx)
+*   Extract memory searches, vector listings, and detail views from App.tsx.
+
+#### [NEW] [TasksPanel.tsx](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/dashboard/src/components/TasksPanel.tsx)
+*   Extract Goal/Task tree representation and status views.
+
+#### [NEW] [LedgerPanel.tsx](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/dashboard/src/components/LedgerPanel.tsx)
+*   Extract execution events timelines and parent/child DAG traversal views.
+
+#### [MODIFY] [App.tsx](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/dashboard/src/App.tsx)
+*   Refactor to import and mount the decomposed panel components, serving as a clean navigation router.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+*   Verify the test suite fix:
+    ```bash
+    ./ai_system_env/bin/python3 -m pytest backend/tests/test_cognitive_os.py
+    ```
+*   Verify the Goal Manager tests:
+    ```bash
+    ./ai_system_env/bin/python3 -m pytest backend/tests/test_goal_manager.py
+    ```
+*   Verify the Preference Memory tests:
+    ```bash
+    ./ai_system_env/bin/python3 -m pytest backend/tests/test_preference_memory.py
+    ```
+*   Run the complete test suite:
+    ```bash
+    ./ai_system_env/bin/python3 -m pytest backend/tests
+    ```
+
+### Manual Verification
+*   Compile the Vite production build:
+    ```bash
+    cd dashboard
+    npm run build
+    ```

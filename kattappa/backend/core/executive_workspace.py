@@ -111,6 +111,24 @@ class ExecutiveWorkspace:
             self._active_hypotheses.clear()
             self._registers.clear()
 
+    def to_dict(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "scratchpad": dict(self._scratchpad),
+                "reasoning_stack": list(self._reasoning_stack),
+                "thought_queue": list(self._thought_queue),
+                "active_hypotheses": list(self._active_hypotheses),
+                "registers": dict(self._registers),
+            }
+
+    def from_dict(self, data: Dict[str, Any]) -> None:
+        with self._lock:
+            self._scratchpad = dict(data.get("scratchpad", {}))
+            self._reasoning_stack = list(data.get("reasoning_stack", []))
+            self._thought_queue = list(data.get("thought_queue", []))
+            self._active_hypotheses = list(data.get("active_hypotheses", []))
+            self._registers = dict(data.get("registers", {}))
+
 
 # Global Singleton reference
 WORKSPACE = ExecutiveWorkspace()

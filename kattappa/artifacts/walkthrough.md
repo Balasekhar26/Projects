@@ -271,9 +271,20 @@ We implemented and verified the live visual dashboard interface inside the Vite 
 - **Interactive Event DAG Browser**: Rendered a chronological scrollable event list from the SQLite execution ledger. When clicked, it renders the selected event's payload metadata and displays interactive parent/child causal linkages allowing users to walk backward/forward along the transitive DAG lineage.
 - **Compilation Check**: Verified clean compiling and production building of the frontend dashboard using `npm run build` with zero compiler warnings or bundle errors.
 
+## 40. Milestone 2: Cognitive Memory Fabric Partitions & Preference Memory
+We implemented partitions and Act-R ranking for the Unified Memory Bus:
+- **Act-R Decays and Recency Calculations**: Configured recall scoring weighting based on 50% vector similarity, 30% activation rating, and 20% exponential time delta decay ($e^{-0.05 \cdot \Delta t}$).
+- **Preference Memory Bus Routing**: Integrated read/write channels for `preference`, `relationship`, `goal`, and `belief_graph` subsystems inside the unified [cognitive_memory_bus.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/core/cognitive_memory_bus.py).
+- **Preference Endpoints & Goal Suspend/Resume**: Added endpoints to list, create, and reinforce user preferences. Extended Goal transition model schemas with suspend/resume states in [models.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/api/v1/models.py).
+- **Verification**: Created [test_preference_memory.py](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/backend/tests/test_preference_memory.py) validating preference memory insertions, query recall reinforcements, and bus delegation (passed successfully).
+
+## 41. Phase 4: Monolithic React UI Decomposition & Tab Router
+We decomposed the massive monolithic `App.tsx` dashboard file to improve maintainability and clean up compiler warnings:
+- **Modular Panels**: Decomposed the dashboard layout into three distinct panels in `dashboard/src/components/`:
+  - [MemoryPanel.tsx](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/dashboard/src/components/MemoryPanel.tsx): Houses the memory capacities overview, associative memory queries, and user preferences manager.
+  - [TasksPanel.tsx](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/dashboard/src/components/TasksPanel.tsx): Displays goal pipeline controls, scheduling triggers, and suspended snapshots.
+  - [LedgerPanel.tsx](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/dashboard/src/components/LedgerPanel.tsx): Houses rolling latency charts, resource utilization grids, execution ledger event listings, and interactive DAG relationship traversal.
+- **Vite Tab Router**: Cleaned up [App.tsx](file:///Users/alwaysdesigns/Documents/Codex/2026-06-23/balasekhar26-ult-translator-https-github-com/work/ult-translator/kattappa/dashboard/src/App.tsx) to act as a lightweight tab router importing and rendering the three panels. Deleted unused state hooks and handler functions, ensuring the codebase compiles with zero TypeScript warnings under strict modes.
+
 ---
-All **2,031 tests** collected across the entire repository are currently passing successfully:
-```
-================ 2031 passed, 6 warnings in 1.23s =================
-```
-Zero failures, zero errors, and complete state isolation. KOS and KMP are fully green!
+All tests collected across the entire repository are currently passing successfully. KOS and KMP are fully green!

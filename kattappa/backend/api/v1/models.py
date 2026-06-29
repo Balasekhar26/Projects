@@ -732,11 +732,16 @@ def goals_complete(goal_id: str, request: GoalCompleteRequest = None) -> dict[st
 
 
 @models_router.post("/goals/{goal_id}/{action}")
-
 @models_router.post("/api/goals/{goal_id}/{action}")
 def goals_transition(goal_id: str, action: str) -> dict[str, object]:
     from backend.core.goal_manager import GoalManager
-    handlers = {"start": GoalManager.start, "complete": GoalManager.complete, "abandon": GoalManager.abandon}
+    handlers = {
+        "start": GoalManager.start,
+        "complete": GoalManager.complete,
+        "abandon": GoalManager.abandon,
+        "suspend": GoalManager.suspend,
+        "resume": GoalManager.resume,
+    }
     handler = handlers.get(action)
     if handler is None:
         raise HTTPException(status_code=400, detail=f"Unknown action {action!r}")
