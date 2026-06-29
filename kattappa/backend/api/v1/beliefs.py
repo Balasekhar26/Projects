@@ -307,4 +307,106 @@ def analyze_root_cause(req: RootCauseRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# World Simulation Engine Endpoints (Program 5F)
+# ---------------------------------------------------------------------------
+
+class ScenarioConfig(BaseModel):
+    scenario_id: str
+    name: str
+    interventions: Dict[str, bool]
+    target_goal_node: str
+    utility_map: Optional[Dict[str, float]] = None
+
+
+class RunSimulationRequest(BaseModel):
+    scm: Dict[str, Any] = Field(..., description="Causal structural equations schema")
+    scenario: ScenarioConfig = Field(..., description="Target scenario config")
+
+
+class CompareSimulationsRequest(BaseModel):
+    scm: Dict[str, Any] = Field(..., description="Causal structural equations schema")
+    scenarios: List[ScenarioConfig] = Field(..., description="List of candidate scenarios")
+    risk_threshold: Optional[float] = Field(0.0)
+
+
+@router.post("/simulation/run", summary="Run a world state simulation scenario")
+def run_simulation(req: RunSimulationRequest) -> Dict[str, Any]:
+    """Clones the active belief store, applies scenario interventions on the SCM, and returns predictions."""
+    try:
+        from backend.core.simulation.world_simulator import WorldSimulator, Scenario
+        scm = parse_scm(req.scm)
+        coord = BeliefCoordinator.get_instance()
+        simulator = WorldSimulator(coord.store, scm)
+
+        # Parse Scenario config
+        # Convert utility_map keys from string to bool
+        umap = {True: 100.0, False: -50.0}
+        if req.scenario.utility_map:
+            umap = {
+                True: float(req.scenario.utility_map.get("true", 100.0)),
+                False: float(req.scenario.utility_map.get("false", -50.0)),
+            }
+
+        sc = Scenario(
+            scenario_id=req.scenario.scenario_id,
+            name=req.scenario.name,
+            interventions=req.scenario.interventions,
+            target_goal_node=req.scenario.target_goal_node,
+            utility_map=umap,
+        )
+
+        pred_state, prob = simulator.run_simulation(sc)
+
+        return {
+            "status": "ok",
+            "scenario_id": sc.scenario_id,
+            "success_probability": prob,
+            "predicted_variables": pred_state.variables,
+            "predicted_confidences": pred_state.confidences,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/simulation/compare", summary="Compare multiple parallel scenarios")
+def compare_simulations(req: CompareSimulationsRequest) -> Dict[str, Any]:
+    """Simulates multiple scenarios in parallel and compares expected utilities/risks."""
+    try:
+        from backend.core.simulation.world_simulator import WorldSimulator, Scenario, ScenarioComparator
+        scm = parse_scm(req.scm)
+        coord = BeliefCoordinator.get_instance()
+        simulator = WorldSimulator(coord.store, scm)
+
+        results = []
+        for s_cfg in req.scenarios:
+            umap = {True: 100.0, False: -50.0}
+            if s_cfg.utility_map:
+                umap = {
+                    True: float(s_cfg.utility_map.get("true", 100.0)),
+                    False: float(s_cfg.utility_map.get("false", -50.0)),
+                }
+
+            sc = Scenario(
+                scenario_id=s_cfg.scenario_id,
+                name=s_cfg.name,
+                interventions=s_cfg.interventions,
+                target_goal_node=s_cfg.target_goal_node,
+                utility_map=umap,
+            )
+
+            pred_state, prob = simulator.run_simulation(sc)
+            results.append((sc, pred_state, prob))
+
+        comparison_report = ScenarioComparator.compare_scenarios(results, risk_threshold=req.risk_threshold or 0.0)
+
+        return {
+            "status": "ok",
+            "comparison_report": comparison_report,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+
 
