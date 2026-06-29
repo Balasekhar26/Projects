@@ -14,6 +14,9 @@ from backend.core.goal_hierarchy import GoalHierarchy
 from backend.core.orchestrator.scheduler import TaskScheduler
 from backend.core.orchestrator.task_graph import TaskGraph, Task
 from backend.core.logger import log_event
+from backend.core.ledger.models.enums import EventType
+from backend.core.ledger.models.event import LedgerEvent
+from backend.core.wse.event_bus import WSEEventBus
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,29 @@ class ECLCoordinator:
         decomp = ECLGoalDecomposer.decompose(goal_title, goal_desc)
         goal_id = decomp["goal_id"]
         registered_nodes = decomp["registered_nodes"]
+
+        # Emit ECL_GOAL_DECOMPOSED event
+        try:
+            decomposed_event = LedgerEvent(
+                event_id=f"evt_decomp_{uuid.uuid4().hex[:12]}",
+                parent_event_ids=[],
+                goal_id=goal_id,
+                session_id="",
+                correlation_id=f"corr_{uuid.uuid4().hex[:8]}",
+                timestamp_utc=time.time(),
+                actor="ecl_coordinator",
+                subsystem="ecl",
+                event_type=EventType.ECL_GOAL_DECOMPOSED,
+                payload={
+                    "goal_id": goal_id,
+                    "goal_title": goal_title,
+                    "goal_desc": goal_desc,
+                    "registered_nodes": registered_nodes,
+                }
+            )
+            WSEEventBus.get_instance().publish(decomposed_event)
+        except Exception as e:
+            logger.error("Failed to publish ECL_GOAL_DECOMPOSED: %s", e)
 
         # Parse Level 3 Tasks for execution
         tasks_data = [n for n in registered_nodes if n["level"] == "TASK"]
@@ -105,6 +131,32 @@ class ECLCoordinator:
         success = task_graph.is_finished()
         status = "COMPLETED" if success else "FAILED"
         GoalHierarchy.update_node(goal_id, status=status, progress=1.0 if success else 0.0)
+
+        # Emit ECL_PLAN_EXECUTED event
+        try:
+            executed_event = LedgerEvent(
+                event_id=f"evt_exec_{uuid.uuid4().hex[:12]}",
+                parent_event_ids=[],
+                goal_id=goal_id,
+                session_id="",
+                correlation_id=f"corr_{uuid.uuid4().hex[:8]}",
+                timestamp_utc=time.time(),
+                actor="ecl_coordinator",
+                subsystem="ecl",
+                event_type=EventType.ECL_PLAN_EXECUTED,
+                payload={
+                    "goal_id": goal_id,
+                    "status": status,
+                    "success": success,
+                    "best_branch": best_branch,
+                    "viability_score": viability_score,
+                    "budget": budget,
+                    "routing": routing_info,
+                }
+            )
+            WSEEventBus.get_instance().publish(executed_event)
+        except Exception as e:
+            logger.error("Failed to publish ECL_PLAN_EXECUTED: %s", e)
 
         return {
             "success": success,

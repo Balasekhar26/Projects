@@ -23,3 +23,12 @@ class EventType(Enum):
     INTERRUPT_HANDLED = "InterruptHandled"
     EXECUTION_COMPLETED = "ExecutionCompleted"
     EXECUTION_CANCELLED = "ExecutionCancelled"
+    # Program 4: World State & Event System
+    STATE_TRANSITIONED = "StateTransitioned"
+    WORLD_SNAPSHOT_TAKEN = "WorldSnapshotTaken"
+    # Program 3: MCE integration
+    MCE_CYCLE_COMPLETED = "MceCycleCompleted"
+    # Program 2: ECL integration
+    ECL_GOAL_DECOMPOSED = "EclGoalDecomposed"
+    ECL_PLAN_EXECUTED = "EclPlanExecuted"
+

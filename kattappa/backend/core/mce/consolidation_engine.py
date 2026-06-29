@@ -22,6 +22,10 @@ from backend.core.mce.episodic_promoter import MCEEpisodicPromoter, PromotionRep
 from backend.core.mce.graph_integrator import IntegrationReport, MCEGraphIntegrator
 from backend.core.mce.importance_scorer import MCEImportanceScorer
 from backend.core.mce.semantic_extractor import MCESemanticExtractor
+from backend.core.ledger.models.enums import EventType
+from backend.core.ledger.models.event import LedgerEvent
+from backend.core.wse.event_bus import WSEEventBus
+
 
 logger = logging.getLogger(__name__)
 
@@ -155,4 +159,23 @@ class MCEConsolidationEngine:
             f"kg_nodes={report.integration.nodes_added}, "
             f"archived={report.archive.archived_count}",
         )
+
+        # Emit MCE_CYCLE_COMPLETED event
+        try:
+            event = LedgerEvent(
+                event_id=f"evt_{report.cycle_id}",
+                parent_event_ids=[],
+                goal_id="global",
+                session_id="",
+                correlation_id=f"corr_mce_{uuid.uuid4().hex[:8]}",
+                timestamp_utc=report.completed_at,
+                actor="mce_engine",
+                subsystem="mce",
+                event_type=EventType.MCE_CYCLE_COMPLETED,
+                payload=report.to_dict(),
+            )
+            WSEEventBus.get_instance().publish(event)
+        except Exception as e:
+            logger.error("Failed to publish MCE_CYCLE_COMPLETED: %s", e)
+
         return report
