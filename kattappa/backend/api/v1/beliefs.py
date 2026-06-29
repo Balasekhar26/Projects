@@ -217,3 +217,94 @@ def assess_risk(req: DecisionTreeRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Causal Reasoning Engine Endpoints (Program 5E)
+# ---------------------------------------------------------------------------
+
+class CounterfactualRequest(BaseModel):
+    scm: Dict[str, Any] = Field(..., description="Structural Causal Model schema")
+    evidence: Dict[str, bool] = Field(..., description="Observed evidence mapping")
+    intervention: Dict[str, bool] = Field(..., description="do-calculus intervention values")
+    target: str = Field(..., description="Target node to predict counterfactually")
+
+
+class RootCauseRequest(BaseModel):
+    scm: Dict[str, Any] = Field(..., description="Structural Causal Model schema")
+    failure_evidence: Dict[str, bool] = Field(..., description="Failure observations mapping")
+
+
+def parse_scm(data: Dict[str, Any]) -> Any:
+    """Helper to parse JSON dictionary into StructuralCausalModel instances."""
+    from backend.core.beliefs.causal_engine import StructuralCausalModel, CausalVariable
+    scm = StructuralCausalModel()
+    variables_data = data.get("variables", {})
+
+    pending = list(variables_data.keys())
+    added = set()
+
+    for _ in range(len(pending) * 2):
+        if not pending:
+            break
+        name = pending.pop(0)
+        vdata = variables_data[name]
+        parents = vdata.get("parents", [])
+
+        if all(p in added for p in parents):
+            eq_str = vdata.get("equation", "U")
+            if eq_str == "U":
+                eq = lambda p, u: u
+            elif eq_str in ("A or U", "parents or U"):
+                eq = lambda p, u: any(p.values()) or u
+            elif eq_str in ("A and U", "parents and U"):
+                eq = lambda p, u: all(p.values()) and u
+            elif eq_str.startswith("not") and eq_str.endswith("and U"):
+                parent_name = eq_str.split()[1]
+                eq = lambda p, u, pn=parent_name: (not p.get(pn, False)) and u
+            else:
+                eq = lambda p, u: any(p.values()) or u
+
+            var = CausalVariable(name=name, parents=parents, equation=eq)
+            scm.add_variable(var, exogenous_prior=float(vdata.get("exogenous_prior", 0.5)))
+            added.add(name)
+        else:
+            pending.append(name)
+
+    return scm
+
+
+@router.post("/causal/counterfactual", summary="Evaluate a counterfactual query")
+def evaluate_counterfactual(req: CounterfactualRequest) -> Dict[str, Any]:
+    """Answers counterfactual queries by running Pearl's three-step abduction-action-prediction process."""
+    try:
+        from backend.core.beliefs.causal_engine import CausalExplanationGenerator
+        scm = parse_scm(req.scm)
+        result = scm.counterfactual(req.evidence, req.intervention, req.target)
+        explanation = CausalExplanationGenerator.explain_counterfactual(
+            req.evidence, req.intervention, req.target, result
+        )
+        return {
+            "status": "ok",
+            "counterfactual_probability": result,
+            "explanation": explanation,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/causal/root-cause", summary="Perform root cause analysis")
+def analyze_root_cause(req: RootCauseRequest) -> Dict[str, Any]:
+    """Identifies and ranks candidate causal variables for observed system failures."""
+    try:
+        from backend.core.beliefs.causal_engine import RootCauseAnalyzer
+        scm = parse_scm(req.scm)
+        analyzer = RootCauseAnalyzer(scm)
+        rankings = analyzer.analyze_root_cause(req.failure_evidence)
+        return {
+            "status": "ok",
+            "root_cause_rankings": [{"variable": name, "prevention_probability": score} for name, score in rankings],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+
