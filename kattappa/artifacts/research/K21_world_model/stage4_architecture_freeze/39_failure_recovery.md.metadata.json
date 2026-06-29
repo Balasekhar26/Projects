@@ -1,0 +1,5 @@
+{
+  "summary": "K21 Stage 4: Failure Recovery specifying WAL journaling, checkpoints, and rollback strategies.",
+  "updatedAt": "2026-06-28T17:45:48.580505Z",
+  "userFacing": true
+}

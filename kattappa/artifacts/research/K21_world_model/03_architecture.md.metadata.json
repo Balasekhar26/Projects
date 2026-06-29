@@ -1,0 +1,5 @@
+{
+  "summary": "K21 Architecture design document analyzing three candidate layouts (Monolithic Graph, Segmented Databases, and Hybrid Memory Store) and recommending the Segmented DB design.",
+  "updatedAt": "2026-06-28T17:34:39.826718Z",
+  "userFacing": true
+}
