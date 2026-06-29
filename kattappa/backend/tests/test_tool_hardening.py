@@ -9,6 +9,7 @@ from typing import Dict, Any
 
 from backend.core.execution.tool_models import ToolDefinition, ToolResult
 from backend.core.execution.tool_engine import ToolEngine
+from backend.core.execution.context import ExecutionContext
 from backend.core.execution.circuit_breaker import ToolCircuitBreaker
 from backend.core.execution.approval import HumanApprovalPipeline
 from backend.core.execution.cancellation import CancellationToken
@@ -156,6 +157,7 @@ def test_cancellation_token_interrupts():
     token = CancellationToken()
     token.cancel()
 
-    res = engine.execute("dummy", {}, cancellation_token=token)
+    res = engine.execute("dummy", {}, context=ExecutionContext(cancellation_token=token))
     assert res.status == "failed"
+
     assert "aborted by cancellation token" in res.error.lower()

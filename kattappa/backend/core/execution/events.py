@@ -48,6 +48,47 @@ class TaskFailedEvent(ExecutionEvent):
         self.error_message = error_message
 
 
+
+@dataclass
+class ToolStartedEvent(ExecutionEvent):
+    tool_name: str = ""
+
+    def __init__(self, session_id: str, tool_name: str) -> None:
+        super().__init__("ToolStarted", session_id)
+        self.tool_name = tool_name
+
+
+@dataclass
+class ToolCompletedEvent(ExecutionEvent):
+    tool_name: str = ""
+    result: Any = None
+
+    def __init__(self, session_id: str, tool_name: str, result: Any) -> None:
+        super().__init__("ToolCompleted", session_id)
+        self.tool_name = tool_name
+        self.result = result
+
+
+@dataclass
+class ToolFailedEvent(ExecutionEvent):
+    tool_name: str = ""
+    error_message: str = ""
+
+    def __init__(self, session_id: str, tool_name: str, error_message: str) -> None:
+        super().__init__("ToolFailed", session_id)
+        self.tool_name = tool_name
+        self.error_message = error_message
+
+
+@dataclass
+class ToolCancelledEvent(ExecutionEvent):
+    tool_name: str = ""
+
+    def __init__(self, session_id: str, tool_name: str) -> None:
+        super().__init__("ToolCancelled", session_id)
+        self.tool_name = tool_name
+
+
 class EventBus:
     """Thread-safe in-memory pub-sub dispatcher for execution events."""
 
