@@ -262,3 +262,83 @@ def cancel_plan(plan_id: str) -> Dict[str, Any]:
     _plans[plan_id].status = "Cancelled"
     return {"status": "ok", "plan_id": plan_id, "new_status": "Cancelled"}
 
+
+# ---------------------------------------------------------------------------
+# Plan Graph Builder Endpoints (Program 5G-3)
+# ---------------------------------------------------------------------------
+
+class CompileGraphRequest(BaseModel):
+    plan_id: str
+    steps: List[Dict[str, Any]] = Field(..., description="Linear plan steps sequence")
+
+
+@router.post("/plan/compile", summary="Compile a plan to a DependencyGraph DAG")
+def compile_plan_to_graph_endpoint(req: CompileGraphRequest) -> Dict[str, Any]:
+    """Parses linear sequence plan and compiles it to a DependencyGraph DAG with parallel execution layers."""
+    try:
+        from backend.core.planning.plan_graph import PlanCompiler
+        from backend.core.planning.task import Plan, Operator
+
+        steps = []
+        for step in req.steps:
+            steps.append(Operator(
+                operator_id=step["operator_id"],
+                name=step["name"],
+                parameters=step.get("parameters", {}),
+                preconditions=step.get("preconditions", {}),
+                effects=step.get("effects", {}),
+            ))
+
+        plan = Plan(
+            plan_id=req.plan_id,
+            goal_id="unknown_goal",
+            steps=steps,
+        )
+
+        graph = PlanCompiler.compile_plan_to_graph(plan)
+        layers = graph.get_parallel_layers()
+
+        return {
+            "status": "ok",
+            "plan_id": req.plan_id,
+            "graph": graph.to_json(),
+            "parallel_layers": layers,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/plan/viz", summary="Get Graphviz visualization of a plan graph")
+def visualize_plan_graph(req: CompileGraphRequest) -> Dict[str, Any]:
+    """Compiles a plan and returns its Graphviz DOT representation."""
+    try:
+        from backend.core.planning.plan_graph import PlanCompiler
+        from backend.core.planning.task import Plan, Operator
+
+        steps = []
+        for step in req.steps:
+            steps.append(Operator(
+                operator_id=step["operator_id"],
+                name=step["name"],
+                parameters=step.get("parameters", {}),
+                preconditions=step.get("preconditions", {}),
+                effects=step.get("effects", {}),
+            ))
+
+        plan = Plan(
+            plan_id=req.plan_id,
+            goal_id="unknown_goal",
+            steps=steps,
+        )
+
+        graph = PlanCompiler.compile_plan_to_graph(plan)
+        dot_str = graph.to_graphviz()
+
+        return {
+            "status": "ok",
+            "graphviz_dot": dot_str,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
