@@ -17,6 +17,7 @@ from backend.api.v1.models import models_router
 from backend.api.v1.telemetry import telemetry_router
 from backend.api.v1.knowledge_graph import knowledge_graph_router
 from backend.api.v1.ecl import ecl_router
+from backend.api.v1.mce import router as mce_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(chat_router)
@@ -44,6 +45,9 @@ app.include_router(knowledge_graph_router)
 
 app.include_router(ecl_router, prefix="/api/v1")
 app.include_router(ecl_router)
+
+app.include_router(mce_router, prefix="/api/v1")
+app.include_router(mce_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -94,6 +98,14 @@ def start_startup_tasks():
     except Exception:
         pass
 
+    # Start Program 3 Memory Consolidation Engine Scheduler
+    try:
+        from backend.core.mce.scheduler import MCEScheduler
+
+        MCEScheduler.get_instance().start()
+    except Exception:
+        pass
+
     # Warm up default fast and coder models in the background on startup
     from backend.core.config import load_config
     from backend.core.adaptive_runtime import WarmupManager
@@ -119,5 +131,12 @@ def stop_shutdown_tasks():
         from backend.core.kg_scheduler import stop_kg_scheduler
 
         stop_kg_scheduler()
+    except Exception:
+        pass
+
+    try:
+        from backend.core.mce.scheduler import MCEScheduler
+
+        MCEScheduler.get_instance().stop()
     except Exception:
         pass
