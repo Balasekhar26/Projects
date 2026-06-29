@@ -399,14 +399,34 @@ class MemorySystem:
             return []
         result = collection.query(query_texts=[query], n_results=min(n_results, count))
         ids = [item for item in result.get("ids", [[]])[0] if item]
-        if ids:
-            now = datetime.now().isoformat(timespec="seconds")
-            with sqlite3.connect(self.config.sqlite_path) as conn:
-                conn.executemany(
-                    "UPDATE memories SET last_accessed = ? WHERE id = ?",
-                    [(now, memory_id) for memory_id in ids],
-                )
-        return [doc for doc in result.get("documents", [[]])[0] if doc]
+        documents = result.get("documents", [[]])[0]
+        distances = result.get("distances", [[]])[0]
+
+        if not ids:
+            return []
+
+        now = datetime.now().isoformat(timespec="seconds")
+        with sqlite3.connect(self.config.sqlite_path) as conn:
+            conn.executemany(
+                "UPDATE memories SET last_accessed = ? WHERE id = ?",
+                [(now, memory_id) for memory_id in ids],
+            )
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(
+                f"SELECT id, decay_score FROM memories WHERE id IN ({placeholders})",
+                ids
+            ).fetchall()
+            decay_scores = {r[0]: r[1] for r in rows}
+
+        scored_docs = []
+        for memory_id, doc, dist in zip(ids, documents, distances):
+            decay = decay_scores.get(memory_id, 1.0)
+            score = (1.0 - min(dist, 1.0)) * decay
+            scored_docs.append((doc, score))
+
+        scored_docs.sort(key=lambda item: item[1], reverse=True)
+        return [doc for doc, _ in scored_docs]
+
 
     def decay_memories(
         self,

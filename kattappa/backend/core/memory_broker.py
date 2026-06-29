@@ -245,3 +245,217 @@ class MemoryBroker:
         )
         HumanMemoryStore.insert(record)
         return record
+
+    @classmethod
+    def retrieve(
+        cls,
+        query: str,
+        *,
+        limit: int = 5,
+        session_id: str = "primary"
+    ) -> dict[str, Any]:
+        """Unified Memory Fabric Retrieval.
+        
+        Performs retrieval across Episodic, Semantic, Procedural, Relationship, Goal,
+        and Belief memory systems, then runs a Unified Ranker (RRF) to select
+        the top relevant context elements and returns a ContextBuilder structure.
+        """
+        # 1. Semantic Memory
+        from backend.core.semantic_memory import SemanticMemory
+        semantic_nodes = []
+        try:
+            semantic_nodes = SemanticMemory.recall(query, limit=limit)
+        except Exception as e:
+            from backend.core.logger import log_event
+            log_event(f"MemoryBroker retrieve: semantic recall failed: {e}")
+            
+        # 2. Episodic Memory
+        from backend.core.episodic_memory import EpisodicMemory
+        episodic_nodes = []
+        try:
+            episodic_nodes = EpisodicMemory.recall(query, limit=limit, session_id=session_id)
+        except Exception as e:
+            from backend.core.logger import log_event
+            log_event(f"MemoryBroker retrieve: episodic recall failed: {e}")
+            
+        # 3. Procedural Memory
+        from backend.core.procedural_memory import ProceduralMemory
+        procedural_nodes = []
+        try:
+            procedural_nodes = ProceduralMemory.match_trigger(query)
+        except Exception as e:
+            from backend.core.logger import log_event
+            log_event(f"MemoryBroker retrieve: procedural match failed: {e}")
+
+        # 4. Goal Memory
+        from backend.core.goal_memory import GoalMemory
+        goal_nodes = []
+        try:
+            all_goals = GoalMemory.list_goals()
+            q_lower = query.lower()
+            q_words = [w for w in q_lower.split() if len(w) > 2]
+            for g in all_goals:
+                title_lower = g["title"].lower()
+                desc_lower = (g.get("description") or "").lower()
+                if q_lower in title_lower or q_lower in desc_lower or (
+                    q_words and any(w in title_lower or w in desc_lower for w in q_words)
+                ):
+                    goal_nodes.append(g)
+            goal_nodes = goal_nodes[:limit]
+        except Exception as e:
+            from backend.core.logger import log_event
+            log_event(f"MemoryBroker retrieve: goal match failed: {e}")
+
+        # 5. Belief System
+        from backend.core.human_memory import HumanMemory
+        belief_nodes = []
+        try:
+            belief_nodes = HumanMemory.list_beliefs(query)
+            if not belief_nodes:
+                all_beliefs = HumanMemory.list_beliefs(include_history=False)
+                q_lower = query.lower()
+                q_words = [w for w in q_lower.split() if len(w) > 2]
+                for b in all_beliefs:
+                    key_lower = b["key"].lower()
+                    val_lower = b["value"].lower()
+                    if (
+                        q_lower in key_lower
+                        or q_lower in val_lower
+                        or (q_words and any(w in key_lower or w in val_lower for w in q_words))
+                    ):
+                        belief_nodes.append(b)
+            belief_nodes = belief_nodes[:limit]
+        except Exception as e:
+            from backend.core.logger import log_event
+            log_event(f"MemoryBroker retrieve: belief match failed: {e}")
+
+        # 6. Relationship Memory
+        from backend.core.relationship_memory import RelationshipMemory
+        relationship_notes = {}
+        try:
+            relationship_notes = RelationshipMemory.assemble("bala")
+        except Exception as e:
+            from backend.core.logger import log_event
+            log_event(f"MemoryBroker retrieve: relationship assemble failed: {e}")
+
+        # Rank all candidates and build unified context
+        return cls._build_unified_context(
+            query=query,
+            semantic=semantic_nodes,
+            episodic=episodic_nodes,
+            procedural=procedural_nodes,
+            goals=goal_nodes,
+            beliefs=belief_nodes,
+            relationship=relationship_notes,
+            limit=limit
+        )
+
+    @classmethod
+    def _build_unified_context(
+        cls,
+        query: str,
+        semantic: list[dict[str, Any]],
+        episodic: list[dict[str, Any]],
+        procedural: list[dict[str, Any]],
+        goals: list[dict[str, Any]],
+        beliefs: list[dict[str, Any]],
+        relationship: dict[str, Any],
+        limit: int
+    ) -> dict[str, Any]:
+        """RRF Ranker & Context Builder.
+        
+        Ranks all returned memory candidates across systems and builds a formatted
+        context block for the planner.
+        """
+        candidates = []
+        
+        # Normalize semantic candidates
+        for node in semantic:
+            candidates.append({
+                "type": "semantic",
+                "id": node.get("node_id") or node.get("id"),
+                "content": f"[Semantic Concept: {node['title']}] {node['content_raw']}",
+                "confidence": node.get("confidence_score") or node.get("confidence", 0.5),
+                "decay_score": 1.0,
+                "created_at": node.get("created_at", time.time())
+            })
+            
+        # Normalize episodic candidates
+        for ep in episodic:
+            candidates.append({
+                "type": "episodic",
+                "id": ep.get("id"),
+                "content": f"[Episode] {ep['content']}",
+                "confidence": ep.get("importance", 0.5),
+                "decay_score": ep.get("decay_score", 1.0),
+                "created_at": ep.get("created_at", time.time())
+            })
+
+        # Normalize procedural candidates
+        for proc in procedural:
+            candidates.append({
+                "type": "procedural",
+                "id": proc.get("id"),
+                "content": f"[Skill Trigger: {proc['trigger_phrase']}] Skill Name: {proc['skill_name']}, Steps: {proc['steps_json']}",
+                "confidence": 1.0 if proc.get("trust_level") == "trusted" else 0.7,
+                "decay_score": 1.0,
+                "created_at": proc.get("created_at", time.time())
+            })
+
+        # Normalize goals
+        for g in goals:
+            candidates.append({
+                "type": "goal",
+                "id": g.get("goal_id") or g.get("id"),
+                "content": f"[Goal: {g['title']}] Status: {g['status']}, Progress: {g['progress'] * 100:.1f}%, Priority: {g['priority']}",
+                "confidence": g.get("confidence_score", 100.0) / 100.0,
+                "decay_score": 1.0,
+                "created_at": g.get("created_at", time.time())
+            })
+
+        # Normalize beliefs
+        for b in beliefs:
+            candidates.append({
+                "type": "belief",
+                "id": b.get("id"),
+                "content": f"[Belief: {b['key']}] Current Value: {b['value']}, Active: {b['active']}",
+                "confidence": b.get("confidence", 0.8),
+                "decay_score": 1.0,
+                "created_at": b.get("created_at", time.time())
+            })
+
+        # Calculate a unified score for each candidate
+        # Score = (Keyword overlap * 0.40) + (Confidence * 0.35) + (Decay Score * 0.25)
+        scored_candidates = []
+        q_words = set(query.lower().split())
+        for c in candidates:
+            # Keyword overlap using Jaccard-like term overlap
+            content_words = set(c["content"].lower().replace("[", " ").replace("]", " ").split())
+            overlap = len(q_words.intersection(content_words)) / max(len(q_words), 1)
+            
+            score = (overlap * 0.40) + (c["confidence"] * 0.35) + (c["decay_score"] * 0.25)
+            scored_candidates.append((c, score))
+
+        # Sort by unified score descending
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        top_candidates = [item[0] for item in scored_candidates[:limit]]
+
+        # Context Builder: build a clean structured markdown context
+        context_lines = []
+        context_lines.append("### Unified Memory Context")
+        if relationship:
+            context_lines.append(f"**Relationship context:** {relationship.get('summary', 'Active session with user')}")
+            
+        if not top_candidates:
+            context_lines.append("No matching episodic, semantic, belief, or procedural memories found.")
+        else:
+            for item in top_candidates:
+                context_lines.append(f"- {item['content']} (Source: {item['type'].upper()})")
+
+        unified_context = "\n".join(context_lines)
+
+        return {
+            "top_candidates": top_candidates,
+            "relationship_notes": relationship,
+            "unified_context_string": unified_context
+        }

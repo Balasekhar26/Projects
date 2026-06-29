@@ -286,6 +286,48 @@ class GoalManager:
         }
 
     @classmethod
+    def handle_step_failure(cls, goal_id: str, step_error: str, max_retries: int = 3, backoff_factor: float = 1.5) -> Dict[str, Any]:
+        """Handles a task step failure by checking retry count and performing backoff or triggering rollback."""
+        import time
+        goal = GoalMemory.get_goal(goal_id)
+        if not goal:
+            raise KeyError(f"No goal '{goal_id}'")
+
+        meta = dict(goal.get("metadata") or {})
+        retries = meta.get("retry_attempts", 0)
+        
+        if retries < max_retries:
+            retries += 1
+            meta["retry_attempts"] = retries
+            # Calculate backoff delay
+            delay = backoff_factor ** retries
+            meta["next_retry_at"] = time.time() + delay
+            
+            # Update goal in GoalMemory
+            GoalMemory.update_goal_metadata(goal_id, meta)
+            
+            # Transition status back to ACTIVE
+            return cls._add_compat_id(GoalMemory.update_goal_status(
+                goal_id, 
+                GoalStatus.ACTIVE.value, 
+                f"Retrying step (Attempt {retries}/{max_retries}) after {delay:.2f}s delay. Error: {step_error}"
+            ))
+        else:
+            # Max retries exceeded -> Trigger Rollback if rollback details exist
+            rollback_action = meta.get("rollback_action")
+            reason = f"Max retries ({max_retries}) exceeded. Error: {step_error}"
+            if rollback_action:
+                reason += f" Triggered rollback: {rollback_action}"
+                meta["rollback_executed"] = True
+                GoalMemory.update_goal_metadata(goal_id, meta)
+                
+            return cls._add_compat_id(GoalMemory.update_goal_status(
+                goal_id, 
+                GoalStatus.FAILED.value, 
+                reason
+            ))
+
+    @classmethod
     def reset(cls) -> None:
         """Resets the GoalMemory database. For testing purposes only."""
         GoalMemory.reset()

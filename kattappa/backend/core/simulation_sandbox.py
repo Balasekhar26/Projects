@@ -33,11 +33,12 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 class SandboxConstitution:
-    """Three hardcoded safety rules. Not configurable, not overridable."""
+    """Four hardcoded safety rules. Not configurable, not overridable."""
 
     RULE_1: str = "SANDBOX_CANNOT_AUTHORIZE_EXECUTION"
     RULE_2: str = "SANDBOX_CANNOT_CREATE_GOALS"
     RULE_3: str = "SANDBOX_CANNOT_REWRITE_CONSTRAINTS"
+    RULE_4: str = "REASON_BEFORE_ACTION"
 
     @classmethod
     def as_dict(cls) -> dict[str, str]:
@@ -45,6 +46,7 @@ class SandboxConstitution:
             "rule_1": cls.RULE_1,
             "rule_2": cls.RULE_2,
             "rule_3": cls.RULE_3,
+            "rule_4": cls.RULE_4,
             "note": (
                 "These rules are hardcoded at import time. "
                 "No simulation result, recommendation, or API caller can override them."

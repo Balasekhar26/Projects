@@ -2,6 +2,17 @@ import type { Message } from "../types";
 
 export const PANELS = [
   "Diagnostics",
+  "Projects",
+  "Workspaces",
+  "Memory",
+  "Tasks",
+  "Writing",
+  "Research",
+  "Simulation",
+  "Tools",
+  "Cluster",
+  "Agents",
+  "Settings",
 ];
 
 export function initialMessages(): Message[] {

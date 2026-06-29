@@ -41,6 +41,8 @@ class VerificationPredictionReport:
     predicted_score: float
     items: list[PredictionItem]
     warnings: list[str]
+    reversibility_score: float = 1.0
+    estimated_token_cost: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +50,8 @@ class VerificationPredictionReport:
             "predicted_score": round(self.predicted_score, 4),
             "items": [i.to_dict() for i in self.items],
             "warnings": self.warnings,
+            "reversibility_score": round(self.reversibility_score, 4),
+            "estimated_token_cost": round(self.estimated_token_cost, 2),
         }
 
 
@@ -151,11 +155,24 @@ class VerificationPredictionEngine:
             predicted_score = len(passing) / len(items)
             predicted_success = predicted_score >= 0.70
 
+        # Calculate reversibility and token budgets
+        total_reversibility = 1.0
+        for t in step_texts:
+            if any(w in t for w in ["delete", "remove", "clean"]):
+                total_reversibility -= 0.3
+            elif any(w in t for w in ["sudo", "root"]):
+                total_reversibility -= 0.2
+        total_reversibility = max(0.1, total_reversibility)
+
+        estimated_tokens = len(plan_steps) * 15000.0
+
         return VerificationPredictionReport(
             predicted_success=predicted_success,
             predicted_score=predicted_score,
             items=items,
-            warnings=warnings
+            warnings=warnings,
+            reversibility_score=total_reversibility,
+            estimated_token_cost=estimated_tokens,
         )
 
 

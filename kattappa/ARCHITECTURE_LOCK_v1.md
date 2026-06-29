@@ -185,3 +185,5 @@ No raw, undeduplicated, or unvalidated datasets may be fed into `ShardBuilder` o
 1. **Comparative Benchmarks:** Every model checkpoint must be evaluated against the previous checkpoint version using `run_eval.py`.
 2. **Continuous Regression Testing:** A checkpoint is rejected if its average score across any scorecard category (Knowledge, Reasoning, Coding, Tool Use, Behavior) decreases by >5%, even if reasoning improves.
 3. **Model Card Generator:** Every checkpoint save automatically outputs a `MODEL_CARD.md` summarizing architecture, datasets, benchmarks, training time, and safety results.
+4. **Verification-Driven Autonomy (Tenth Engineering Law):** Capability grows only when it remains verifiable. Every new autonomous behavior must be measurable, reproducible, and testable before it becomes part of Kattappa's permanent capabilities.
+

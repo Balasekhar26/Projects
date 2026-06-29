@@ -366,6 +366,18 @@ class HumanMemoryStore:
             CREATE TRIGGER IF NOT EXISTS hm_memories_au AFTER UPDATE OF content ON hm_memories BEGIN
               UPDATE hm_memories_fts SET content = new.content WHERE id = new.id;
             END;
+
+            CREATE TABLE IF NOT EXISTS hm_beliefs (
+                id TEXT PRIMARY KEY,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                confidence REAL NOT NULL CHECK (confidence BETWEEN 0.0 AND 1.0),
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_hm_beliefs_key ON hm_beliefs(key);
+            CREATE INDEX IF NOT EXISTS idx_hm_beliefs_active ON hm_beliefs(active);
             """
         )
         # Populate FTS index if empty but memories has data
@@ -514,12 +526,69 @@ class HumanMemoryStore:
             conn.commit()
 
     @classmethod
+    def upsert_belief(cls, key: str, value: str, confidence: float) -> dict[str, Any]:
+        """Upserts a belief by deactivating existing ones with the same key and adding a new active belief."""
+        now = time.time()
+        belief_id = f"belief_{uuid.uuid4().hex[:8]}"
+        with cls._lock:
+            conn = cls._connect()
+            # Deactivate older beliefs for this key
+            conn.execute("UPDATE hm_beliefs SET active = 0 WHERE key = ?", (key,))
+            # Insert the new belief as active
+            conn.execute(
+                """INSERT INTO hm_beliefs (id, key, value, confidence, active, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, 1, ?, ?)""",
+                (belief_id, key, value, confidence, now, now),
+            )
+            conn.commit()
+        return {
+            "id": belief_id,
+            "key": key,
+            "value": value,
+            "confidence": confidence,
+            "active": 1,
+            "created_at": now,
+            "updated_at": now
+        }
+
+    @classmethod
+    def get_active_belief(cls, key: str) -> dict[str, Any] | None:
+        """Retrieves the active belief for a key."""
+        with cls._lock:
+            conn = cls._connect()
+            row = conn.execute(
+                "SELECT * FROM hm_beliefs WHERE key = ? AND active = 1", (key,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    @classmethod
+    def list_beliefs(cls, key: str | None = None, include_history: bool = False) -> list[dict[str, Any]]:
+        """Lists beliefs, optionally filtered by key and including historical entries."""
+        with cls._lock:
+            conn = cls._connect()
+            query = "SELECT * FROM hm_beliefs"
+            params = []
+            conditions = []
+            if key is not None:
+                conditions.append("key = ?")
+                params.append(key)
+            if not include_history:
+                conditions.append("active = 1")
+            
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            query += " ORDER BY created_at DESC"
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return [dict(r) for r in rows]
+
+    @classmethod
     def reset(cls) -> None:
         """Drop all data (used by tests)."""
         with cls._lock:
             conn = cls._connect()
             conn.execute("DELETE FROM hm_memories")
             conn.execute("DELETE FROM hm_edges")
+            conn.execute("DELETE FROM hm_beliefs")
             conn.commit()
 
 
@@ -1035,6 +1104,19 @@ class HumanMemory:
             "edges": len(HumanMemoryStore.all_edges()),
             "decay_half_life_days": DecayEngine.half_life_days,
         }
+
+    # ----- belief system --------------------------------------------------
+    @classmethod
+    def upsert_belief(cls, key: str, value: str, confidence: float) -> dict[str, Any]:
+        return HumanMemoryStore.upsert_belief(key, value, confidence)
+
+    @classmethod
+    def get_active_belief(cls, key: str) -> dict[str, Any] | None:
+        return HumanMemoryStore.get_active_belief(key)
+
+    @classmethod
+    def list_beliefs(cls, key: str | None = None, include_history: bool = False) -> list[dict[str, Any]]:
+        return HumanMemoryStore.list_beliefs(key, include_history)
 
 
 MEMORY = HumanMemory

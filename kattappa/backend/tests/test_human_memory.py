@@ -285,3 +285,41 @@ def test_status_reports_counts():
     assert status["total_memories"] >= 1
     assert set(status["by_type"]) == {"episodic", "semantic", "procedural", "wisdom"}
     assert set(status["by_stage"]) == {"active", "dormant", "archived", "forgotten"}
+
+
+def test_belief_system_lifecycle():
+    # 1. Upsert a belief
+    b1 = HumanMemory.upsert_belief("preferred_language", "Python", 0.92)
+    assert b1["key"] == "preferred_language"
+    assert b1["value"] == "Python"
+    assert b1["confidence"] == 0.92
+    assert b1["active"] == 1
+
+    # Get active belief
+    active = HumanMemory.get_active_belief("preferred_language")
+    assert active is not None
+    assert active["value"] == "Python"
+
+    # 2. Shift belief (Rust)
+    b2 = HumanMemory.upsert_belief("preferred_language", "Rust", 0.97)
+    assert b2["value"] == "Rust"
+    assert b2["confidence"] == 0.97
+    assert b2["active"] == 1
+
+    # 3. Old belief must remain in history but inactive
+    active_now = HumanMemory.get_active_belief("preferred_language")
+    assert active_now["value"] == "Rust"
+
+    # List active only (default)
+    active_list = HumanMemory.list_beliefs("preferred_language", include_history=False)
+    assert len(active_list) == 1
+    assert active_list[0]["value"] == "Rust"
+
+    # List all including history
+    all_beliefs = HumanMemory.list_beliefs("preferred_language", include_history=True)
+    assert len(all_beliefs) == 2
+    assert all_beliefs[0]["value"] == "Rust"  # newest first
+    assert all_beliefs[0]["active"] == 1
+    assert all_beliefs[1]["value"] == "Python"
+    assert all_beliefs[1]["active"] == 0
+

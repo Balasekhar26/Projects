@@ -911,6 +911,7 @@ def run_graph(
     memory_query: str | None = None,
     ephemeral_worker: bool = False,
     trust_tag: str = "SYSTEM_TRUST",
+    goal_id: str | None = None,
 ) -> AgentState:
     state: AgentState = {
         "user_input": user_input,
@@ -950,10 +951,23 @@ def run_graph(
         "reasoning_recursion_depth": 0,
         "reasoning_gaps": None,
         "kg_context": None,
+        "goal_id": goal_id,
     }
 
     result = compiled_graph.invoke(state)
     log_event(
         f"request={user_input!r} agent={result.get('selected_agent')} risk={result.get('risk_level')}"
     )
+
+    if result.get("goal_id"):
+        gid = result["goal_id"]
+        res_str = result.get("result") or ""
+        # Check if the result indicates a failure or error
+        if "error" in res_str.lower() or "failed" in res_str.lower():
+            try:
+                from backend.core.goal_manager import GoalManager
+                GoalManager.handle_step_failure(gid, res_str)
+            except Exception as e:
+                result.setdefault("logs", []).append(f"failed to handle goal step failure: {e}")
+
     return result

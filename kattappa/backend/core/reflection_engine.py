@@ -153,6 +153,24 @@ class ReflectionEngine:
         """
         sig = cls.evaluate_significance(logs_text)
         
+        # Trigger automated belief update
+        try:
+            from backend.core.human_memory import HumanMemory
+            if sig["exit_code_failures"] > 0 or sig["exceptions"] > 3:
+                HumanMemory.upsert_belief(
+                    key="system_stability_status",
+                    value="LOW_RELIABILITY_WARNING: Recent logs show multiple exceptions or non-zero exits.",
+                    confidence=0.85
+                )
+            else:
+                HumanMemory.upsert_belief(
+                    key="system_stability_status",
+                    value="HIGH_RELIABILITY: Systems are running clean without anomalous exceptions.",
+                    confidence=0.95
+                )
+        except Exception as e:
+            log_event(f"ReflectionEngine: failed to update active belief: {e}")
+            
         # If no significant issues exist, do not generate proposals (avoids manufactured problems)
         if not sig["actionable"]:
             log_event("reflection_engine: no significant actionable issue detected in logs.")

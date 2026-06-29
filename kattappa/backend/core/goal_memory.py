@@ -932,6 +932,23 @@ class GoalMemory:
         return cls.get_goal(goal_id)
 
     @classmethod
+    def update_goal_metadata(cls, goal_id: str, metadata: dict) -> None:
+        """Updates a goal's metadata."""
+        with cls._lock:
+            conn = cls._get_sqlite_conn()
+            try:
+                conn.execute(
+                    "UPDATE goals SET metadata = ? WHERE goal_id = ?",
+                    (json.dumps(metadata), goal_id)
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                conn.close()
+
+    @classmethod
     def check_goal_ttl(cls, goal_id: str) -> bool:
         """Checks if the goal's TTL has expired. Handles ACTIVE -> DORMANT and DORMANT -> ARCHIVED transitions."""
         now = time.time()

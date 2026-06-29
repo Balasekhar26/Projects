@@ -76,3 +76,35 @@ def test_goal_manager_aggregates():
     stats = GoalManager.status()
     assert stats["by_status"][GoalStatus.ACTIVE.value] == 1
     assert stats["by_status"][GoalStatus.PROPOSED.value] == 1
+
+
+def test_goal_manager_retry_and_rollback():
+    # 1. Create a goal with rollback_action in metadata
+    goal = GoalManager.add_goal(
+        title="Flaky Operation Goal",
+        description="Fails occasionally",
+        priority="MEDIUM"
+    )
+    g_id = goal["goal_id"]
+    
+    # Add rollback info to metadata
+    meta = goal["metadata"]
+    meta["rollback_action"] = "revert_db_changes"
+    GoalMemory.update_goal_metadata(g_id, meta)
+    
+    # 2. Trigger first step failure (Attempt 1)
+    updated = GoalManager.handle_step_failure(g_id, "connection timeout", max_retries=2)
+    assert updated["status"] == GoalStatus.ACTIVE.value
+    assert updated["metadata"]["retry_attempts"] == 1
+    
+    # 3. Trigger second step failure (Attempt 2)
+    updated = GoalManager.handle_step_failure(g_id, "connection timeout", max_retries=2)
+    assert updated["status"] == GoalStatus.ACTIVE.value
+    assert updated["metadata"]["retry_attempts"] == 2
+
+    # 4. Trigger third step failure (Exceeds max_retries=2) -> should fail and trigger rollback
+    updated = GoalManager.handle_step_failure(g_id, "connection timeout", max_retries=2)
+    assert updated["status"] == GoalStatus.FAILED.value
+    assert "Triggered rollback: revert_db_changes" in updated["state_reason"]
+    assert updated["metadata"]["rollback_executed"] is True
+

@@ -42,3 +42,5 @@ class AgentState(TypedDict):
     reasoning_recursion_depth: int
     reasoning_gaps: str | None
     kg_context: str | None
+    goal_id: str | None
+

@@ -138,6 +138,12 @@ class TestHumanConversationEngine(unittest.TestCase):
         self.assertEqual(rules["rule_5"]["name"], "HCE_RELATIONSHIP_CANNOT_OVERRIDE_USER_INTENT")
         self.assertTrue(rules["rule_6"]["enforced"])
         self.assertEqual(rules["rule_6"]["name"], "HCE_NO_RELATIONSHIP_OPTIMIZATION")
+        self.assertTrue(rules["rule_7"]["enforced"])
+        self.assertEqual(rules["rule_7"]["name"], "HCE_CAPABILITY_MUST_BE_VERIFIABLE")
+        self.assertTrue(rules["rule_8"]["enforced"])
+        self.assertEqual(rules["rule_8"]["name"], "HCE_REASON_BEFORE_ACTION")
+        self.assertTrue(rules["rule_9"]["enforced"])
+        self.assertEqual(rules["rule_9"]["name"], "HCE_LAYERED_KNOWLEDGE")
 
         # Verify HCEResponse enforces these rules in output to_dict() contract
         ref = ReflectionSummary("Deduction", [], PersonalityPosture.TECHNICAL_EXECUTOR, RelationshipState.BUILDING_MODE, 0.0, 0.0, 0.0)

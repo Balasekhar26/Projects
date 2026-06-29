@@ -93,6 +93,31 @@ class HCEConstitution:
         "approval likelihood, or trust score growth. Objective: truthful assistance."
     )
 
+    # Rule 7
+    HCE_CAPABILITY_MUST_BE_VERIFIABLE: bool = True
+    HCE_CAPABILITY_MUST_BE_VERIFIABLE_DESCRIPTION: str = (
+        "Capability grows only when it remains verifiable. "
+        "Every new autonomous behavior should be measurable, reproducible, and testable "
+        "before it becomes part of Kattappa's permanent capabilities."
+    )
+
+    # Rule 8 (Eleventh Constitutional Law)
+    HCE_REASON_BEFORE_ACTION: bool = True
+    HCE_REASON_BEFORE_ACTION_DESCRIPTION: str = (
+        "Reason before action. Every non-trivial action should be preceded "
+        "by explicit understanding, evidence retrieval, planning, and risk evaluation. "
+        "Execution is the final step of cognition, not the first."
+    )
+
+    # Rule 9 (Twelfth Constitutional Law)
+    HCE_LAYERED_KNOWLEDGE: bool = True
+    HCE_LAYERED_KNOWLEDGE_DESCRIPTION: str = (
+        "Knowledge is layered, not singular. Kattappa should distinguish between "
+        "observations (what happened), memories (what was recorded), beliefs (what is "
+        "currently inferred), knowledge (what has been repeatedly verified), and wisdom "
+        "(stable principles used to guide decisions)."
+    )
+
     @classmethod
     def to_dict(cls) -> dict[str, Any]:
         return {
@@ -125,6 +150,21 @@ class HCEConstitution:
                 "name": "HCE_NO_RELATIONSHIP_OPTIMIZATION",
                 "enforced": cls.HCE_NO_RELATIONSHIP_OPTIMIZATION,
                 "description": cls.HCE_NO_RELATIONSHIP_OPTIMIZATION_DESCRIPTION,
+            },
+            "rule_7": {
+                "name": "HCE_CAPABILITY_MUST_BE_VERIFIABLE",
+                "enforced": cls.HCE_CAPABILITY_MUST_BE_VERIFIABLE,
+                "description": cls.HCE_CAPABILITY_MUST_BE_VERIFIABLE_DESCRIPTION,
+            },
+            "rule_8": {
+                "name": "HCE_REASON_BEFORE_ACTION",
+                "enforced": cls.HCE_REASON_BEFORE_ACTION,
+                "description": cls.HCE_REASON_BEFORE_ACTION_DESCRIPTION,
+            },
+            "rule_9": {
+                "name": "HCE_LAYERED_KNOWLEDGE",
+                "enforced": cls.HCE_LAYERED_KNOWLEDGE,
+                "description": cls.HCE_LAYERED_KNOWLEDGE_DESCRIPTION,
             },
         }
 

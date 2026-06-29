@@ -58,6 +58,7 @@ from backend.core.operator import build_operator_plan
 from backend.core.platform_support import platform_support_report
 from backend.core.project_indexer import build_project_index, search_project_index
 from backend.core.project_blueprint import project_ecosystem
+from backend.core.workspace import WorkspaceManager
 from backend.core.project_improvement_agents import (
     check_git_shared_improvements,
     observe_project_improvement_agents,
@@ -4666,6 +4667,99 @@ def resume_task(task_id: str) -> dict[str, object]:
     if result is None:
         raise HTTPException(status_code=404, detail="Long task not found")
     return result
+
+
+class WorkspaceCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    project_ids: list[str] | None = None
+    goal_ids: list[str] | None = None
+    chat_session_id: str | None = None
+
+
+class WorkspaceUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    project_ids: list[str] | None = None
+    goal_ids: list[str] | None = None
+    chat_session_id: str | None = None
+
+
+active_event_websockets = set()
+
+
+@app.websocket("/ws/events")
+async def events_socket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    active_event_websockets.add(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except Exception:
+        pass
+    finally:
+        active_event_websockets.discard(websocket)
+
+
+async def broadcast_event(event_type: str, payload: dict):
+    message = {"type": event_type, "payload": payload}
+    for ws in list(active_event_websockets):
+        try:
+            await ws.send_json(message)
+        except Exception:
+            active_event_websockets.discard(ws)
+
+
+@app.post("/workspaces")
+async def create_workspace_route(request: WorkspaceCreateRequest) -> dict[str, object]:
+    w = WorkspaceManager.create_workspace(
+        name=request.name,
+        description=request.description,
+        project_ids=request.project_ids,
+        goal_ids=request.goal_ids,
+        chat_session_id=request.chat_session_id
+    )
+    await broadcast_event("WORKSPACE_CREATED", w)
+    return {"workspace": w}
+
+
+@app.get("/workspaces")
+def list_workspaces_route() -> dict[str, object]:
+    return {"items": WorkspaceManager.list_workspaces()}
+
+
+@app.get("/workspaces/{workspace_id}")
+def get_workspace_route(workspace_id: str) -> dict[str, object]:
+    w = WorkspaceManager.get_workspace(workspace_id)
+    if not w:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return {"workspace": w}
+
+
+@app.post("/workspaces/{workspace_id}")
+async def update_workspace_route(workspace_id: str, request: WorkspaceUpdateRequest) -> dict[str, object]:
+    w = WorkspaceManager.update_workspace(
+        workspace_id=workspace_id,
+        name=request.name,
+        description=request.description,
+        project_ids=request.project_ids,
+        goal_ids=request.goal_ids,
+        chat_session_id=request.chat_session_id
+    )
+    if not w:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    await broadcast_event("WORKSPACE_UPDATED", w)
+    return {"workspace": w}
+
+
+@app.delete("/workspaces/{workspace_id}")
+async def delete_workspace_route(workspace_id: str) -> dict[str, object]:
+    success = WorkspaceManager.delete_workspace(workspace_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    await broadcast_event("WORKSPACE_DELETED", {"workspace_id": workspace_id})
+    return {"success": True}
+
 
 
 @app.post("/operator/plan")

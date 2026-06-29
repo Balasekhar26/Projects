@@ -461,13 +461,14 @@ class TestFullProjectSandboxEvaluation:
 # ---------------------------------------------------------------------------
 
 class TestConstitutionEndpoint:
-    def test_constitution_contains_all_three_rules(self):
+    def test_constitution_contains_all_four_rules(self):
         resp = client.get("/sandbox/constitution")
         assert resp.status_code == 200
         c = resp.json()["constitution"]
         assert "SANDBOX_CANNOT_AUTHORIZE_EXECUTION" in c["rule_1"]
         assert "SANDBOX_CANNOT_CREATE_GOALS" in c["rule_2"]
         assert "SANDBOX_CANNOT_REWRITE_CONSTRAINTS" in c["rule_3"]
+        assert "REASON_BEFORE_ACTION" in c["rule_4"]
 
     def test_constitution_is_read_only_get(self):
         """Constitution endpoint must be GET (never POST/PUT)."""
