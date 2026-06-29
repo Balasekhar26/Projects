@@ -138,6 +138,15 @@ class AliasRegistry:
     def register_alias(cls, alias: str, target: str) -> None:
         with cls._lock:
             cls._aliases[alias] = target
+            try:
+                from backend.core.knowledge_graph import KnowledgeGraph
+                kg = KnowledgeGraph.get_instance()
+                resolved_target = kg.resolve_entity(target)
+                target_id = resolved_target.id if resolved_target else target
+                if kg._store.get_node(target_id):
+                    kg.register_alias(canonical_id=target_id, alias_name=alias, alias_type="alias")
+            except Exception:
+                pass
             log_event(
                 "alias_registered", f"Alias '{alias}' mapped to target '{target}'"
             )
@@ -146,12 +155,29 @@ class AliasRegistry:
     def register_uuid_redirect(cls, old_uuid: str, new_uuid: str) -> None:
         with cls._lock:
             cls._redirects[old_uuid] = new_uuid
+            try:
+                from backend.core.knowledge_graph import KnowledgeGraph
+                kg = KnowledgeGraph.get_instance()
+                resolved_target = kg.resolve_entity(new_uuid)
+                target_id = resolved_target.id if resolved_target else new_uuid
+                if kg._store.get_node(target_id):
+                    kg.register_alias(canonical_id=target_id, alias_name=old_uuid, alias_type="redirect")
+            except Exception:
+                pass
             log_event("uuid_redirect_registered", f"Redirect: {old_uuid} -> {new_uuid}")
 
     @classmethod
     def resolve(cls, identifier: str) -> str:
         """Resolves alias names and deprecated UUID redirects to canonical target."""
         with cls._lock:
+            try:
+                from backend.core.knowledge_graph import KnowledgeGraph
+                kg = KnowledgeGraph.get_instance()
+                resolved = kg.resolve_entity(identifier)
+                if resolved:
+                    return resolved.id
+            except Exception:
+                pass
             # 1. Resolve UUID redirects
             while identifier in cls._redirects:
                 identifier = cls._redirects[identifier]
@@ -254,6 +280,13 @@ class EntityMergeManager:
         # 5. Register permanent redirects in the AliasRegistry
         AliasRegistry.register_uuid_redirect(secondary.entity_id, primary.entity_id)
         AliasRegistry.register_alias(secondary.canonical_id, primary.canonical_id)
+
+        try:
+            from backend.core.knowledge_graph import KnowledgeGraph
+            kg = KnowledgeGraph.get_instance()
+            kg.merge_entities([primary.entity_id, secondary.entity_id])
+        except Exception:
+            pass
 
         log_event(
             "entity_merge_complete",

@@ -241,6 +241,23 @@ class TruthDependencyTracker:
                     "dependency_bounded",
                     f"Propagated bound to {child_uuid}.{child_prop} (conf={updated_confidence:.2f})",
                 )
+                try:
+                    from backend.core.knowledge_graph import KnowledgeGraph
+                    kg = KnowledgeGraph.get_instance()
+                    node_data = kg.get_node(child_uuid)
+                    node_props = dict(node_data.get("properties", {})) if node_data else {}
+                    node_props[child_prop] = child_val.value
+                    kg.add_node(
+                        name=child_uuid,
+                        entity_type="CONCEPT",
+                        node_id=child_uuid,
+                        properties=node_props,
+                        confidence=updated_confidence,
+                        belief_state="BELIEVED" if updated_confidence >= 0.5 else "HYPOTHESIS"
+                    )
+                except Exception as exc:
+                    logger.debug("Persisting bounded TMS property to KG failed: %s", exc)
+
                 # Recursively propagate downstream updates
                 self.propagate_change(state, child_uuid, child_prop, visited)
 
@@ -300,6 +317,29 @@ class BeliefEngine:
                 self.dependency_tracker.propagate_change(
                     self.state, entity_id, prop_name
                 )
+
+                # Persist updated belief state to Knowledge Graph
+                try:
+                    from backend.core.knowledge_graph import KnowledgeGraph
+                    kg = KnowledgeGraph.get_instance()
+                    node_data = kg.get_node(entity_id)
+                    node_props = dict(node_data.get("properties", {})) if node_data else {}
+                    
+                    final_pv = self.state.get_property(entity_id, prop_name)
+                    if final_pv:
+                        node_props[prop_name] = final_pv.value
+                        evidence_sources = [ev.source.name for ev in final_pv.evidence_history]
+                        kg.add_node(
+                            name=entity_id,
+                            entity_type="CONCEPT",
+                            node_id=entity_id,
+                            properties=node_props,
+                            confidence=final_pv.confidence,
+                            belief_state="BELIEVED" if final_pv.confidence >= 0.5 else "HYPOTHESIS",
+                            evidence=evidence_sources
+                        )
+                except Exception as exc:
+                    logger.debug("Persisting belief engine state to KG failed: %s", exc)
 
         return detected_contradictions
 

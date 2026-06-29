@@ -187,6 +187,17 @@ class ExecutivePlanner:
             if any(w in goal_title.lower() for w in ["cloud", "deploy", "server"]):
                 failure_profiles.append("Infrastructure delay: Network timeout due to strict egress IP rules.")
 
+            # Invoke UnifiedRetrievalPipeline for cognitive graph & vector context
+            try:
+                from backend.core.cos.unified_retrieval import UnifiedRetrievalPipeline
+                ur = UnifiedRetrievalPipeline.retrieve(goal_title)
+                if ur.get("context_text"):
+                    failure_profiles.append("\n=== Cognitive Retrieval Context ===\n" + ur["context_text"])
+                    for gp in ur.get("graph_paths", []):
+                        recalled_ids.append(f"kg_path_{gp['source']}_{gp['target']}")
+            except Exception as exc:
+                logger.debug("Failed to fetch unified retrieval pipeline context for planner: %s", exc)
+
             return {
                 "recalled_memory_ids": recalled_ids,
                 "extracted_failure_profile": "\n".join(failure_profiles) if failure_profiles else "No past failures recorded in this domain."

@@ -412,6 +412,56 @@ class GraphStore:
             finally:
                 conn.close()
 
+    def update_edge(
+        self,
+        edge_id: str,
+        *,
+        weight: Optional[float] = None,
+        confidence: Optional[float] = None,
+        evidence: Optional[List[str]] = None,
+        source_layer: Optional[str] = None,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
+    ) -> bool:
+        """Update an existing edge. Returns True if a row was modified."""
+        sets: list[str] = []
+        params: list[Any] = []
+        if weight is not None:
+            sets.append("weight = ?")
+            params.append(weight)
+        if confidence is not None:
+            sets.append("confidence = ?")
+            params.append(confidence)
+        if evidence is not None:
+            sets.append("evidence = ?")
+            params.append(json.dumps(evidence))
+        if source_layer is not None:
+            sets.append("source_layer = ?")
+            params.append(source_layer)
+        if valid_from is not None:
+            sets.append("valid_from = ?")
+            params.append(valid_from)
+        if valid_until is not None:
+            sets.append("valid_until = ?")
+            params.append(valid_until)
+        if not sets:
+            return False
+        params.append(edge_id)
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                cur = conn.execute(
+                    f"UPDATE kg_edges SET {', '.join(sets)} WHERE id = ?", params
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            except Exception as exc:
+                conn.rollback()
+                logger.error("graph_store: update_edge failed: %s", exc)
+                raise
+            finally:
+                conn.close()
+
     def get_edges_from(self, node_id: str, relation_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Return edges originating from *node_id*."""
         conn = self._get_conn()

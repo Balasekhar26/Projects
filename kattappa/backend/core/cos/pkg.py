@@ -41,28 +41,71 @@ class InferenceResult:
     explanation: InferenceExplanation
     visited_nodes: List[str]
     computation_time: float
-
-
 class ProbabilisticKnowledgeGraph:
     """Manages semantic entities and directed edges (relations) with exact probability propagation."""
 
-    def __init__(self):
-        # Maps source_uuid -> List of Relation objects
+    def __init__(self, graph_store: Optional[Any] = None):
+        # Maps source_uuid -> List of Relation objects (in-memory fallback)
         self.adjacency: Dict[str, List[Relation]] = {}
-        # Maps node_uuid -> confidence float
+        # Maps node_uuid -> confidence float (in-memory fallback)
         self.node_confidences: Dict[str, float] = {}
+        self.graph_store = graph_store
+
+    def __deepcopy__(self, memo):
+        import copy
+        new_pkg = self.__class__(graph_store=self.graph_store)
+        new_pkg.adjacency = copy.deepcopy(self.adjacency, memo)
+        new_pkg.node_confidences = copy.deepcopy(self.node_confidences, memo)
+        return new_pkg
 
     def register_node_confidence(self, node_uuid: str, confidence: float) -> None:
         """Register the confidence value of an entity node."""
-        self.node_confidences[node_uuid] = confidence
+        if self.graph_store:
+            existing = self.graph_store.get_node(node_uuid)
+            if existing:
+                self.graph_store.update_node(node_uuid, confidence=confidence)
+            else:
+                self.graph_store.insert_node(name=node_uuid, entity_type="CONCEPT", confidence=confidence, node_id=node_uuid)
+        else:
+            self.node_confidences[node_uuid] = confidence
 
     def get_node_confidence(self, node_uuid: str) -> float:
         """Returns registered node confidence, defaulting to 1.0."""
+        if self.graph_store:
+            node = self.graph_store.get_node(node_uuid)
+            return node["confidence"] if node else 1.0
         return self.node_confidences.get(node_uuid, 1.0)
 
     def add_relation(self, relation: Relation) -> None:
         """Adds a relation to the knowledge graph."""
-        self.adjacency.setdefault(relation.source_uuid, []).append(relation)
+        if self.graph_store:
+            src_node = self.graph_store.get_node(relation.source_uuid)
+            if not src_node:
+                self.graph_store.insert_node(name=relation.source_uuid, entity_type="CONCEPT", node_id=relation.source_uuid)
+            tgt_node = self.graph_store.get_node(relation.target_uuid)
+            if not tgt_node:
+                self.graph_store.insert_node(name=relation.target_uuid, entity_type="CONCEPT", node_id=relation.target_uuid)
+            
+            edges = self.graph_store.get_edges_from(relation.source_uuid, relation_type=relation.relation_type)
+            existing_edge = next((e for e in edges if e["target_id"] == relation.target_uuid), None)
+            if existing_edge:
+                self.graph_store.update_edge(
+                    existing_edge["id"],
+                    confidence=relation.confidence,
+                    valid_from=str(relation.valid_from) if relation.valid_from is not None else None,
+                    valid_until=str(relation.valid_until) if relation.valid_until is not None else None
+                )
+            else:
+                self.graph_store.insert_edge(
+                    source_id=relation.source_uuid,
+                    target_id=relation.target_uuid,
+                    relation_type=relation.relation_type,
+                    confidence=relation.confidence,
+                    valid_from=str(relation.valid_from) if relation.valid_from is not None else None,
+                    valid_until=str(relation.valid_until) if relation.valid_until is not None else None
+                )
+        else:
+            self.adjacency.setdefault(relation.source_uuid, []).append(relation)
         log_event(
             "pkg_relation_added",
             f"PKG: Added relation {relation.source_uuid} --[{relation.relation_type}]--> {relation.target_uuid} (conf={relation.confidence})",
@@ -70,6 +113,27 @@ class ProbabilisticKnowledgeGraph:
 
     def get_relations(self, source_uuid: str) -> List[Relation]:
         """Returns all relations originating from the source entity."""
+        if self.graph_store:
+            edges = self.graph_store.get_edges_from(source_uuid)
+            relations = []
+            for e in edges:
+                try:
+                    vf = float(e.get("valid_from") or 0.0)
+                except (ValueError, TypeError):
+                    vf = 0.0
+                try:
+                    vu = float(e.get("valid_until")) if e.get("valid_until") else None
+                except (ValueError, TypeError):
+                    vu = None
+                relations.append(Relation(
+                    source_uuid=e["source_id"],
+                    target_uuid=e["target_id"],
+                    relation_type=e["relation_type"],
+                    confidence=e.get("confidence", 1.0),
+                    valid_from=vf,
+                    valid_until=vu
+                ))
+            return relations
         return self.adjacency.get(source_uuid, [])
 
     def compose_relations(self, relations: List[Relation]) -> Optional[str]:
@@ -137,7 +201,7 @@ class ProbabilisticKnowledgeGraph:
         visited.add(source_uuid)
         paths: List[Tuple[List[str], List[Relation]]] = []
 
-        for rel in self.adjacency.get(source_uuid, []):
+        for rel in self.get_relations(source_uuid):
             # 1. Temporal Validity Filtering
             if at_time is not None:
                 if at_time < rel.valid_from:
@@ -199,7 +263,7 @@ class ProbabilisticKnowledgeGraph:
             if len(path_nodes) - 1 >= max_depth:
                 continue
 
-            for rel in self.adjacency.get(curr_node, []):
+            for rel in self.get_relations(curr_node):
                 # Temporal filter
                 if at_time is not None:
                     if at_time < rel.valid_from:

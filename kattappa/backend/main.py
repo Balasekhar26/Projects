@@ -15,6 +15,7 @@ from backend.api.v1.planner import planner_router
 from backend.api.v1.safety import safety_router
 from backend.api.v1.models import models_router
 from backend.api.v1.telemetry import telemetry_router
+from backend.api.v1.knowledge_graph import knowledge_graph_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(chat_router)
@@ -36,6 +37,9 @@ app.include_router(models_router)
 
 app.include_router(telemetry_router, prefix="/api/v1")
 app.include_router(telemetry_router)
+
+app.include_router(knowledge_graph_router, prefix="/api/v1")
+app.include_router(knowledge_graph_router)
 
 app.add_middleware(
     CORSMiddleware,

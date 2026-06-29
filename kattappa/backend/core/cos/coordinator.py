@@ -74,8 +74,12 @@ class WorldModelCoordinator:
         )
 
         from backend.core.cos.pkg import ProbabilisticKnowledgeGraph
-
-        cls._pkgs["main"] = ProbabilisticKnowledgeGraph()
+        from backend.core.knowledge_graph import KnowledgeGraph
+        try:
+            store = KnowledgeGraph.get_instance()._store
+        except Exception:
+            store = None
+        cls._pkgs["main"] = ProbabilisticKnowledgeGraph(graph_store=store)
 
     @classmethod
     def get_entity(
@@ -110,8 +114,12 @@ class WorldModelCoordinator:
             }
         if branch not in cls._pkgs:
             from backend.core.cos.pkg import ProbabilisticKnowledgeGraph
-
-            cls._pkgs[branch] = ProbabilisticKnowledgeGraph()
+            from backend.core.knowledge_graph import KnowledgeGraph
+            try:
+                store = KnowledgeGraph.get_instance()._store
+            except Exception:
+                store = None
+            cls._pkgs[branch] = ProbabilisticKnowledgeGraph(graph_store=store)
 
         # Resolve entity_id and alias
         AliasRegistry.register_alias(entity.canonical_id, entity.entity_id)

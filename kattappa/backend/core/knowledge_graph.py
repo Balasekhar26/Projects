@@ -186,6 +186,8 @@ class KnowledgeGraph:
         self._store = GraphStore(db_path)
         self._query = GraphQueryEngine(self._store)
         self._sync_manager = SyncManager(self._store)
+        from backend.core.cos.pkg import ProbabilisticKnowledgeGraph
+        self._pkg = ProbabilisticKnowledgeGraph(graph_store=self._store)
 
     # ------------------------------------------------------------------ #
     #  CRUD                                                               #
@@ -238,11 +240,30 @@ class KnowledgeGraph:
         # Idempotency check
         existing = self.get_node(target_nid)
         if existing:
-            if props_val:
-                self.update_node(target_nid, properties=props_val)
-                raw = self._store.get_node(target_nid)
-                if raw:
-                    return self._to_kg_node(raw)
+            updates = {}
+            if props_val is not None:
+                updates["properties"] = props_val
+            if confidence is not None:
+                updates["confidence"] = confidence
+            if belief_state is not None:
+                updates["belief_state"] = belief_state
+            if evidence is not None:
+                updates["evidence"] = evidence
+            if last_verified_at is not None:
+                updates["last_verified_at"] = last_verified_at
+            if valid_from is not None:
+                updates["valid_from"] = valid_from
+            if valid_until is not None:
+                updates["valid_until"] = valid_until
+            if source_layer is not None:
+                updates["source_layer"] = source_layer
+            
+            if updates:
+                self.update_node(target_nid, **updates)
+            
+            raw = self._store.get_node(target_nid)
+            if raw:
+                return self._to_kg_node(raw)
             return KGNode(id=existing["id"], name=name_val, entity_type=etype, properties=existing.get("properties", {}))
 
         nid = self._store.insert_node(
@@ -276,6 +297,11 @@ class KnowledgeGraph:
             "id": raw.get("id"),
             "type": raw.get("entity_type").lower() if raw.get("entity_type") else None,
             "properties": json.loads(raw.get("properties") or "{}") if isinstance(raw.get("properties"), str) else (raw.get("properties") or {}),
+            "confidence": raw.get("confidence", 1.0),
+            "belief_state": raw.get("belief_state", "BELIEVED"),
+            "evidence": json.loads(raw.get("evidence") or "[]") if isinstance(raw.get("evidence"), str) else (raw.get("evidence") or []),
+            "source_layer": raw.get("source_layer"),
+            "name": raw.get("name")
         }
 
 
@@ -430,6 +456,39 @@ class KnowledgeGraph:
                     new_path.append(nid)
                     queue.append(new_path)
         return None
+
+    @hybridmethod
+    def find_top_k_paths(
+        self_or_cls,
+        source_id: str,
+        target_id: str,
+        k: int = 5,
+        max_depth: int = 6,
+        *args,
+        **kwargs
+    ) -> List[Any]:
+        """Finds top-k highest probability paths using Best-First Search (Dijkstra-style)."""
+        if isinstance(self_or_cls, type):
+            inst = self_or_cls.get_instance()
+            return inst.find_top_k_paths(source_id, target_id, k=k, max_depth=max_depth)
+        self = self_or_cls
+        return self._pkg.find_top_k_paths(source_id, target_id, k=k, max_depth=max_depth)
+
+    @hybridmethod
+    def query_probabilistic(
+        self_or_cls,
+        source_id: str,
+        target_id: str,
+        max_depth: int = 6,
+        *args,
+        **kwargs
+    ) -> Any:
+        """Queries the PKG using exact joint probability calculations."""
+        if isinstance(self_or_cls, type):
+            inst = self_or_cls.get_instance()
+            return inst.query_probabilistic(source_id, target_id, max_depth=max_depth)
+        self = self_or_cls
+        return self._pkg.query(source_id, target_id, max_depth=max_depth)
 
 
     def update_node(
@@ -802,7 +861,10 @@ class KnowledgeGraph:
     # ------------------------------------------------------------------ #
 
     def _resolve_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """Resolve *name* to a raw node dict (alias → name match)."""
+        """Resolve *name* to a raw node dict (ID -> alias -> name match)."""
+        node_by_id = self._store.get_node(name)
+        if node_by_id:
+            return node_by_id
         alias_node = self._store.resolve_alias(name)
         if alias_node:
             return alias_node
