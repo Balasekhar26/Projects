@@ -26,6 +26,8 @@ from backend.api.v1.execution import router as execution_router
 from backend.api.v1.reflection import router as reflection_router
 from backend.api.v1.learning import router as learning_router
 from backend.api.v1.integration import router as integration_router
+from backend.api.v1.stabilization import router as stabilization_router
+
 
 
 
@@ -85,6 +87,10 @@ app.include_router(learning_router)
 
 app.include_router(integration_router, prefix="/api/v1")
 app.include_router(integration_router)
+
+app.include_router(stabilization_router, prefix="/api/v1")
+app.include_router(stabilization_router)
+
 
 
 
