@@ -306,3 +306,77 @@ def test_transitive_queries_and_filters():
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)
+
+
+def test_replay_and_snapshot_recovery():
+    from backend.core.ledger.replay.snapshot_manager import SnapshotManager
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+
+    try:
+        stores = [MemoryLedgerStore(), SQLiteLedgerStore(db_path)]
+        for store in stores:
+            clock = TestClock(100.0)
+            id_gen = SequentialGenerator(prefix="snap-", start=1)
+            manager = SnapshotManager(store, id_gen, clock)
+
+            # 1. Append initial events
+            e1 = LedgerEvent(
+                event_id="e1",
+                parent_event_ids=[],
+                goal_id="g2",
+                session_id="s1",
+                correlation_id="c1",
+                timestamp_utc=100.0,
+                actor="user",
+                subsystem="scheduler",
+                event_type=EventType.GOAL_CREATED,
+                payload={"goal_id": "g2"},
+            )
+            e2 = LedgerEvent(
+                event_id="e2",
+                parent_event_ids=["e1"],
+                goal_id="g2",
+                session_id="s1",
+                correlation_id="c1",
+                timestamp_utc=101.0,
+                actor="system",
+                subsystem="planner",
+                event_type=EventType.PLAN_GENERATED,
+                payload={},
+            )
+            store.append(e1)
+            store.append(e2)
+
+            # 2. Replay all from start
+            reducer = SimpleGoalReducer()
+            state = manager.replay_engine.replay("g2", reducer)
+            assert state == {"goal_id": "g2", "status": "planned"}
+
+            # 3. Take snapshot at e2
+            snap = manager.take_snapshot("g2", state, "e2")
+            assert snap.snapshot_id == "snap-1"
+            assert snap.state == {"goal_id": "g2", "status": "planned"}
+
+            # 4. Append subsequent events after snapshot
+            e3 = LedgerEvent(
+                event_id="e3",
+                parent_event_ids=["e2"],
+                goal_id="g2",
+                session_id="s1",
+                correlation_id="c1",
+                timestamp_utc=102.0,
+                actor="system",
+                subsystem="scheduler",
+                event_type=EventType.GOAL_CREATED,
+                payload={"goal_id": "g2"},
+            )
+            store.append(e3)
+
+            # 5. Recover using snapshot + subsequent events
+            recovered_state = manager.recover("g2", reducer)
+            assert recovered_state == {"goal_id": "g2", "status": "created"}
+    finally:
+        if os.path.exists(db_path):
+            os.remove(db_path)
