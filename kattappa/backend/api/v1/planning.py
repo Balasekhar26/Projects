@@ -114,3 +114,151 @@ def get_dependency_trace() -> Dict[str, Any]:
         return {"status": "ok", "trace": trace}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# HTN Planner Endpoints (Program 5G-2)
+# ---------------------------------------------------------------------------
+
+class CreatePlanRequest(BaseModel):
+    goal_id: str
+    initial_variables: Dict[str, Any] = Field(default_factory=dict, description="Initial state variables context")
+    methods: List[Dict[str, Any]] = Field(..., description="List of registered decomposition methods")
+    operators: List[Dict[str, Any]] = Field(..., description="List of registered primitive actions")
+
+
+class ValidatePlanRequest(BaseModel):
+    plan: Dict[str, Any] = Field(..., description="Plan object to validate")
+    initial_variables: Dict[str, Any] = Field(..., description="Initial state variables context")
+
+
+# In-memory plan store
+_plans: Dict[str, Plan] = {}
+
+
+@router.post("/plan", summary="Generate a plan for a goal")
+def generate_plan(req: CreatePlanRequest) -> Dict[str, Any]:
+    """Generates an HTN plan for the target registered goal using methods and operators."""
+    goal = _registry.get_goal(req.goal_id)
+    if not goal:
+        raise HTTPException(status_code=404, detail=f"Goal '{req.goal_id}' not found.")
+
+    try:
+        from backend.core.planning.planner import HTNPlanner
+        from backend.core.planning.task import PlannerState, Operator, Method
+
+        planner = HTNPlanner()
+
+        # Register Operators
+        for op_data in req.operators:
+            op = Operator(
+                operator_id=op_data["operator_id"],
+                name=op_data["name"],
+                parameters=op_data.get("parameters", {}),
+                preconditions=op_data.get("preconditions", {}),
+                effects=op_data.get("effects", {}),
+                estimated_cost=float(op_data.get("estimated_cost", 1.0)),
+                estimated_time=float(op_data.get("estimated_time", 1.0)),
+            )
+            planner.register_operator(op)
+
+        # Register Methods
+        for m_data in req.methods:
+            m = Method(
+                method_id=m_data["method_id"],
+                task_name=m_data["task_name"],
+                subtasks=m_data["subtasks"],
+                preconditions=m_data.get("preconditions", {}),
+            )
+            planner.register_method(m)
+
+        state = PlannerState(current_goal=req.goal_id, variables=req.initial_variables)
+        plan = planner.find_plan(goal, state)
+
+        if not plan:
+            raise HTTPException(status_code=400, detail="No valid HTN plan found for this goal.")
+
+        _plans[plan.plan_id] = plan
+        return {
+            "status": "ok",
+            "plan_id": plan.plan_id,
+            "steps": [
+                {
+                    "operator_id": op.operator_id,
+                    "name": op.name,
+                    "parameters": op.parameters,
+                    "preconditions": op.preconditions,
+                    "effects": op.effects,
+                }
+                for op in plan.steps
+            ],
+            "metrics": {
+                "expected_cost": plan.expected_cost,
+                "expected_duration": plan.expected_duration,
+                "reward": plan.expected_reward,
+                "risk": plan.expected_risk,
+                "confidence": plan.confidence,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/validate", summary="Validate a candidate plan")
+def validate_plan(req: ValidatePlanRequest) -> Dict[str, Any]:
+    """Validates plan preconditions, constraints, and dependencies before scheduling."""
+    try:
+        from backend.core.planning.planner import PlanValidator
+        from backend.core.planning.task import Plan, Operator
+
+        steps = []
+        for step in req.plan.get("steps", []):
+            steps.append(Operator(
+                operator_id=step["operator_id"],
+                name=step["name"],
+                parameters=step.get("parameters", {}),
+                preconditions=step.get("preconditions", {}),
+                effects=step.get("effects", {}),
+            ))
+
+        plan = Plan(
+            plan_id=req.plan.get("plan_id", "test_plan"),
+            goal_id=req.plan.get("goal_id", "test_goal"),
+            steps=steps,
+        )
+
+        success, errors = PlanValidator.validate_plan(plan, req.initial_variables)
+        return {
+            "status": "ok",
+            "valid": success,
+            "validation_errors": errors,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/plans/{plan_id}", summary="Retrieve plan details")
+def get_plan(plan_id: str) -> Dict[str, Any]:
+    """Retrieves metadata and steps for a previously compiled plan."""
+    plan = _plans.get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Plan '{plan_id}' not found.")
+    return {
+        "status": "ok",
+        "plan_id": plan.plan_id,
+        "goal_id": plan.goal_id,
+        "steps_count": len(plan.steps),
+        "status": plan.status,
+    }
+
+
+@router.post("/plans/{plan_id}/cancel", summary="Cancel a compiled plan")
+def cancel_plan(plan_id: str) -> Dict[str, Any]:
+    """Cancels/retracts a plan from the active queue."""
+    if plan_id not in _plans:
+        raise HTTPException(status_code=404, detail=f"Plan '{plan_id}' not found.")
+    _plans[plan_id].status = "Cancelled"
+    return {"status": "ok", "plan_id": plan_id, "new_status": "Cancelled"}
+
