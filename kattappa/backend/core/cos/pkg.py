@@ -5,13 +5,14 @@ exact dependency-aware probability combination via recursive edge conditioning,
 probabilistic node confidence discounting, best-first Dijkstra search (Top-K paths), and
 taxonomic ontological transitivity rules.
 """
+
 from __future__ import annotations
 
 import heapq
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
 
 from backend.core.cos.entity_system import Relation
 from backend.core.logger import log_event
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class InferenceExplanation:
     """Detailed trace explanation of a probabilistic graph query inference."""
+
     paths: List[List[str]]
     edge_confidences: Dict[str, float]
     combined_probability: float
@@ -32,6 +34,7 @@ class InferenceExplanation:
 @dataclass
 class InferenceResult:
     """Return package for a probabilistic graph query."""
+
     paths: List[List[str]]
     combined_probability: float
     best_path: Optional[List[str]]
@@ -62,7 +65,7 @@ class ProbabilisticKnowledgeGraph:
         self.adjacency.setdefault(relation.source_uuid, []).append(relation)
         log_event(
             "pkg_relation_added",
-            f"PKG: Added relation {relation.source_uuid} --[{relation.relation_type}]--> {relation.target_uuid} (conf={relation.confidence})"
+            f"PKG: Added relation {relation.source_uuid} --[{relation.relation_type}]--> {relation.target_uuid} (conf={relation.confidence})",
         )
 
     def get_relations(self, source_uuid: str) -> List[Relation]:
@@ -90,13 +93,12 @@ class ProbabilisticKnowledgeGraph:
         return curr_type
 
     def find_paths(
-        self,
-        source_uuid: str,
-        target_uuid: str,
-        visited: Optional[Set[str]] = None
+        self, source_uuid: str, target_uuid: str, visited: Optional[Set[str]] = None
     ) -> List[Tuple[List[str], float]]:
         """DFS traversing the graph to find all unique simple paths, returning node lists and path probabilities."""
-        raw_paths = self._find_paths_with_relations(source_uuid, target_uuid, visited=visited)
+        raw_paths = self._find_paths_with_relations(
+            source_uuid, target_uuid, visited=visited
+        )
         paths = []
         for path_nodes, rels in raw_paths:
             # Traditional edge-only probability multiplication for backward compatibility
@@ -106,7 +108,9 @@ class ProbabilisticKnowledgeGraph:
             paths.append((path_nodes, path_prob))
         return paths
 
-    def infer_indirect_relation_probability(self, source_uuid: str, target_uuid: str) -> float:
+    def infer_indirect_relation_probability(
+        self, source_uuid: str, target_uuid: str
+    ) -> float:
         """Aggregates all parallel paths between source and target using the exact joint probability query."""
         res = self.query(source_uuid, target_uuid)
         return res.combined_probability
@@ -118,7 +122,7 @@ class ProbabilisticKnowledgeGraph:
         max_depth: int = 6,
         at_time: Optional[float] = None,
         allowed_relations: Optional[List[str]] = None,
-        visited: Optional[Set[str]] = None
+        visited: Optional[Set[str]] = None,
     ) -> List[Tuple[List[str], List[Relation]]]:
         """Finds all unique simple paths with temporal and relation type filters up to max_depth."""
         if visited is None:
@@ -142,12 +146,22 @@ class ProbabilisticKnowledgeGraph:
                     continue
 
             # 2. Relation Type Filtering
-            if allowed_relations is not None and rel.relation_type not in allowed_relations:
+            if (
+                allowed_relations is not None
+                and rel.relation_type not in allowed_relations
+            ):
                 continue
 
             next_node = rel.target_uuid
             if next_node not in visited:
-                sub_paths = self._find_paths_with_relations(next_node, target_uuid, max_depth, at_time, allowed_relations, visited)
+                sub_paths = self._find_paths_with_relations(
+                    next_node,
+                    target_uuid,
+                    max_depth,
+                    at_time,
+                    allowed_relations,
+                    visited,
+                )
                 for path, relations in sub_paths:
                     paths.append(([source_uuid] + path, [rel] + relations))
 
@@ -161,7 +175,7 @@ class ProbabilisticKnowledgeGraph:
         k: int = 5,
         max_depth: int = 6,
         at_time: Optional[float] = None,
-        allowed_relations: Optional[List[str]] = None
+        allowed_relations: Optional[List[str]] = None,
     ) -> List[Tuple[List[str], List[Relation], float]]:
         """Finds top-k highest probability paths using Best-First Search (Dijkstra-style).
 
@@ -208,7 +222,15 @@ class ProbabilisticKnowledgeGraph:
 
                 # Next probability factors in target node confidence AND relation confidence
                 next_prob = prob * self.get_node_confidence(next_node) * rel.confidence
-                heapq.heappush(pq, (-next_prob, next_node, path_nodes + [next_node], path_relations + [rel]))
+                heapq.heappush(
+                    pq,
+                    (
+                        -next_prob,
+                        next_node,
+                        path_nodes + [next_node],
+                        path_relations + [rel],
+                    ),
+                )
 
         return completed_paths
 
@@ -220,7 +242,7 @@ class ProbabilisticKnowledgeGraph:
         min_probability: float = 0.05,
         at_time: Optional[float] = None,
         allowed_relations: Optional[List[str]] = None,
-        explain: True = True
+        explain: True = True,
     ) -> InferenceResult:
         """Queries the PKG using exact dependency-aware probability, filtering and returning trace explanations."""
         start_time = time.time()
@@ -232,7 +254,7 @@ class ProbabilisticKnowledgeGraph:
             k=20,  # Max candidate paths for exact evaluation
             max_depth=max_depth,
             at_time=at_time,
-            allowed_relations=allowed_relations
+            allowed_relations=allowed_relations,
         )
 
         visited_nodes = set()
@@ -279,7 +301,9 @@ class ProbabilisticKnowledgeGraph:
             # Case 2: Edge is False (remove paths containing this edge)
             paths_false = [p for p in paths if best_edge not in p]
 
-            return p_edge * compute_exact_probability(paths_true) + (1.0 - p_edge) * compute_exact_probability(paths_false)
+            return p_edge * compute_exact_probability(paths_true) + (
+                1.0 - p_edge
+            ) * compute_exact_probability(paths_false)
 
         # Base nodes probability discount
         nodes_factor = 1.0
@@ -294,13 +318,15 @@ class ProbabilisticKnowledgeGraph:
             best_path = raw_paths[0][0]
 
         # Build Explanation
-        edge_confidences_str = {f"{k[0]} --[{k[2]}]--> {k[1]}": v for k, v in edge_probs.items()}
-        
+        edge_confidences_str = {
+            f"{k[0]} --[{k[2]}]--> {k[1]}": v for k, v in edge_probs.items()
+        }
+
         explanation_lines = [
             f"Query: {source_uuid} to {target_uuid}",
             f"Combined Exact Probability (with Node Discount): {combined_prob:.4f}",
             f"Paths evaluated: {len(paths_nodes)}",
-            "Individual Path Traces:"
+            "Individual Path Traces:",
         ]
         for i, p in enumerate(paths_nodes, 1):
             explanation_lines.append(f" {i}. {' -> '.join(p)}")
@@ -310,7 +336,7 @@ class ProbabilisticKnowledgeGraph:
             edge_confidences=edge_confidences_str,
             combined_probability=combined_prob,
             visited_nodes=sorted(list(visited_nodes)),
-            explanation_text="\n".join(explanation_lines)
+            explanation_text="\n".join(explanation_lines),
         )
 
         return InferenceResult(
@@ -319,5 +345,5 @@ class ProbabilisticKnowledgeGraph:
             best_path=best_path,
             explanation=explanation,
             visited_nodes=sorted(list(visited_nodes)),
-            computation_time=time.time() - start_time
+            computation_time=time.time() - start_time,
         )

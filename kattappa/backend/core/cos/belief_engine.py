@@ -5,16 +5,22 @@ ContradictionDetector, TruthDependencyTracker, and BeliefEngine,
 stabilized and refined with recursive propagation, cycles detection,
 explainability APIs, and sensor likelihood ratio updates.
 """
+
 from __future__ import annotations
 
 import copy
 import logging
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from backend.core.cos.state_representation import BeliefState, Evidence, EvidenceSource, ObservedState, PropertyValue
+from backend.core.cos.state_representation import (
+    BeliefState,
+    Evidence,
+    ObservedState,
+    PropertyValue,
+)
 from backend.core.logger import log_event
 
 logger = logging.getLogger(__name__)
@@ -23,6 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Contradiction:
     """Represents a first-class contradiction object inside the BMS."""
+
     contradiction_id: str
     entity_uuid: str
     property_name: str
@@ -31,7 +38,9 @@ class Contradiction:
     incoming_value: Any
     incoming_confidence: float
     timestamp: float
-    status: str = "OPEN"  # OPEN, UNDER_REVIEW, AUTO_RESOLVED, HUMAN_RESOLVED, STALE, ARCHIVED
+    status: str = (
+        "OPEN"  # OPEN, UNDER_REVIEW, AUTO_RESOLVED, HUMAN_RESOLVED, STALE, ARCHIVED
+    )
 
 
 class EvidenceFusion:
@@ -50,7 +59,9 @@ class EvidenceFusion:
             return 1.0 if log_odds > 0 else 0.0
 
     @classmethod
-    def fuse_properties(cls, prior: PropertyValue, incoming: PropertyValue) -> PropertyValue:
+    def fuse_properties(
+        cls, prior: PropertyValue, incoming: PropertyValue
+    ) -> PropertyValue:
         """Fuses incoming observation with prior belief using Bayesian Likelihood Ratios with Correlation Discounting."""
         R = incoming.source.reliability
         C = incoming.confidence
@@ -61,10 +72,15 @@ class EvidenceFusion:
             correlation_id = incoming.evidence_history[0].correlation_id
 
         if correlation_id:
-            has_correlation = any(e.correlation_id == correlation_id for e in prior.evidence_history)
+            has_correlation = any(
+                e.correlation_id == correlation_id for e in prior.evidence_history
+            )
             if has_correlation:
                 R = R * 0.5  # Halve the reliability (diminishing returns)
-                log_event("correlation_detected", f"Correlated evidence source discount applied for correlation ID: {correlation_id}")
+                log_event(
+                    "correlation_detected",
+                    f"Correlated evidence source discount applied for correlation ID: {correlation_id}",
+                )
 
         # 2. Freshness Decay of Prior Confidence
         elapsed = max(0.0, incoming.timestamp - prior.timestamp)
@@ -87,7 +103,7 @@ class EvidenceFusion:
             LR = p_miss / max(0.001, p_match)
             lo_new = lo_prior + math.log(max(0.01, min(100.0, LR)))
             fused_prob = cls._to_probability(lo_new)
-            
+
             # If confidence drops below 0.50, we switch active value to the incoming one
             if fused_prob < 0.50:
                 fused_value = incoming.value
@@ -102,7 +118,7 @@ class EvidenceFusion:
             confidence=incoming.confidence,
             source=copy.deepcopy(incoming.source),
             timestamp=incoming.timestamp,
-            correlation_id=correlation_id
+            correlation_id=correlation_id,
         )
 
         return PropertyValue(
@@ -112,7 +128,8 @@ class EvidenceFusion:
             timestamp=max(prior.timestamp, incoming.timestamp),
             variance=(prior.variance + incoming.variance) / 2.0,
             history=[prior.clone()] + [h.clone() for h in prior.history],
-            evidence_history=[new_ev] + [copy.deepcopy(e) for e in prior.evidence_history]
+            evidence_history=[new_ev]
+            + [copy.deepcopy(e) for e in prior.evidence_history],
         )
 
 
@@ -128,13 +145,16 @@ class ContradictionDetector:
         entity_uuid: str,
         prop_name: str,
         prior: PropertyValue,
-        incoming: PropertyValue
+        incoming: PropertyValue,
     ) -> Optional[Contradiction]:
         """Identifies conflicting assertions with high confidence scores."""
         if prior.value == incoming.value:
             return None
 
-        if prior.confidence >= self.confidence_threshold and incoming.confidence >= self.confidence_threshold:
+        if (
+            prior.confidence >= self.confidence_threshold
+            and incoming.confidence >= self.confidence_threshold
+        ):
             conflict = Contradiction(
                 contradiction_id=f"conflict_{int(time.time() * 1000)}",
                 entity_uuid=entity_uuid,
@@ -143,12 +163,12 @@ class ContradictionDetector:
                 prior_confidence=prior.confidence,
                 incoming_value=incoming.value,
                 incoming_confidence=incoming.confidence,
-                timestamp=time.time()
+                timestamp=time.time(),
             )
             self.contradictions.append(conflict)
             log_event(
-                "contradiction_detected", 
-                f"Conflict on {entity_uuid}.{prop_name}: '{prior.value}' (conf={prior.confidence}) vs '{incoming.value}' (conf={incoming.confidence})"
+                "contradiction_detected",
+                f"Conflict on {entity_uuid}.{prop_name}: '{prior.value}' (conf={prior.confidence}) vs '{incoming.value}' (conf={incoming.confidence})",
             )
             return conflict
         return None
@@ -162,22 +182,21 @@ class TruthDependencyTracker:
         self.dependencies: Dict[Tuple[str, str], Set[Tuple[str, str]]] = {}
 
     def register_dependency(
-        self,
-        child_uuid: str,
-        child_prop: str,
-        parent_uuid: str,
-        parent_prop: str
+        self, child_uuid: str, child_prop: str, parent_uuid: str, parent_prop: str
     ) -> None:
         key = (parent_uuid, parent_prop)
         self.dependencies.setdefault(key, set()).add((child_uuid, child_prop))
-        log_event("dependency_registered", f"Dependency: {child_uuid}.{child_prop} depends on {parent_uuid}.{parent_prop}")
+        log_event(
+            "dependency_registered",
+            f"Dependency: {child_uuid}.{child_prop} depends on {parent_uuid}.{parent_prop}",
+        )
 
     def propagate_change(
         self,
         state: BeliefState,
         parent_uuid: str,
         parent_prop: str,
-        visited: Optional[Set[Tuple[str, str]]] = None
+        visited: Optional[Set[Tuple[str, str]]] = None,
     ) -> None:
         """Decays or bounds child properties recursively, handling circular cycles."""
         if visited is None:
@@ -185,7 +204,10 @@ class TruthDependencyTracker:
 
         key = (parent_uuid, parent_prop)
         if key in visited:
-            log_event("circular_dependency_detected", f"Cycle hit at parent {parent_uuid}.{parent_prop}. Halting propagation.")
+            log_event(
+                "circular_dependency_detected",
+                f"Cycle hit at parent {parent_uuid}.{parent_prop}. Halting propagation.",
+            )
             return
 
         visited.add(key)
@@ -210,13 +232,14 @@ class TruthDependencyTracker:
                     confidence=updated_confidence,
                     source=parent_val.source,
                     timestamp=time.time(),
-                    history=[child_val.clone()] + [h.clone() for h in child_val.history],
-                    evidence_history=list(child_val.evidence_history)
+                    history=[child_val.clone()]
+                    + [h.clone() for h in child_val.history],
+                    evidence_history=list(child_val.evidence_history),
                 )
                 state.set_property(child_uuid, child_prop, updated_child)
                 log_event(
-                    "dependency_bounded", 
-                    f"Propagated bound to {child_uuid}.{child_prop} (conf={updated_confidence:.2f})"
+                    "dependency_bounded",
+                    f"Propagated bound to {child_uuid}.{child_prop} (conf={updated_confidence:.2f})",
                 )
                 # Recursively propagate downstream updates
                 self.propagate_change(state, child_uuid, child_prop, visited)
@@ -246,7 +269,7 @@ class BeliefEngine:
                         value=incoming_pv.value,
                         confidence=incoming_pv.confidence,
                         source=copy.deepcopy(incoming_pv.source),
-                        timestamp=incoming_pv.timestamp
+                        timestamp=incoming_pv.timestamp,
                     )
                     fresh_pv.evidence_history.append(fresh_ev)
                     self.state.set_property(entity_id, prop_name, fresh_pv)
@@ -263,8 +286,9 @@ class BeliefEngine:
                             confidence=0.50,
                             source=incoming_pv.source,
                             timestamp=time.time(),
-                            history=[prior_pv.clone()] + [h.clone() for h in prior_pv.history],
-                            evidence_history=list(prior_pv.evidence_history)
+                            history=[prior_pv.clone()]
+                            + [h.clone() for h in prior_pv.history],
+                            evidence_history=list(prior_pv.evidence_history),
                         )
                     else:
                         # Standard Bayesian Likelihood Ratio evidence fusion
@@ -273,7 +297,9 @@ class BeliefEngine:
                     self.state.set_property(entity_id, prop_name, fused_pv)
 
                 # Propagate dependency changes down the truth tree
-                self.dependency_tracker.propagate_change(self.state, entity_id, prop_name)
+                self.dependency_tracker.propagate_change(
+                    self.state, entity_id, prop_name
+                )
 
         return detected_contradictions
 
@@ -287,7 +313,7 @@ class BeliefEngine:
             f"Belief: {entity_uuid}.{prop_name} = '{val.value}'",
             f"Confidence: {val.confidence:.4f} (variance={val.variance:.2f})",
             f"Last updated: {val.timestamp}",
-            "Contributing Evidence History:"
+            "Contributing Evidence History:",
         ]
         if not val.evidence_history:
             lines.append(" - No explicit evidence recorded.")

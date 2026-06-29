@@ -2,20 +2,23 @@
 
 Manages scheduler ticks, interrupts, budget allocations, and safety gates.
 """
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 from backend.core.logger import log_event
 from backend.core.orchestrator.base import Task
+
 
 class InterruptType(Enum):
     USER_INTERVENTION = "USER_INTERVENTION"
     SAFETY_VIOLATION = "SAFETY_VIOLATION"
     OUT_OF_MEMORY = "OUT_OF_MEMORY"
     SYSTEM_ERROR = "SYSTEM_ERROR"
+
 
 @dataclass
 class Interrupt:
@@ -24,10 +27,12 @@ class Interrupt:
     message: str
     timestamp: float = field(default_factory=time.time)
 
+
 @dataclass
 class Budget:
     max_latency_seconds: float
     max_tokens: int
+
 
 class ExecutiveController:
     """Central OS runtime tick and interrupt coordinator singleton."""
@@ -57,7 +62,9 @@ class ExecutiveController:
             "act": [],
             "learn": [],
         }
-        self._interrupt_handlers: Dict[InterruptType, List[Callable[[Interrupt], None]]] = {}
+        self._interrupt_handlers: Dict[
+            InterruptType, List[Callable[[Interrupt], None]]
+        ] = {}
         self._initialized = True
 
     def start(self, tick_rate_ms: int = 100) -> None:
@@ -70,7 +77,10 @@ class ExecutiveController:
             self._running = True
             self._thread = threading.Thread(target=self._loop, daemon=True)
             self._thread.start()
-            log_event("executive_controller_started", f"Loop started with tick_rate={tick_rate_ms}ms")
+            log_event(
+                "executive_controller_started",
+                {"message": f"Loop started with tick_rate={tick_rate_ms}ms"},
+            )
 
     def stop(self) -> None:
         """Stops the scheduler loop thread gracefully."""
@@ -82,7 +92,7 @@ class ExecutiveController:
         if self._thread:
             self._thread.join(timeout=2.0)
             self._thread = None
-        log_event("executive_controller_stopped", "Loop stopped")
+        log_event("executive_controller_stopped", {"message": "Loop stopped"})
 
     def trigger_interrupt(self, interrupt: Interrupt) -> None:
         """Registers a high-priority interrupt, sorting it for immediate handling."""
@@ -92,7 +102,7 @@ class ExecutiveController:
             self._active_interrupts.sort(key=lambda x: x.priority, reverse=True)
             log_event(
                 "executive_interrupt_triggered",
-                f"Interrupt {interrupt.type.value} registered with priority {interrupt.priority}"
+                {"message": f"Interrupt {interrupt.type.value} registered with priority {interrupt.priority}"},
             )
 
     def register_stage_handler(self, stage: str, handler: Callable[[], None]) -> None:
@@ -101,7 +111,9 @@ class ExecutiveController:
             if stage in self._stage_handlers:
                 self._stage_handlers[stage].append(handler)
 
-    def register_interrupt_handler(self, type: InterruptType, handler: Callable[[Interrupt], None]) -> None:
+    def register_interrupt_handler(
+        self, type: InterruptType, handler: Callable[[Interrupt], None]
+    ) -> None:
         """Registers a callback for an interrupt class."""
         with self._lock:
             self._interrupt_handlers.setdefault(type, []).append(handler)
@@ -117,13 +129,15 @@ class ExecutiveController:
 
     def handle_interrupt(self, interrupt: Interrupt) -> None:
         """Invokes registered callbacks for the given interrupt type."""
-        log_event("executive_handling_interrupt", f"Handling interrupt {interrupt.type.value}")
+        log_event(
+            "executive_handling_interrupt", {"message": f"Handling interrupt {interrupt.type.value}"}
+        )
         handlers = self._interrupt_handlers.get(interrupt.type, [])
         for handler in handlers:
             try:
                 handler(interrupt)
             except Exception as e:
-                log_event("executive_interrupt_handler_error", f"Handler error: {e}")
+                log_event("executive_interrupt_handler_error", {"message": f"Handler error: {e}"})
 
     def process_tick(self) -> None:
         """Executes a single tick iteration, checking interrupts and processing stages."""
@@ -141,7 +155,7 @@ class ExecutiveController:
                     try:
                         handler()
                     except Exception as e:
-                        log_event("executive_stage_error", f"Stage {stage} error: {e}")
+                        log_event("executive_stage_error", {"message": f"Stage {stage} error: {e}"})
 
     def _loop(self) -> None:
         while not self._stop_event.is_set():
@@ -149,8 +163,8 @@ class ExecutiveController:
             try:
                 self.process_tick()
             except Exception as e:
-                log_event("executive_loop_tick_error", str(e))
-            
+                log_event("executive_loop_tick_error", {"message": str(e)})
+
             elapsed = time.time() - start_time
             sleep_time = (self._tick_rate_ms / 1000.0) - elapsed
             if sleep_time > 0:

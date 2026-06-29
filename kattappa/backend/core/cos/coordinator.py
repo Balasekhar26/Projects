@@ -3,19 +3,24 @@
 Coordinates simulation branching, Proposal Event generation, and Bayesian updates
 propagated back to the Main World.
 """
+
 from __future__ import annotations
 
 import copy
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from backend.core.cos.belief_engine import BeliefEngine
 from backend.core.cos.belief_revision import BeliefRevisionEngine
-from backend.core.cos.entity_system import AliasRegistry, Entity, EventLog, Relation
-from backend.core.cos.state_representation import BeliefState, BeliefStatus, ObservedState, PropertyValue
+from backend.core.cos.entity_system import AliasRegistry, Entity, EventLog
+from backend.core.cos.state_representation import (
+    BeliefState,
+    ObservedState,
+    PropertyValue,
+)
 from backend.core.logger import log_event
 
 logger = logging.getLogger(__name__)
@@ -24,6 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TransitionResult:
     """Represents predicted outcomes of a simulated transition action."""
+
     predicted_states: Dict[str, Any]
     success: bool
     effects: Dict[str, Any]
@@ -58,16 +64,23 @@ class WorldModelCoordinator:
             "human": {},
             "self": {},
             "economic": {},
-            "temporal": {}
+            "temporal": {},
         }
-        cls._belief_states["main"] = BeliefState(state_id="main_belief", branch_id="main", timestamp=time.time())
-        cls._revision_engines["main"] = BeliefRevisionEngine(BeliefEngine(cls._belief_states["main"]))
-        
+        cls._belief_states["main"] = BeliefState(
+            state_id="main_belief", branch_id="main", timestamp=time.time()
+        )
+        cls._revision_engines["main"] = BeliefRevisionEngine(
+            BeliefEngine(cls._belief_states["main"])
+        )
+
         from backend.core.cos.pkg import ProbabilisticKnowledgeGraph
+
         cls._pkgs["main"] = ProbabilisticKnowledgeGraph()
 
     @classmethod
-    def get_entity(cls, domain: str, entity_id: str, branch_id: Optional[str] = None) -> Optional[Entity]:
+    def get_entity(
+        cls, domain: str, entity_id: str, branch_id: Optional[str] = None
+    ) -> Optional[Entity]:
         """Retrieve Entity from specified domain/branch. Thread-safe."""
         branch = branch_id if branch_id is not None else "main"
         domain_lower = domain.lower()
@@ -79,7 +92,9 @@ class WorldModelCoordinator:
         return cls._branches[branch].get(domain_lower, {}).get(resolved_id)
 
     @classmethod
-    def register_entity(cls, domain: str, entity: Entity, branch_id: Optional[str] = None) -> None:
+    def register_entity(
+        cls, domain: str, entity: Entity, branch_id: Optional[str] = None
+    ) -> None:
         """Register/insert an entity into a specific branch and domain."""
         branch = branch_id if branch_id is not None else "main"
         domain_lower = domain.lower()
@@ -91,16 +106,17 @@ class WorldModelCoordinator:
                 "human": {},
                 "self": {},
                 "economic": {},
-                "temporal": {}
+                "temporal": {},
             }
         if branch not in cls._pkgs:
             from backend.core.cos.pkg import ProbabilisticKnowledgeGraph
+
             cls._pkgs[branch] = ProbabilisticKnowledgeGraph()
 
         # Resolve entity_id and alias
         AliasRegistry.register_alias(entity.canonical_id, entity.entity_id)
         cls._branches[branch].setdefault(domain_lower, {})[entity.entity_id] = entity
-        
+
         # Sync immediately
         cls.sync_branch_to_pkg(branch)
 
@@ -109,7 +125,7 @@ class WorldModelCoordinator:
         """Synchronizes branch entity states and relations into the PKG."""
         if branch_id not in cls._branches or branch_id not in cls._pkgs:
             return
-        
+
         pkg = cls._pkgs[branch_id]
         # Re-register all nodes and edges
         for domain, entities in cls._branches[branch_id].items():
@@ -126,7 +142,7 @@ class WorldModelCoordinator:
             raise ValueError(f"Parent branch '{parent}' does not exist.")
 
         new_branch = f"branch_{uuid.uuid4().hex[:8]}"
-        
+
         # Deep copy all entities from parent to child branch
         cls._branches[new_branch] = copy.deepcopy(cls._branches[parent])
         cls._parent_map[new_branch] = parent
@@ -134,16 +150,23 @@ class WorldModelCoordinator:
         # Setup branch belief state
         cls._belief_states[new_branch] = copy.deepcopy(cls._belief_states[parent])
         cls._belief_states[new_branch].branch_id = new_branch
-        cls._revision_engines[new_branch] = BeliefRevisionEngine(BeliefEngine(cls._belief_states[new_branch]))
-        
+        cls._revision_engines[new_branch] = BeliefRevisionEngine(
+            BeliefEngine(cls._belief_states[new_branch])
+        )
+
         # Copy PKG
         cls._pkgs[new_branch] = copy.deepcopy(cls._pkgs[parent])
 
-        log_event("branch_created", f"Created branch '{new_branch}' stemming from parent '{parent}'")
+        log_event(
+            "branch_created",
+            f"Created branch '{new_branch}' stemming from parent '{parent}'",
+        )
         return new_branch
 
     @classmethod
-    def simulate_action(cls, branch_id: str, action: Dict[str, Any]) -> TransitionResult:
+    def simulate_action(
+        cls, branch_id: str, action: Dict[str, Any]
+    ) -> TransitionResult:
         """Run simulated transition step on branch. Returns TransitionResult."""
         if branch_id not in cls._branches:
             raise ValueError(f"Branch '{branch_id}' does not exist.")
@@ -168,8 +191,13 @@ class WorldModelCoordinator:
         else:
             success = False
 
-        log_event("action_simulated", f"Simulated '{action_type}' on '{branch_id}' (success={success})")
-        return TransitionResult(predicted_states=predicted_states, success=success, effects=effects)
+        log_event(
+            "action_simulated",
+            f"Simulated '{action_type}' on '{branch_id}' (success={success})",
+        )
+        return TransitionResult(
+            predicted_states=predicted_states, success=success, effects=effects
+        )
 
     @classmethod
     def propose_merge(cls, branch_id: str) -> List[str]:
@@ -205,12 +233,15 @@ class WorldModelCoordinator:
                         timestamp=time.time(),
                         event_type="simulation_delta",
                         properties_delta=properties_delta,
-                        source=branch_id
+                        source=branch_id,
                     )
                     entity.history.append(log)
                     proposed_event_ids.append(event_id)
 
-        log_event("merge_proposed", f"Branch '{branch_id}' proposed {len(proposed_event_ids)} candidate events.")
+        log_event(
+            "merge_proposed",
+            f"Branch '{branch_id}' proposed {len(proposed_event_ids)} candidate events.",
+        )
         return proposed_event_ids
 
     @classmethod
@@ -224,8 +255,10 @@ class WorldModelCoordinator:
         current_branch = cls._branches[branch_id]
 
         # Formulate ObservedState update from branch differences
-        obs = ObservedState(state_id=f"merge_{branch_id}", branch_id=parent, timestamp=time.time())
-        
+        obs = ObservedState(
+            state_id=f"merge_{branch_id}", branch_id=parent, timestamp=time.time()
+        )
+
         has_changes = False
         for domain, entities in current_branch.items():
             for entity_id, entity in entities.items():
@@ -236,12 +269,17 @@ class WorldModelCoordinator:
                         # Construct a PropertyValue to submit as evidence
                         # We use source reliability = 0.85 since it comes from a simulation
                         from backend.core.cos.state_representation import EvidenceSource
-                        src_sim = EvidenceSource(name=f"sim_{branch_id}", source_type="simulation", reliability=0.85)
-                        
+
+                        src_sim = EvidenceSource(
+                            name=f"sim_{branch_id}",
+                            source_type="simulation",
+                            reliability=0.85,
+                        )
+
                         pv_incoming = PropertyValue(
                             value=v,
                             confidence=0.90,  # Simulation confidence
-                            source=src_sim
+                            source=src_sim,
                         )
                         obs.set_property(entity_id, k, pv_incoming)
                         has_changes = True
@@ -258,13 +296,17 @@ class WorldModelCoordinator:
                     # Sync parent branch entities with updated belief states
                     for entity_id, props in obs.entity_states.items():
                         for k in props.keys():
-                            updated_pv = rev_engine.belief_engine.state.get_property(entity_id, k)
+                            updated_pv = rev_engine.belief_engine.state.get_property(
+                                entity_id, k
+                            )
                             if updated_pv:
                                 # Find entity in parent branch and set property
                                 for d in parent_branch.keys():
                                     if entity_id in parent_branch[d]:
-                                        parent_branch[d][entity_id].properties[k] = updated_pv.value
-                    
+                                        parent_branch[d][entity_id].properties[
+                                            k
+                                        ] = updated_pv.value
+
                     rev_engine.tms.commit()
                     # Sync to PKG
                     cls.sync_branch_to_pkg(parent)
@@ -273,7 +315,10 @@ class WorldModelCoordinator:
                     rev_engine.tms.rollback(rev_engine.belief_engine.state)
                     return False
 
-        log_event("branch_merged", f"Branch '{branch_id}' deltas successfully fused back into parent '{parent}' using Bayesian updates.")
+        log_event(
+            "branch_merged",
+            f"Branch '{branch_id}' deltas successfully fused back into parent '{parent}' using Bayesian updates.",
+        )
         return True
 
 

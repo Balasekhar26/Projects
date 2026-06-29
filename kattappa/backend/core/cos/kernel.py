@@ -4,6 +4,7 @@ Acts as the central capability and routing kernel for Kattappa, coordinating
 all system buses (Memory, Goals, Events, Context, Tools, Agents) to prevent
 subsystem coupling.
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,7 +28,9 @@ class MemoryBus:
         session_id: Optional[str] = None,
         limit: int = 10,
     ) -> List[Any]:
-        return MEMORY_BUS.read(query, memory_types=memory_types, session_id=session_id, limit=limit)
+        return MEMORY_BUS.read(
+            query, memory_types=memory_types, session_id=session_id, limit=limit
+        )
 
     def write(
         self,
@@ -36,7 +39,9 @@ class MemoryBus:
         confidence: float = 1.0,
         verified: bool = False,
     ) -> Any:
-        return MEMORY_BUS.write(memory_type, data, confidence=confidence, verified=verified)
+        return MEMORY_BUS.write(
+            memory_type, data, confidence=confidence, verified=verified
+        )
 
 
 class GoalBus:
@@ -62,17 +67,21 @@ class GoalBus:
             description=description,
             status=status,
             progress=progress,
-            metadata=metadata
+            metadata=metadata,
         )
         return node.id
 
-    def update_status(self, node_id: str, status: str, progress: Optional[float] = None) -> bool:
+    def update_status(
+        self, node_id: str, status: str, progress: Optional[float] = None
+    ) -> bool:
         from backend.core.goal_hierarchy import GoalHierarchy
+
         db = GoalHierarchy()
         return db.update_node(node_id, status=status, progress=progress)
 
     def get_progress(self, node_id: str) -> float:
         from backend.core.goal_hierarchy import GoalHierarchy
+
         node = GoalHierarchy.get_node(node_id)
         if node:
             return node.progress
@@ -100,6 +109,7 @@ class ContextBus:
 
     def build_context(self, session_id: str, query: str) -> Dict[str, Any]:
         from backend.core.context_manager import ContextManager
+
         return ContextManager.build_execution_context(session_id, query)
 
 
@@ -109,8 +119,7 @@ class ToolBus:
     def execute(self, tool_name: str, args: Dict[str, Any]) -> Any:
         # Executes tool and logs reliability metrics
         from backend.core.tool_reliability import ToolReliabilityTracker
-        start_time = threading.Event() # dummy event to start timer
-        start_ts = threading.main_thread() # dummy thread
+
         # In a real system, imports ToolExecutorAgent
         # Here we mock tool reliability log
         success = True
@@ -128,7 +137,9 @@ class ToolBus:
             raise e
         finally:
             try:
-                ToolReliabilityTracker.record_invocation(tool_name, success, latency, error_msg)
+                ToolReliabilityTracker.record_invocation(
+                    tool_name, success, latency, error_msg
+                )
             except Exception:
                 pass
 
@@ -138,10 +149,12 @@ class AgentBus:
 
     def get_agent(self, agent_name: str) -> Any:
         from backend.core.orchestrator.registry import ORCHESTRATOR_REGISTRY
+
         return ORCHESTRATOR_REGISTRY.get(agent_name)
 
     def schedule_task(self, task: Any, context: Any) -> Any:
         from backend.core.orchestrator.scheduler import TaskScheduler
+
         # Schedule via default task scheduler
         scheduler = TaskScheduler()
         return scheduler._execute_task(task, "direct-kernel-task", context)
@@ -163,6 +176,7 @@ class CognitiveKernel:
         if hasattr(self, "_initialized"):
             return
         from backend.core.cos.executive_controller import CONTROLLER
+
         self.memory = MemoryBus()
         self.goals = GoalBus()
         self.events = EventBus()
