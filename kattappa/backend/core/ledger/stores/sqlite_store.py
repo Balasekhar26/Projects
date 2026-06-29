@@ -163,6 +163,62 @@ class SQLiteLedgerStore(LedgerStore):
             conn.close()
             return [self._row_to_event(r) for r in rows]
 
+    def ancestors(self, event_id: str) -> List[LedgerEvent]:
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            visited = set()
+            ancestor_events = []
+
+            def dfs(eid: str) -> None:
+                cursor.execute(
+                    "SELECT parent_event_ids FROM events WHERE event_id = ?", (eid,)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return
+                parent_ids = json.loads(row[0])
+                for pid in parent_ids:
+                    if pid not in visited:
+                        visited.add(pid)
+                        cursor.execute(
+                            "SELECT * FROM events WHERE event_id = ?", (pid,)
+                        )
+                        prow = cursor.fetchone()
+                        if prow:
+                            ancestor_events.append(self._row_to_event(prow))
+                        dfs(pid)
+
+            dfs(event_id)
+            conn.close()
+            ancestor_events.sort(key=lambda x: x.timestamp_utc)
+            return ancestor_events
+
+    def descendants(self, event_id: str) -> List[LedgerEvent]:
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            visited = set()
+            descendant_events = []
+
+            def dfs(eid: str) -> None:
+                cursor.execute(
+                    "SELECT * FROM events WHERE parent_event_ids LIKE ?",
+                    (f'%"{eid}"%',),
+                )
+                prows = cursor.fetchall()
+                for prow in prows:
+                    child = self._row_to_event(prow)
+                    if child.event_id not in visited:
+                        visited.add(child.event_id)
+                        descendant_events.append(child)
+                        dfs(child.event_id)
+
+            dfs(event_id)
+            conn.close()
+            descendant_events.sort(key=lambda x: x.timestamp_utc)
+            return descendant_events
+
     def query(self, filters: Dict[str, Any]) -> List[LedgerEvent]:
         with self._lock:
             conn = self._get_connection()
@@ -172,17 +228,42 @@ class SQLiteLedgerStore(LedgerStore):
             if filters:
                 conds = []
                 for k, v in filters.items():
-                    if k == "event_type" and isinstance(v, EventType):
-                        conds.append(f"{k} = ?")
-                        params.append(v.value)
+                    if k == "event_type":
+                        conds.append("event_type = ?")
+                        params.append(v.value if isinstance(v, EventType) else v)
+                    elif k == "min_confidence":
+                        conds.append("confidence >= ?")
+                        params.append(v)
+                    elif k == "max_confidence":
+                        conds.append("confidence <= ?")
+                        params.append(v)
+                    elif k == "start_time":
+                        conds.append("timestamp_utc >= ?")
+                        params.append(v)
+                    elif k == "end_time":
+                        conds.append("timestamp_utc <= ?")
+                        params.append(v)
+                    elif k == "metadata":
+                        # Post-filtered in python
+                        pass
                     else:
                         conds.append(f"{k} = ?")
                         params.append(v)
-                query_str += " WHERE " + " AND ".join(conds)
+                if conds:
+                    query_str += " WHERE " + " AND ".join(conds)
             cursor.execute(query_str, params)
             rows = cursor.fetchall()
             conn.close()
-            return [self._row_to_event(r) for r in rows]
+            events = [self._row_to_event(r) for r in rows]
+
+            if "metadata" in filters and isinstance(filters["metadata"], dict):
+                meta_filter = filters["metadata"]
+                events = [
+                    e
+                    for e in events
+                    if all(e.metadata.get(mk) == mv for mk, mv in meta_filter.items())
+                ]
+            return events
 
     def save_snapshot(self, snapshot: LedgerSnapshot) -> None:
         with self._lock:

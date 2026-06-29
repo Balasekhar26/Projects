@@ -39,14 +39,80 @@ class MemoryLedgerStore(LedgerStore):
                 return []
             return [e for e in self._events if e.event_id in target.parent_event_ids]
 
+    def ancestors(self, event_id: str) -> List[LedgerEvent]:
+        with self._lock:
+            visited = set()
+            ancestor_events = []
+
+            def dfs(eid: str) -> None:
+                event = None
+                for e in self._events:
+                    if e.event_id == eid:
+                        event = e
+                        break
+                if not event:
+                    return
+                for pid in event.parent_event_ids:
+                    if pid not in visited:
+                        visited.add(pid)
+                        pevent = None
+                        for e in self._events:
+                            if e.event_id == pid:
+                                pevent = e
+                                break
+                        if pevent:
+                            ancestor_events.append(pevent)
+                        dfs(pid)
+
+            dfs(event_id)
+            ancestor_events.sort(key=lambda x: x.timestamp_utc)
+            return ancestor_events
+
+    def descendants(self, event_id: str) -> List[LedgerEvent]:
+        with self._lock:
+            visited = set()
+            descendant_events = []
+
+            def dfs(eid: str) -> None:
+                children_events = [e for e in self._events if eid in e.parent_event_ids]
+                for child in children_events:
+                    if child.event_id not in visited:
+                        visited.add(child.event_id)
+                        descendant_events.append(child)
+                        dfs(child.event_id)
+
+            dfs(event_id)
+            descendant_events.sort(key=lambda x: x.timestamp_utc)
+            return descendant_events
+
     def query(self, filters: Dict[str, Any]) -> List[LedgerEvent]:
+        from backend.core.ledger.models.enums import EventType
+
         with self._lock:
             results = list(self._events)
             for key, val in filters.items():
                 if not results:
                     break
-                if key == "event_type" and isinstance(val, str):
-                    results = [e for e in results if e.event_type.value == val]
+                if key == "event_type":
+                    if isinstance(val, EventType):
+                        results = [e for e in results if e.event_type == val]
+                    else:
+                        results = [e for e in results if e.event_type.value == val]
+                elif key == "min_confidence":
+                    results = [e for e in results if e.confidence >= val]
+                elif key == "max_confidence":
+                    results = [e for e in results if e.confidence <= val]
+                elif key == "start_time":
+                    results = [e for e in results if e.timestamp_utc >= val]
+                elif key == "end_time":
+                    results = [e for e in results if e.timestamp_utc <= val]
+                elif key == "metadata":
+                    if isinstance(val, dict):
+                        results = [
+                            e
+                            for e in results
+                            if all(e.metadata.get(mk) == mv for mk, mv in val.items())
+                        ]
                 else:
                     results = [e for e in results if getattr(e, key, None) == val]
             return results

@@ -26,6 +26,16 @@ class LedgerStore(ABC):
         pass
 
     @abstractmethod
+    def ancestors(self, event_id: str) -> List[LedgerEvent]:
+        """Retrieves all direct and indirect ancestors of the target event (ordered oldest to newest)."""
+        pass
+
+    @abstractmethod
+    def descendants(self, event_id: str) -> List[LedgerEvent]:
+        """Retrieves all direct and indirect descendants of the target event (ordered oldest to newest)."""
+        pass
+
+    @abstractmethod
     def query(self, filters: Dict[str, Any]) -> List[LedgerEvent]:
         """Queries events matching specific key-value filters (e.g. goal_id, subsystem)."""
         pass
