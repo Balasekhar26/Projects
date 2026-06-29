@@ -89,3 +89,55 @@ def get_history(belief_id: str) -> Dict[str, Any]:
     coord = BeliefCoordinator.get_instance()
     history = coord.store.get_belief_history(belief_id)
     return {"status": "ok", "belief_id": belief_id, "history": history}
+
+
+# ---------------------------------------------------------------------------
+# Bayesian Belief Engine Endpoints (Program 5C)
+# ---------------------------------------------------------------------------
+
+class EvidenceUpdateRequest(BaseModel):
+    node_id: str = Field(..., description="Belief ID to apply evidence to")
+    value: bool = Field(..., description="Observed truth value")
+
+
+@router.post("/bayesian/evidence", summary="Set evidence state for a belief variable")
+def set_bayesian_evidence(req: EvidenceUpdateRequest) -> Dict[str, Any]:
+    """Sets observed evidence state for a belief node in the Bayesian engine."""
+    from backend.core.beliefs.bayesian_coordinator import BayesianBeliefCoordinator
+    coord = BeliefCoordinator.get_instance()
+    bayesian_coord = BayesianBeliefCoordinator(coord.store)
+    bayesian_coord.build_network_from_store()
+    bayesian_coord.engine.set_evidence(req.node_id, req.value)
+    return {"status": "ok", "evidence": bayesian_coord.engine.evidence}
+
+
+@router.post("/bayesian/clear", summary="Clear all active evidence")
+def clear_bayesian_evidence() -> Dict[str, Any]:
+    """Clears all active evidence states registered in the Bayesian network."""
+    from backend.core.beliefs.bayesian_coordinator import BayesianBeliefCoordinator
+    coord = BeliefCoordinator.get_instance()
+    bayesian_coord = BayesianBeliefCoordinator(coord.store)
+    bayesian_coord.engine.clear_evidence()
+    return {"status": "ok"}
+
+
+@router.get("/bayesian/posterior/{belief_id}", summary="Get posterior probability of a belief")
+def get_bayesian_posterior(belief_id: str) -> Dict[str, Any]:
+    """Computes the posterior probability of the target belief given current evidence states."""
+    from backend.core.beliefs.bayesian_coordinator import BayesianBeliefCoordinator
+    coord = BeliefCoordinator.get_instance()
+    bayesian_coord = BayesianBeliefCoordinator(coord.store)
+    posterior = bayesian_coord.calculate_posterior(belief_id)
+    return {"status": "ok", "belief_id": belief_id, "posterior": posterior}
+
+
+@router.get("/bayesian/explain/{belief_id}", summary="Explain probability shift of a belief")
+def explain_probability_shift(belief_id: str) -> Dict[str, Any]:
+    """Explains how current evidence shifted the probability of the target belief."""
+    from backend.core.beliefs.bayesian_coordinator import BayesianBeliefCoordinator
+    coord = BeliefCoordinator.get_instance()
+    bayesian_coord = BayesianBeliefCoordinator(coord.store)
+    bayesian_coord.build_network_from_store()
+    explanation = bayesian_coord.engine.explain_probability_shift(belief_id)
+    return {"status": "ok", "belief_id": belief_id, "explanation": explanation}
+
