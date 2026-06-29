@@ -509,7 +509,7 @@ export default function App() {
   const [approvingProposalId, setApprovingProposalId] = useState<string | null>(null);
 
   // --- MRAL Step 8.6 States ---
-  const [cognitiveTab, setCognitiveTab] = useState<'observatory' | 'mral'>('observatory');
+  const [cognitiveTab, setCognitiveTab] = useState<'observatory' | 'mral' | 'ledger'>('observatory');
   const [mralTraces, setMralTraces] = useState<any[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedTrace, setSelectedTrace] = useState<any | null>(null);
@@ -517,6 +517,13 @@ export default function App() {
   const [triggeringTestRun, setTriggeringTestRun] = useState(false);
   const [testRunGoal, setTestRunGoal] = useState('Build drone delivery system');
   const [testRunDesc, setTestRunDesc] = useState('Build a drone delivery route. The delivery route limit is 25 km, while drone battery range is 15 km.');
+
+  // --- Execution Ledger & Telemetry States ---
+  const [ledgerEvents, setLedgerEvents] = useState<any[]>([]);
+  const [telemetryReport, setTelemetryReport] = useState<any | null>(null);
+  const [selectedLedgerEventId, setSelectedLedgerEventId] = useState<string | null>(null);
+  const [ledgerEventAncestors, setLedgerEventAncestors] = useState<any[]>([]);
+  const [ledgerEventDescendants, setLedgerEventDescendants] = useState<any[]>([]);
 
   const [triggeringLoop, setTriggeringLoop] = useState(false);
   const [triggerMessage, setTriggerMessage] = useState<string | null>(null);
@@ -636,6 +643,22 @@ export default function App() {
           }
         } catch (e) {
           console.error("Failed to fetch MRAL traces:", e);
+        }
+
+        try {
+          const telRes = await fetch(`${API_BASE}/telemetry/report`);
+          const telData = await telRes.json();
+          setTelemetryReport(telData);
+        } catch (e) {
+          console.error("Failed to fetch telemetry report:", e);
+        }
+
+        try {
+          const evRes = await fetch(`${API_BASE}/telemetry/events`);
+          const evs = await evRes.json();
+          setLedgerEvents(evs);
+        } catch (e) {
+          console.error("Failed to fetch ledger events:", e);
         }
 
         // Fetch Goals V1 and Goal Reflection telemetry
@@ -1182,6 +1205,32 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (!selectedLedgerEventId) {
+      setLedgerEventAncestors([]);
+      setLedgerEventDescendants([]);
+      return;
+    }
+    const fetchEventDAG = async () => {
+      try {
+        const ancRes = await fetch(`${API_BASE}/telemetry/events/${selectedLedgerEventId}/ancestors`);
+        const anc = await ancRes.json();
+        setLedgerEventAncestors(anc);
+      } catch (e) {
+        console.error("Failed to fetch ancestors:", e);
+      }
+
+      try {
+        const descRes = await fetch(`${API_BASE}/telemetry/events/${selectedLedgerEventId}/descendants`);
+        const desc = await descRes.json();
+        setLedgerEventDescendants(desc);
+      } catch (e) {
+        console.error("Failed to fetch descendants:", e);
+      }
+    };
+    fetchEventDAG();
+  }, [selectedLedgerEventId]);
+
   if (loading && !executive) {
     return (
       <div className="loading-state">
@@ -1336,6 +1385,22 @@ export default function App() {
               }}
             >
               🧠 Meta-Cognition Reasoning Audits (MRAL)
+            </button>
+            <button
+              onClick={() => setCognitiveTab('ledger')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: cognitiveTab === 'ledger' ? '#14b8a6' : 'var(--text-secondary)',
+                borderBottom: cognitiveTab === 'ledger' ? '2px solid #14b8a6' : 'none',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: '6px 12px',
+                transition: 'all 0.2s'
+              }}
+            >
+              📜 Execution Ledger & Telemetry
             </button>
           </div>
 
@@ -2547,6 +2612,231 @@ export default function App() {
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '12px', fontStyle: 'italic' }}>
                   No agent executions recorded yet
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cognitiveTab === 'ledger' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {/* Telemetry Metrics Panel */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+            {/* Latency Metrics Card */}
+            <div className="panel" style={{ background: 'var(--bg-glass)', border: '1px solid rgba(20, 184, 166, 0.15)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <h3 style={{ fontSize: '15px', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: '#14b8a6' }}>⏱️</span> Scheduler Step Latency (ms)
+              </h3>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>Step Stage</th>
+                    <th style={{ padding: '8px', textAlign: 'center' }}>Count</th>
+                    <th style={{ padding: '8px', textAlign: 'center' }}>Mean</th>
+                    <th style={{ padding: '8px', textAlign: 'center' }}>p50</th>
+                    <th style={{ padding: '8px', textAlign: 'center' }}>p90</th>
+                    <th style={{ padding: '8px', textAlign: 'center' }}>p99</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {['perceive_latency', 'retrieve_latency', 'reason_latency', 'plan_latency', 'act_latency', 'learn_latency'].map(m => {
+                    const stats = telemetryReport?.[m] || { count: 0, mean: 0, p50: 0, p90: 0, p99: 0 };
+                    return (
+                      <tr key={m}>
+                        <td style={{ padding: '8px', textTransform: 'capitalize', color: '#fff' }}>{m.replace('_latency', '')}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', fontFamily: 'monospace' }}>{stats.count}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', fontFamily: 'monospace' }}>{(stats.mean * 1000).toFixed(1)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', fontFamily: 'monospace' }}>{(stats.p50 * 1000).toFixed(1)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', fontFamily: 'monospace' }}>{(stats.p90 * 1000).toFixed(1)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', fontFamily: 'monospace' }}>{(stats.p99 * 1000).toFixed(1)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Resource & Goal Metrics Card */}
+            <div className="panel" style={{ background: 'var(--bg-glass)', border: '1px solid rgba(20, 184, 166, 0.15)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <h3 style={{ fontSize: '15px', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: '#14b8a6' }}>📊</span> Operational Load & Resource Utilization
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>CPU UTILIZATION</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', margin: '4px 0' }}>
+                    {((telemetryReport?.cpu_usage?.mean ?? 0)).toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Rolling Average</div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>MEMORY UTILIZATION</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', margin: '4px 0' }}>
+                    {((telemetryReport?.memory_usage?.mean ?? 0)).toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Rolling Average</div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>ACTIVE / INTERRUPTED GOALS</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', margin: '4px 0' }}>
+                    {telemetryReport?.active_goals?.sum ?? 0} / {telemetryReport?.interrupted_goals?.sum ?? 0}
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Aggregated Counts</div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>TOKENS CONSUMED</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', margin: '4px 0' }}>
+                    {(telemetryReport?.tokens_consumed?.sum ?? 0).toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Total Rolling Consumption</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Event Timeline & DAG Causality View */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
+            {/* Event Timeline */}
+            <div className="panel" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <h3 style={{ fontSize: '15px', color: '#fff', margin: 0 }}>📜 Execution Event Timeline</h3>
+              <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {ledgerEvents.length === 0 ? (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '12px' }}>
+                    No events logged in the execution ledger.
+                  </div>
+                ) : (
+                  ledgerEvents.map(e => (
+                    <div
+                      key={e.event_id}
+                      onClick={() => setSelectedLedgerEventId(e.event_id)}
+                      style={{
+                        background: selectedLedgerEventId === e.event_id ? 'rgba(20, 184, 166, 0.1)' : 'rgba(255,255,255,0.02)',
+                        border: selectedLedgerEventId === e.event_id ? '1px solid #14b8a6' : '1px solid var(--border)',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{e.event_type}</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{e.event_id}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        <span>Actor: <strong style={{ color: '#fff' }}>{e.actor}</strong> ({e.subsystem})</span>
+                        <span>{new Date(e.timestamp_utc * 1000).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Event Details and DAG Causality Tree */}
+            <div className="panel" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '16px', minHeight: '400px' }}>
+              <h3 style={{ fontSize: '15px', color: '#fff', margin: 0 }}>🔗 Event Details & DAG Causality</h3>
+              {selectedLedgerEventId ? (
+                (() => {
+                  const ev = ledgerEvents.find(e => e.event_id === selectedLedgerEventId);
+                  if (!ev) return <p>Event not found.</p>;
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', background: 'rgba(255,255,255,0.01)', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                        <div style={{ flex: 1, minWidth: '120px' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>GOAL ID</div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'monospace', color: '#fff' }}>{ev.goal_id}</div>
+                        </div>
+                        <div style={{ flex: 1, minWidth: '120px' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>SESSION ID</div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, fontFamily: 'monospace', color: '#fff' }}>{ev.session_id}</div>
+                        </div>
+                        <div style={{ flex: 1, minWidth: '120px' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>CONFIDENCE</div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: ev.confidence >= 0.8 ? 'var(--ok)' : 'var(--warn)' }}>{ev.confidence * 100}%</div>
+                        </div>
+                      </div>
+
+                      {/* Ancestors DAG */}
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#14b8a6', marginBottom: '6px' }}>▲ Transitive Ancestors (Causal Lineage)</div>
+                        {ledgerEventAncestors.length === 0 ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '8px' }}>No ancestors (Root Event)</div>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingLeft: '8px' }}>
+                            {ledgerEventAncestors.map(anc => (
+                              <span
+                                key={anc.event_id}
+                                onClick={() => setSelectedLedgerEventId(anc.event_id)}
+                                style={{
+                                  fontSize: '10px',
+                                  background: 'rgba(20, 184, 166, 0.05)',
+                                  border: '1px solid rgba(20, 184, 166, 0.3)',
+                                  color: '#14b8a6',
+                                  padding: '3px 8px',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {anc.event_type} ({anc.event_id})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Current Event Payload */}
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>📦 Event Payload & Evidence</div>
+                        <pre style={{
+                          background: '#090d16',
+                          border: '1px solid var(--border)',
+                          padding: '12px',
+                          borderRadius: 'var(--radius-sm)',
+                          maxHeight: '120px',
+                          overflowY: 'auto',
+                          fontSize: '11px',
+                          fontFamily: 'monospace',
+                          color: '#a5b4fc',
+                          margin: 0
+                        }}>
+                          {JSON.stringify(ev.payload, null, 2)}
+                        </pre>
+                      </div>
+
+                      {/* Descendants DAG */}
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#3b82f6', marginBottom: '6px' }}>▼ Transitive Descendants (Downstream Impact)</div>
+                        {ledgerEventDescendants.length === 0 ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '8px' }}>No descendants (Leaf Event)</div>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingLeft: '8px' }}>
+                            {ledgerEventDescendants.map(desc => (
+                              <span
+                                key={desc.event_id}
+                                onClick={() => setSelectedLedgerEventId(desc.event_id)}
+                                style={{
+                                  fontSize: '10px',
+                                  background: 'rgba(59, 130, 246, 0.05)',
+                                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                                  color: '#3b82f6',
+                                  padding: '3px 8px',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {desc.event_type} ({desc.event_id})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--text-muted)', fontSize: '12px', fontStyle: 'italic' }}>
+                  Select an event from the timeline to inspect its causal DAG lineage
                 </div>
               )}
             </div>
