@@ -29,6 +29,8 @@ from backend.api.v1.integration import router as integration_router
 from backend.api.v1.stabilization import router as stabilization_router
 from backend.api.v1.context import router as context_router
 from backend.api.v1.inference import router as inference_router
+from backend.api.v1.tool_execution import router as tool_execution_router
+
 
 
 
@@ -100,6 +102,10 @@ app.include_router(context_router)
 
 app.include_router(inference_router, prefix="/api/v1")
 app.include_router(inference_router)
+
+app.include_router(tool_execution_router, prefix="/api/v1")
+app.include_router(tool_execution_router)
+
 
 
 
