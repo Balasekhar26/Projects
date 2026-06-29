@@ -30,6 +30,8 @@ class PermissionManager:
     def verify_permissions(self, tool: ToolDefinition) -> bool:
         """Verifies if the registry permissions contain all required tool permissions."""
         for p in tool.required_permissions:
+            if p == "require_approval":
+                continue
             if p not in self.authorized_permissions:
                 logger.warning(
                     "Permission check failed for tool %s: missing privilege %s",
