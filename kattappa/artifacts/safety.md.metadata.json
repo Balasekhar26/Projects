@@ -1,0 +1,5 @@
+{
+  "summary": "Kattappa Safety and Alignment document outlining runaway loop halts, wisdom engine gating, self-capability boundary checks, and SQLite transactional rollbacks.",
+  "updatedAt": "2026-06-28T17:20:06.012111Z",
+  "userFacing": true
+}

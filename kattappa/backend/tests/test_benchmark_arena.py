@@ -961,6 +961,7 @@ def temp_config_db(monkeypatch, tmp_path):
     cfg = load_config()
     from dataclasses import replace
     new_cfg = replace(cfg, sqlite_path=tmp_path / "kattappa_ai_os.db")
+    monkeypatch.setattr("backend.core.config.load_config", lambda: new_cfg)
     monkeypatch.setattr("backend.core.benchmark_arena.load_config", lambda: new_cfg)
     yield tmp_path
 

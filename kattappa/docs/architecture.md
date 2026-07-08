@@ -18,8 +18,15 @@ Kattappa AI OS is Bala's personal and professional assistant for the installed s
 Runtime flow:
 
 ```text
-Desktop/WebSocket -> FastAPI -> Manager Worker -> Safety -> Specialist Worker -> Evaluator -> Memory
+Desktop/WebSocket -> FastAPI -> Executive Controller (Perceive -> Retrieve -> Reason -> Plan -> Act -> Learn) -> Safety -> Specialist Worker -> Evaluator -> Memory
 ```
+
+Executive Controller & Cognitive OS:
+
+- **Loop & Scheduling Ticks**: Enforces a regular scheduler tick rate (100ms) on a background thread loop.
+- **Tick Lifecycle**: Executes sequential cognitive stages: `Perceive -> Retrieve -> Reason -> Plan -> Act -> Learn` during nominal ticks.
+- **Interrupt Semantics**: Instantly halts normal stage execution upon receipt of a high-priority interrupt (e.g. `USER_INTERVENTION`, `SAFETY_VIOLATION`, `OUT_OF_MEMORY`), switching focus context to handle the interrupt immediately.
+- **Resource Budgeting**: Maps task complexity to token and compute latency limits, timing out operations that overrun their allocations to trigger clean recovery paths.
 
 Worker model:
 

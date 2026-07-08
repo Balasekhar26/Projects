@@ -1,0 +1,5 @@
+{
+  "summary": "K21 Event Model document detailing the event-sourced updates pipeline: Observation -> Event -> Validation -> State Transition -> Belief Update -> Prediction Error -> Memory.",
+  "updatedAt": "2026-06-28T17:37:23.710097Z",
+  "userFacing": true
+}

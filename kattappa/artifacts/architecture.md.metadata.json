@@ -1,0 +1,5 @@
+{
+  "summary": "Kattappa Architecture document detailing the Cognitive Operating System layout, singleton Kernel, buses, workspace registers, and conflict resolution hierarchy.",
+  "updatedAt": "2026-06-28T17:20:02.065152Z",
+  "userFacing": true
+}

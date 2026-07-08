@@ -591,8 +591,13 @@ class CouncilSession:
                 selected.append(security)
                 ranked = [p for p in ranked if p.role != "Security"]
 
-        # Ensure Rama, Shiva, and Kattappa are always preserved in the lazy council (asymmetric degradation)
-        for role_name in ["Rama", "Shiva", "Kattappa"]:
+        # Ensure Kattappa is always included (executive perspective), then Rama, Shiva up to limit n (only if n >= 3)
+        mandatory = ["Kattappa"]
+        if n >= 3:
+            mandatory.extend(["Rama", "Shiva"])
+        for role_name in mandatory:
+            if len(selected) >= n:
+                break
             p_obj = ROSTER_BY_ROLE.get(role_name)
             if p_obj and p_obj not in selected:
                 selected.append(p_obj)
@@ -600,6 +605,7 @@ class CouncilSession:
 
         n_remaining = max(0, n - len(selected))
         selected.extend(ranked[:n_remaining])
+
 
         return cls._run(
             question=question,

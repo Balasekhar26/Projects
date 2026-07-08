@@ -33,6 +33,7 @@ def isolated_cal_db(tmp_path, monkeypatch):
     )
     
     monkeypatch.setattr(config_module, "load_config", lambda: mock_config)
+    monkeypatch.setenv("KATTAPPA_DATA_DIR", str(tmp_path))
     yield test_db
 
 

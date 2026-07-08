@@ -824,6 +824,14 @@ class TestStatefulHardeningValidation:
         # Reset ResourceGovernor to clean reservations
         ResourceGovernor.reset()
         
+        original_get_status = ResourceGovernor.get_status
+        def mock_get_status():
+            val = original_get_status()
+            val["system_cpu_percent"] = 10.0
+            val["system_ram_available_mb"] = 4096.0
+            return val
+        monkeypatch.setattr(ResourceGovernor, "get_status", mock_get_status)
+        
         # Verify initial reservations are 0
         status_init = ResourceGovernor.get_status()
         assert status_init["reserved_cpu_percent"] == 0.0

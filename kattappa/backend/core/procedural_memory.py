@@ -62,7 +62,8 @@ class ProceduralMemory:
                     created_at REAL,
                     updated_at REAL,
                     last_used REAL,
-                    revoked INTEGER DEFAULT 0
+                    revoked INTEGER DEFAULT 0,
+                    failure_reason TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_hm_procedures_skill ON hm_procedures(skill_name);
                 CREATE INDEX IF NOT EXISTS idx_hm_procedures_trigger ON hm_procedures(trigger_phrase);
@@ -78,6 +79,11 @@ class ProceduralMemory:
                 CREATE INDEX IF NOT EXISTS idx_hm_procedure_audit_proc ON hm_procedure_audit(procedure_id);
                 """
             )
+            try:
+                conn.execute("ALTER TABLE hm_procedures ADD COLUMN failure_reason TEXT")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
 
     @classmethod
@@ -112,7 +118,8 @@ class ProceduralMemory:
         trust_level: str,
         procedure_version: int = 1,
         procedure_id: Optional[str] = None,
-        derived_from_nodes: Optional[list[str]] = None
+        derived_from_nodes: Optional[list[str]] = None,
+        failure_reason: Optional[str] = None,
     ) -> str:
         """Register or update a procedure in SQLite, signing the content."""
         clean_skill = skill_name.strip()
@@ -161,21 +168,21 @@ class ProceduralMemory:
                         UPDATE hm_procedures
                         SET skill_name = ?, trigger_phrase = ?, steps_json = ?,
                             trust_level = ?, procedure_version = ?, signature = ?,
-                            updated_at = ?
+                            updated_at = ?, failure_reason = ?
                         WHERE id = ?
                         """,
-                        (clean_skill, clean_phrase, clean_steps, clean_trust, procedure_version, signature, now, pid)
+                        (clean_skill, clean_phrase, clean_steps, clean_trust, procedure_version, signature, now, failure_reason, pid)
                     )
                 else:
                     conn.execute(
                         """
                         INSERT INTO hm_procedures (
                             id, skill_name, trigger_phrase, steps_json, trust_level,
-                            procedure_version, signature, created_at, updated_at, revoked
+                            procedure_version, signature, created_at, updated_at, revoked, failure_reason
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                         """,
-                        (pid, clean_skill, clean_phrase, clean_steps, clean_trust, procedure_version, signature, now, now)
+                        (pid, clean_skill, clean_phrase, clean_steps, clean_trust, procedure_version, signature, now, now, failure_reason)
                     )
                 conn.commit()
             except Exception as e:

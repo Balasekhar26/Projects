@@ -23,15 +23,14 @@ class LazyLoader:
     def __init__(self, governor: ResourceGovernor):
         self.governor = governor
         self.loaded_subsystems: Dict[str, Any] = {}
-        # Mapping of subsystem names to import paths
         self.module_mappings = {
-            "planner": "kattappa_runtime.planner.engine",
-            "research": "kattappa_runtime.research.engine",
-            "knowledge_graph": "kattappa_runtime.knowledge_graph.engine",
-            "workflow": "kattappa_runtime.workflow.engine",
-            "learning": "kattappa_runtime.learning.engine",
-            "reflection": "kattappa_runtime.reflection.engine",
-            "self_improvement": "kattappa_runtime.self_improvement.engine",
+            "planner": "backend.core.executive_planner",
+            "research": "backend.core.research_loop",
+            "knowledge_graph": "backend.core.knowledge_graph",
+            "workflow": "backend.core.operator",
+            "learning": "backend.core.self_improvement_governance",
+            "reflection": "backend.core.reflection_engine",
+            "self_improvement": "backend.core.self_evolution",
         }
 
     def load_subsystem(self, name: str) -> Any:

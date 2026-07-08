@@ -83,6 +83,11 @@ class GoalManager:
         original_goal_text: Optional[str] = None,
         definition_of_done: Optional[str] = None,
         ttl: Optional[float] = None,
+        max_retries: int = 0,
+        retry_count: int = 0,
+        last_attempt_at: Optional[float] = None,
+        backoff_delay_sec: float = 0.0,
+        workspace_snapshot_json: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Creates a goal, sets optional parent/dependencies, and persists it with advanced cognitive attributes."""
         if not title or not title.strip():
@@ -121,6 +126,11 @@ class GoalManager:
             original_goal_text=original_goal_text,
             definition_of_done=definition_of_done,
             ttl=ttl,
+            max_retries=max_retries,
+            retry_count=retry_count,
+            last_attempt_at=last_attempt_at,
+            backoff_delay_sec=backoff_delay_sec,
+            workspace_snapshot_json=workspace_snapshot_json,
         )
         
         # Add dependencies
@@ -201,17 +211,245 @@ class GoalManager:
         # Log evidence details if supplied
         if evidence:
             GoalMemory._log_event_conn(GoalMemory._get_sqlite_conn(), goal_id, "COMPLETION_EVIDENCE_SUBMITTED", evidence)
-        return cls._add_compat_id(GoalMemory.update_goal_status(goal_id, GoalStatus.COMPLETED.value, "Goal completed successfully"))
+
+        res = GoalMemory.update_goal_status(goal_id, GoalStatus.COMPLETED.value, "Goal completed successfully")
+
+        # Log event to execution ledger
+        from backend.core.cos.kernel import KERNEL
+        from backend.core.ledger.models.event import LedgerEvent
+        from backend.core.ledger.models.enums import EventType
+        import time
+        import uuid
+        try:
+            event = LedgerEvent(
+                event_id=f"evt-{uuid.uuid4().hex[:8]}",
+                parent_event_ids=[],
+                goal_id=goal_id,
+                session_id=goal_id,
+                correlation_id=goal_id,
+                timestamp_utc=time.time(),
+                actor="system",
+                subsystem="goal_manager",
+                event_type=EventType.EXECUTION_COMPLETED,
+                payload={"goal_id": goal_id, "evidence": evidence or {}},
+            )
+            KERNEL.ledger.append(event)
+        except Exception:
+            pass
+
+        # Auto-unblock downstream dependencies
+        all_goals = GoalMemory.list_goals()
+        for g in all_goals:
+            if g["status"] == GoalStatus.BLOCKED.value or g["current_state"] == "BLOCKED":
+                # Check if all dependencies are now met
+                unmet = False
+                for dep_id in g.get("dependencies", []):
+                    if dep_id == goal_id:
+                        continue
+                    dep = GoalMemory.get_goal(dep_id)
+                    if dep and dep["status"] not in {GoalStatus.COMPLETED.value, "COMPLETED"}:
+                        unmet = True
+                        break
+                if not unmet:
+                    # Unblock and activate!
+                    GoalMemory.update_goal_status(g["goal_id"], GoalStatus.ACTIVE.value, f"Unblocked by completion of {goal_id}")
+
+        return cls._add_compat_id(res)
 
     @classmethod
     def fail(cls, goal_id: str, reason: str = "Execution failed") -> Dict[str, Any]:
-        """Marks goal as FAILED."""
-        return cls._add_compat_id(GoalMemory.update_goal_status(goal_id, GoalStatus.FAILED.value, f"Goal failed: {reason}"))
+        """Marks goal as FAILED or schedules retry if retries are not exhausted."""
+        goal = GoalMemory.get_goal(goal_id)
+        if not goal:
+            raise KeyError(f"No goal '{goal_id}'")
+
+        max_ret = goal.get("max_retries", 0) or 0
+        curr_ret = goal.get("retry_count", 0) or 0
+
+        from backend.core.cos.kernel import KERNEL
+        from backend.core.ledger.models.event import LedgerEvent
+        from backend.core.ledger.models.enums import EventType
+        import time
+        import uuid
+
+        if curr_ret < max_ret:
+            # Increment retry count, update delay, transition back to proposed/waiting
+            new_ret = curr_ret + 1
+            delay = float(2 ** new_ret)
+            GoalMemory.update_goal_scheduler_fields(
+                goal_id,
+                retry_count=new_ret,
+                last_attempt_at=time.time(),
+                backoff_delay_sec=delay
+            )
+            res = GoalMemory.update_goal_status(
+                goal_id,
+                GoalStatus.WAITING.value,
+                f"Attempt {new_ret} failed, retrying after {delay}s backoff. Reason: {reason}"
+            )
+            try:
+                event = LedgerEvent(
+                    event_id=f"evt-{uuid.uuid4().hex[:8]}",
+                    parent_event_ids=[],
+                    goal_id=goal_id,
+                    session_id=goal_id,
+                    correlation_id=goal_id,
+                    timestamp_utc=time.time(),
+                    actor="system",
+                    subsystem="goal_manager",
+                    event_type=EventType.TOOL_FAILED,
+                    payload={"goal_id": goal_id, "retry_count": new_ret, "backoff": delay, "reason": reason},
+                )
+                KERNEL.ledger.append(event)
+            except Exception:
+                pass
+            return cls._add_compat_id(res)
+        else:
+            res = GoalMemory.update_goal_status(goal_id, GoalStatus.FAILED.value, f"Goal failed: {reason}")
+            try:
+                event = LedgerEvent(
+                    event_id=f"evt-{uuid.uuid4().hex[:8]}",
+                    parent_event_ids=[],
+                    goal_id=goal_id,
+                    session_id=goal_id,
+                    correlation_id=goal_id,
+                    timestamp_utc=time.time(),
+                    actor="system",
+                    subsystem="goal_manager",
+                    event_type=EventType.EXECUTION_CANCELLED,
+                    payload={"goal_id": goal_id, "reason": f"Retries exhausted. {reason}"},
+                )
+                KERNEL.ledger.append(event)
+            except Exception:
+                pass
+            return cls._add_compat_id(res)
 
     @classmethod
     def abandon(cls, goal_id: str) -> Dict[str, Any]:
         """Marks goal as CANCELLED."""
-        return cls._add_compat_id(GoalMemory.update_goal_status(goal_id, GoalStatus.CANCELLED.value, "Goal cancelled/abandoned"))
+        res = GoalMemory.update_goal_status(goal_id, GoalStatus.CANCELLED.value, "Goal cancelled/abandoned")
+        from backend.core.cos.kernel import KERNEL
+        from backend.core.ledger.models.event import LedgerEvent
+        from backend.core.ledger.models.enums import EventType
+        import time
+        import uuid
+        try:
+            event = LedgerEvent(
+                event_id=f"evt-{uuid.uuid4().hex[:8]}",
+                parent_event_ids=[],
+                goal_id=goal_id,
+                session_id=goal_id,
+                correlation_id=goal_id,
+                timestamp_utc=time.time(),
+                actor="system",
+                subsystem="goal_manager",
+                event_type=EventType.EXECUTION_CANCELLED,
+                payload={"goal_id": goal_id, "reason": "Goal cancelled/abandoned by user"},
+            )
+            KERNEL.ledger.append(event)
+        except Exception:
+            pass
+        return cls._add_compat_id(res)
+
+    @classmethod
+    def suspend(cls, goal_id: str, reason: str = "Suspended") -> Dict[str, Any]:
+        """Suspends goal execution. Serializes active workspace to snapshot and sets status to WAITING."""
+        goal = GoalMemory.get_goal(goal_id)
+        if not goal:
+            raise KeyError(f"No goal '{goal_id}'")
+
+        from backend.core.executive_workspace import WORKSPACE
+        ws_data = WORKSPACE.to_dict()
+        import json
+        ws_json = json.dumps(ws_data)
+
+        GoalMemory.update_goal_scheduler_fields(goal_id, workspace_snapshot_json=ws_json)
+        res = GoalMemory.update_goal_status(goal_id, GoalStatus.WAITING.value, reason)
+
+        from backend.core.cos.kernel import KERNEL
+        from backend.core.ledger.models.event import LedgerEvent
+        from backend.core.ledger.models.enums import EventType
+        import time
+        import uuid
+        try:
+            event = LedgerEvent(
+                event_id=f"evt-{uuid.uuid4().hex[:8]}",
+                parent_event_ids=[],
+                goal_id=goal_id,
+                session_id=goal_id,
+                correlation_id=goal_id,
+                timestamp_utc=time.time(),
+                actor="system",
+                subsystem="goal_manager",
+                event_type=EventType.INTERRUPT_RAISED,
+                payload={"goal_id": goal_id, "reason": reason},
+            )
+            KERNEL.ledger.append(event)
+        except Exception:
+            pass
+
+        return cls._add_compat_id(res)
+
+    @classmethod
+    def resume(cls, goal_id: str, reason: str = "Resumed") -> Dict[str, Any]:
+        """Resumes suspended goal execution. Restores active workspace from snapshot and sets status to ACTIVE."""
+        goal = GoalMemory.get_goal(goal_id)
+        if not goal:
+            raise KeyError(f"No goal '{goal_id}'")
+
+        ws_snapshot = goal.get("workspace_snapshot_json")
+        if ws_snapshot:
+            import json
+            from backend.core.executive_workspace import WORKSPACE
+            try:
+                ws_data = json.loads(ws_snapshot)
+                WORKSPACE.from_dict(ws_data)
+            except Exception:
+                pass
+
+        res = GoalMemory.update_goal_status(goal_id, GoalStatus.ACTIVE.value, reason)
+
+        from backend.core.cos.kernel import KERNEL
+        from backend.core.ledger.models.event import LedgerEvent
+        from backend.core.ledger.models.enums import EventType
+        import time
+        import uuid
+        try:
+            event = LedgerEvent(
+                event_id=f"evt-{uuid.uuid4().hex[:8]}",
+                parent_event_ids=[],
+                goal_id=goal_id,
+                session_id=goal_id,
+                correlation_id=goal_id,
+                timestamp_utc=time.time(),
+                actor="system",
+                subsystem="goal_manager",
+                event_type=EventType.INTERRUPT_HANDLED,
+                payload={"goal_id": goal_id, "reason": reason},
+            )
+            KERNEL.ledger.append(event)
+        except Exception:
+            pass
+
+        return cls._add_compat_id(res)
+
+    @classmethod
+    def update_goal_scheduler_fields(
+        cls,
+        goal_id: str,
+        retry_count: Optional[int] = None,
+        last_attempt_at: Optional[float] = None,
+        backoff_delay_sec: Optional[float] = None,
+        workspace_snapshot_json: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Updates scheduler state fields on a goal."""
+        return cls._add_compat_id(GoalMemory.update_goal_scheduler_fields(
+            goal_id,
+            retry_count=retry_count,
+            last_attempt_at=last_attempt_at,
+            backoff_delay_sec=backoff_delay_sec,
+            workspace_snapshot_json=workspace_snapshot_json,
+        ))
 
     @classmethod
     def reaffirm(cls, goal_id: str) -> Dict[str, Any]:
