@@ -33,12 +33,16 @@ from backend.api.v1.context import router as context_router
 from backend.api.v1.inference import router as inference_router
 from backend.api.v1.tool_execution import router as tool_execution_router
 from backend.api.v1.tool_hardening import router as tool_hardening_router
+from backend.api.v1.perception import perception_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(chat_router)
 
 app.include_router(voice_router, prefix="/api/v1")
 app.include_router(voice_router)
+
+app.include_router(perception_router, prefix="/api/v1")
+app.include_router(perception_router)
 
 app.include_router(memory_router, prefix="/api/v1")
 app.include_router(memory_router)

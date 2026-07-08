@@ -130,6 +130,17 @@ class StructuralCausalModel:
         # 3. Prediction: Compute target probability under updated exogenous priors
         return intervened_scm._predict(exog_names, updated_exog_priors, target)
 
+    async def counterfactual_async(
+        self,
+        evidence: Dict[str, bool],
+        intervention: Dict[str, bool],
+        target: str,
+    ) -> float:
+        """Answers counterfactual queries asynchronously off the main thread."""
+        import asyncio
+        return await asyncio.to_thread(self.counterfactual, evidence, intervention, target)
+
+
     def _abduct(self, exog_names: List[str], evidence: Dict[str, bool]) -> Dict[str, float]:
         """Abduction step: computes P(U_i | evidence) for all exogenous variables."""
         num_exog = len(exog_names)
@@ -261,6 +272,12 @@ class RootCauseAnalyzer:
 
         # Sort descending by prevention probability (higher prevention score = stronger root cause candidate)
         return sorted(scores, key=lambda x: x[1], reverse=True)
+
+    async def analyze_root_cause_async(self, failure_evidence: Dict[str, bool]) -> List[Tuple[str, float]]:
+        """Ranks causal variables counterfactually in a separate thread."""
+        import asyncio
+        return await asyncio.to_thread(self.analyze_root_cause, failure_evidence)
+
 
 
 # ---------------------------------------------------------------------------

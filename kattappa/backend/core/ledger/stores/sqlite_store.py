@@ -51,8 +51,15 @@ class SQLiteLedgerStore(LedgerStore):
                     metadata TEXT
                 )
             """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_goal_id ON events (goal_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_session_id ON events (session_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events (correlation_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_event_type ON events (event_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (timestamp_utc)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_goal_id ON snapshots (goal_id)")
             conn.commit()
             conn.close()
+
 
     def append(self, event: LedgerEvent) -> None:
         with self._lock:

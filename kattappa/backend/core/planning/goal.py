@@ -1,31 +1,86 @@
-"""Goal Representation Framework (Program 5G-1).
+"""Goal Representation Framework (Program 12.1).
 
-Defines structures for Goal modeling and GoalRegistry management,
-supporting dependency checks, topological sorting, and metadata constraints.
+Defines stable user objectives independent of temporary, disposable execution Plans.
+Supports GoalRegistry management with dependency checks, topological sorting, and metadata constraints.
 """
 from __future__ import annotations
 
+import time
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
+
+from backend.core.planning.planner_types import GoalPriority, GoalStatus
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class Goal:
-    """Represents a rich target goal for the planner."""
+    """Represents a stable user intent or objective."""
     goal_id: str
     name: str
-    priority: str = "Medium"               # e.g., Critical, High, Medium, Low
-    deadline: Optional[float] = None       # Epoch timestamp
-    importance: float = 1.0                # Relative weight multiplier
+    description: Optional[str] = None
+    priority: GoalPriority = GoalPriority.MEDIUM
+    status: GoalStatus = GoalStatus.PROPOSED
+    deadline: Optional[float] = None
+    budget_limit: float = 0.0
+    reward: float = 100.0          # Utility payoff for success
+    failure_cost: float = -50.0    # Utility penalty for failure
+    created_at: float = field(default_factory=time.time)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    # Restored fields for compatibility with planning API and test suites
     constraints: List[str] = field(default_factory=list)
-    dependencies: List[str] = field(default_factory=list) # Parent goal IDs
+    dependencies: List[str] = field(default_factory=list)
     owner: Optional[str] = None
-    status: str = "Pending"                # Pending, InProgress, Completed, Failed
-    reward: float = 100.0                  # Utility payoff for success
-    failure_cost: float = -50.0            # Utility penalty for failure
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes goal attributes for storage."""
+        return {
+            "goal_id": self.goal_id,
+            "name": self.name,
+            "description": self.description,
+            "priority": self.priority.value if isinstance(self.priority, GoalPriority) else self.priority,
+            "status": self.status.value if isinstance(self.status, GoalStatus) else self.status,
+            "deadline": self.deadline,
+            "budget_limit": self.budget_limit,
+            "reward": self.reward,
+            "failure_cost": self.failure_cost,
+            "created_at": self.created_at,
+            "metadata": self.metadata,
+            "constraints": self.constraints,
+            "dependencies": self.dependencies,
+            "owner": self.owner,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> Goal:
+        """Restores a Goal object from dictionary storage."""
+        status_val = data.get("status", GoalStatus.PROPOSED)
+        if isinstance(status_val, str):
+            status_val = GoalStatus(status_val)
+
+        priority_val = data.get("priority", GoalPriority.MEDIUM)
+        if isinstance(priority_val, str):
+            priority_val = GoalPriority(priority_val)
+
+        return cls(
+            goal_id=data["goal_id"],
+            name=data["name"],
+            description=data.get("description"),
+            priority=priority_val,
+            status=status_val,
+            deadline=data.get("deadline"),
+            budget_limit=data.get("budget_limit", 0.0),
+            reward=data.get("reward", 100.0),
+            failure_cost=data.get("failure_cost", -50.0),
+            created_at=data.get("created_at", time.time()),
+            metadata=data.get("metadata", {}),
+            constraints=data.get("constraints", []),
+            dependencies=data.get("dependencies", []),
+            owner=data.get("owner"),
+        )
 
 
 class GoalRegistry:
@@ -36,12 +91,10 @@ class GoalRegistry:
 
     def register_goal(self, goal: Goal) -> None:
         """Registers a goal in the registry, validating parents and cycles."""
-        # 1. Validate dependencies exist (or will exist)
         for dep in goal.dependencies:
             if dep == goal.goal_id:
                 raise ValueError(f"Goal '{goal.goal_id}' cannot depend on itself.")
 
-        # 2. Check for cycles
         if self._would_cause_cycle(goal.goal_id, goal.dependencies):
             raise ValueError(f"Registering goal '{goal.goal_id}' would introduce a dependency cycle.")
 
@@ -56,16 +109,16 @@ class GoalRegistry:
     def update_goal_status(self, goal_id: str, status: str) -> None:
         if goal_id not in self._goals:
             raise KeyError(f"Goal '{goal_id}' not found.")
-        self._goals[goal_id].status = status
+        try:
+            self._goals[goal_id].status = GoalStatus(status)
+        except Exception:
+            self._goals[goal_id].status = status
 
     def clear(self) -> None:
         self._goals.clear()
 
     def get_topological_order(self) -> List[str]:
-        """Resolves dependencies and returns Goal IDs topologically sorted.
-
-        Parents (dependencies) must be executed before children.
-        """
+        """Resolves dependencies and returns Goal IDs topologically sorted."""
         visited: Set[str] = set()
         temp: Set[str] = set()
         order: List[str] = []
@@ -75,7 +128,6 @@ class GoalRegistry:
                 raise ValueError("Goal cycle detected during sorting!")
             if node_id not in visited:
                 temp.add(node_id)
-                # Visit dependencies first
                 goal = self._goals.get(node_id)
                 if goal:
                     for dep in goal.dependencies:
@@ -121,9 +173,11 @@ class GoalRegistry:
         for g_id in order:
             goal = self._goals[g_id]
             deps_str = ", ".join(goal.dependencies) if goal.dependencies else "None"
+            status_val = goal.status.value if hasattr(goal.status, "value") else str(goal.status)
+            priority_val = goal.priority.value if hasattr(goal.priority, "value") else str(goal.priority)
             lines.append(
                 f"- **Goal**: `{goal.name}` (`{goal.goal_id}`)\n"
-                f"  - Status: `{goal.status}` | Priority: `{goal.priority}`\n"
+                f"  - Status: `{status_val}` | Priority: `{priority_val}`\n"
                 f"  - Dependencies: `{deps_str}` | Reward: `{goal.reward}`"
             )
             

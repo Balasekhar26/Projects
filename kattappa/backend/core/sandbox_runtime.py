@@ -70,7 +70,7 @@ class SandboxRuntime:
         """
         Executes a command under network-isolated sandbox environment.
         Scrubs secrets from the environment variables prior to launch.
-        Uses container isolation (Docker/Podman) if available, with OS fallback.
+        Delegates orchestration to SandboxManager with OS fallback capabilities.
         """
         # 1. Scrub environment variables
         base_env = os.environ.copy()
@@ -87,64 +87,17 @@ class SandboxRuntime:
         engine = cls._detect_container_engine()
         if engine in ("docker", "podman"):
             try:
-                from backend.core.config import load_config
-                config = load_config()
-                ws_dir = str(config.workspace_dir)
-            except Exception:
-                ws_dir = os.getcwd()
-                
-            # Docker run configuration
-            container_cmd = [
-                engine, "run", "--rm",
-                "-v", f"{ws_dir}:/workspace",
-                "-w", "/workspace"
-            ]
-            if not allow_network:
-                container_cmd += ["--network", "none"]
-                
-            # Translate args
-            resolved_cmd = []
-            for arg in cmd:
-                if isinstance(arg, str):
-                    if arg.startswith(ws_dir):
-                        rel_path = os.path.relpath(arg, ws_dir)
-                        resolved_cmd.append(os.path.join("/workspace", rel_path))
-                    elif arg == sys.executable:
-                        resolved_cmd.append("python")
-                    elif arg.endswith("/pytest") and "ai_system_env" in arg:
-                        resolved_cmd.append("pytest")
-                    else:
-                        resolved_cmd.append(arg)
-                else:
-                    resolved_cmd.append(arg)
-                    
-            # Use python:3.11-slim as a fallback default base image
-            container_cmd += ["python:3.11-slim"] + resolved_cmd
-            
-            try:
-                # Spawn container
-                res = subprocess.run(
-                    container_cmd,
-                    env=safe_env,
+                from backend.core.sandbox.sandbox_manager import SandboxManager
+                return SandboxManager.run_in_sandbox(
+                    cmd=cmd,
+                    timeout=timeout,
+                    allow_network=allow_network,
                     cwd=cwd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout
+                    safe_env=safe_env
                 )
-                
-                # Check for container CLI/daemon startup failure
-                # 125 is standard docker run failure. Check stderr for daemon/pull failures.
-                if (res.returncode == 125 or 
-                    "Unable to find image" in res.stderr or 
-                    "Error response from daemon" in res.stderr or 
-                    "error during connect" in res.stderr):
-                    # Fallback to OS sandboxing
-                    return cls._run_os_sandbox(cmd, timeout, allow_network, cwd, safe_env)
-                    
-                return res
-            except Exception:
-                # Fallback to OS sandboxing
+            except Exception as e:
+                # Fallback to local OS sandbox on Docker failure/timeouts
                 return cls._run_os_sandbox(cmd, timeout, allow_network, cwd, safe_env)
-                
-        # Default: run OS-level sandboxed subprocess
+
+        # OS subprocess fallback
         return cls._run_os_sandbox(cmd, timeout, allow_network, cwd, safe_env)

@@ -44,4 +44,23 @@ def voice_parse_wake(request: VoiceTranscriptRequest) -> dict[str, object]:
     return parse_wake_command(request.transcript)
 
 
+# ── Streaming Voice Runtime WebSocket Endpoint ───────────────────────────────
+
+from fastapi import WebSocketDisconnect
+from backend.core.voice.runtime.websocket_protocol import VoiceStreamWebSocketHandler
+
+
+@voice_router.websocket("/voice/stream")
+async def voice_stream(websocket: WebSocket) -> None:
+    # Retrieve query params
+    query_params = websocket.query_params
+    session_id = query_params.get("session_id") or f"stream_{uuid.uuid4().hex[:8]}"
+    voice_profile = query_params.get("voice_profile") or "kattappa"
+
+    handler = VoiceStreamWebSocketHandler(websocket, session_id, voice_profile=voice_profile)
+    await handler.handle_connection()
+
+
+
+
 

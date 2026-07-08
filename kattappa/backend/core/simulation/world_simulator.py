@@ -129,6 +129,17 @@ class WorldSimulator:
         self._history.append((scenario.scenario_id, pred_state))
         return pred_state, prob
 
+    async def run_simulation_async(self, scenario: Scenario) -> Tuple[SimulationState, float]:
+        """Runs simulation asynchronously off the main thread to prevent blocking."""
+        import asyncio
+        init_state = self.clone_current_world()
+        pred_state, prob = await asyncio.to_thread(
+            self._predictor.predict_outcome, init_state, scenario
+        )
+        self._history.append((scenario.scenario_id, pred_state))
+        return pred_state, prob
+
+
     def rollback_simulation(self, scenario_id: str) -> Optional[SimulationState]:
         """Removes the latest simulated state for the target scenario from history."""
         for idx in range(len(self._history) - 1, -1, -1):

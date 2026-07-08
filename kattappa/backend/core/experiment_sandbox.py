@@ -7,7 +7,10 @@ import sys
 import time
 import uuid
 import shutil
-import resource
+try:
+    import resource  # Unix-only; not available on Windows
+except ImportError:
+    resource = None  # type: ignore[assignment]
 import tempfile
 import threading
 import subprocess

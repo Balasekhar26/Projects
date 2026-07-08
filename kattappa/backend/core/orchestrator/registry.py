@@ -34,6 +34,11 @@ from backend.core.orchestrator.agents.tool_exec import ToolExecutorAgent
 from backend.core.orchestrator.agents.reasoning import ReasoningAgent
 from backend.core.orchestrator.agents.reflection import ReflectionAgent
 from backend.core.orchestrator.agents.scientist import ScientistAgent
+# Program 16.1 specialist workers
+from backend.core.orchestrator.agents.research import ResearchAgent
+from backend.core.orchestrator.agents.code import CodeAgent
+from backend.core.orchestrator.agents.browser import BrowserAgent
+from backend.core.orchestrator.agents.evaluation import EvaluationAgent
 
 ORCHESTRATOR_REGISTRY.register(ExecutiveAgent())
 ORCHESTRATOR_REGISTRY.register(PlannerAgent())
@@ -42,3 +47,8 @@ ORCHESTRATOR_REGISTRY.register(ToolExecutorAgent())
 ORCHESTRATOR_REGISTRY.register(ReasoningAgent())
 ORCHESTRATOR_REGISTRY.register(ReflectionAgent())
 ORCHESTRATOR_REGISTRY.register(ScientistAgent())
+# Program 16.1 specialist workers
+ORCHESTRATOR_REGISTRY.register(ResearchAgent())
+ORCHESTRATOR_REGISTRY.register(CodeAgent())
+ORCHESTRATOR_REGISTRY.register(BrowserAgent())
+ORCHESTRATOR_REGISTRY.register(EvaluationAgent())

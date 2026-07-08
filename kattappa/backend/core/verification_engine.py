@@ -18,6 +18,10 @@ from backend.core.capability_registry import CapabilityRegistry, ACTION_CAPABILI
 from backend.core.resource_governor import ResourceGovernor
 from backend.core.safety import is_protected_path
 
+from backend.core.perception.action_expectation import get_expectation_for_action
+from backend.core.perception.state_differ import StateDiffer
+from backend.core.perception.recovery_policy import RecoveryPolicy
+
 
 class VerificationCheckType(str, Enum):
     CRITICAL = "critical"
@@ -326,6 +330,20 @@ class VerificationEngine:
         snapshot: dict[str, Any] = {}
         action_upper = action.upper()
 
+        # 0. Visual Layout Snapshot
+        if "BROWSER" in action_upper or "DESKTOP" in action_upper:
+            try:
+                from backend.core.perception.image_ingestion import ImageIngestion
+                from backend.core.perception.ocr_engine import OCREngine
+                from backend.core.perception.screen_graph import ScreenGraph
+
+                frame = ImageIngestion.capture_screenshot()
+                raw_words = OCREngine.extract_text_regions(frame.image_bytes)
+                graph = ScreenGraph(raw_words)
+                snapshot["screen_graph"] = graph
+            except Exception:
+                pass
+
         # 1. File Snapshot
         target_file = params.get("target") or params.get("path") or params.get("destination")
         if target_file:
@@ -384,42 +402,56 @@ class VerificationEngine:
         action_upper = action.upper()
         profile = VERIFICATION_PROFILES.get(action_upper)
 
-        # If no profile defined, we default to success if execution returned success
-        if not profile:
-            success = isinstance(res, dict) and res.get("success", False)
-            score = 1.0 if success else 0.0
-            outcome = "SUCCESS" if success else "FAILURE"
-            cls._log_audit(agent, action, "CONFIDENCE_SCORE", f"Confidence: {score:.2f} (No profile)")
-            return {"success": success, "confidence_score": score, "outcome": outcome}
-
+        # 1. Structural evaluation
         critical_passed = True
         critical_count = 0
         passed_supporting = 0
         total_supporting = 0
-
         checks_results = {}
 
-        for check in profile.checks:
-            passed, details = check.eval_fn(params, s0, s1, res)
-            checks_results[check.name] = {"passed": passed, "details": details, "type": check.check_type.value}
+        if profile:
+            for check in profile.checks:
+                passed, details = check.eval_fn(params, s0, s1, res)
+                checks_results[check.name] = {"passed": passed, "details": details, "type": check.check_type.value}
 
-            if check.check_type == VerificationCheckType.CRITICAL:
-                critical_count += 1
-                if not passed:
-                    critical_passed = False
+                if check.check_type == VerificationCheckType.CRITICAL:
+                    critical_count += 1
+                    if not passed:
+                        critical_passed = False
+                else:
+                    total_supporting += 1
+                    if passed:
+                        passed_supporting += 1
+
+            if not critical_passed or (critical_count > 0 and not critical_passed):
+                score = 0.0
             else:
-                total_supporting += 1
-                if passed:
-                    passed_supporting += 1
-
-        # Confidence Score calculation
-        if not critical_passed or (critical_count > 0 and not critical_passed):
-            score = 0.0
+                if total_supporting == 0:
+                    score = 1.0
+                else:
+                    score = 0.60 + 0.40 * (passed_supporting / total_supporting)
         else:
-            if total_supporting == 0:
-                score = 1.0
-            else:
-                score = 0.60 + 0.40 * (passed_supporting / total_supporting)
+            success = isinstance(res, dict) and res.get("success", False)
+            score = 1.0 if success else 0.0
+
+        # 2. Grounded Visual Verification Integration
+        before_graph = s0.get("screen_graph")
+        after_graph = s1.get("screen_graph")
+        
+        ui_score = None
+        diff_data = None
+
+        if before_graph or after_graph:
+            observed_texts = [n["text"] for n in after_graph.text_nodes] if after_graph else []
+            current_url = res.get("url") if (isinstance(res, dict) and "url" in res) else params.get("url")
+            
+            expectation = get_expectation_for_action(action, params)
+            ui_score = expectation.evaluate_match(observed_texts, current_url=current_url)
+            diff_data = StateDiffer.diff_graphs(before_graph, after_graph)
+            cls._log_audit(agent, action, "VISUAL_VERIFICATION", f"Visual Expectation Score: {ui_score:.2f}")
+
+            # Factor visual score into profile score
+            score = (score * 0.4) + (ui_score * 0.6)
 
         score = round(score, 2)
         cls._log_audit(agent, action, "CONFIDENCE_SCORE", f"Confidence Score: {score:.2f}")
@@ -449,7 +481,34 @@ class VerificationEngine:
         else:
             cls._log_audit(agent, action, "ACTION_FAILED", f"Action '{action}' failed post-verification. Score: {score:.2f}")
 
-            # Trigger failure recovery subsystem (Layer 3)
+            # Consult Visual Recovery Policy if we have visual delta data
+            if diff_data is not None and ui_score is not None:
+                recovery_decision = RecoveryPolicy.evaluate_recovery(action, params, diff_data, ui_score)
+                rec_action = recovery_decision["recovery_action"]
+                rec_msg = recovery_decision["message"]
+                
+                cls._log_audit(agent, action, f"RECOVERY_{rec_action}", rec_msg)
+                
+                if rec_action == "REPLAN":
+                    cls._log_audit(agent, action, "ROLLBACK_STARTED", "Triggering recovery rollback chain.")
+                    rollback_res = cls.execute_rollback_chain(state)
+                    return {
+                        "success": False,
+                        "confidence_score": score,
+                        "outcome": "FAILURE",
+                        "recovery_action": "REPLAN",
+                        "error": f"Visual verification failure. Rollback: {rollback_res.get('message')}"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "confidence_score": score,
+                        "outcome": "FAILURE",
+                        "recovery_action": rec_action,
+                        "error": rec_msg
+                    }
+
+            # Trigger default failure recovery subsystem (Layer 3)
             return cls._handle_failure_recovery(agent, action, params, res, state)
 
     # ----- Layer 3: Failure Recovery Subsystem -----
