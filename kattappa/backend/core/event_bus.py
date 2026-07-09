@@ -48,21 +48,36 @@ from backend.core.logger import log_event
 
 class EventName:
     GOAL_CREATED             = "GoalCreated"
-    GOAL_UPDATED             = "GoalUpdated"
+    GOAL_ACTIVATED           = "GoalActivated"
+    GOAL_BLOCKED             = "GoalBlocked"
     GOAL_COMPLETED           = "GoalCompleted"
     GOAL_FAILED              = "GoalFailed"
+    GOAL_SUSPENDED           = "GoalSuspended"
+    GOAL_RESUMED             = "GoalResumed"
+    GOAL_UPDATED             = "GoalUpdated"
     MEMORY_INGESTED          = "MemoryIngested"
     MEMORY_DECAYED           = "MemoryDecayed"
     MEMORY_PINNED            = "MemoryPinned"
+    MEMORY_UPDATED           = "MemoryUpdated"
     BELIEF_UPDATED           = "BeliefUpdated"
     PLANNER_STARTED          = "PlannerStarted"
     PLANNER_FINISHED         = "PlannerFinished"
     PLANNER_BLOCKED          = "PlannerBlocked"
     SIMULATION_STARTED       = "SimulationStarted"
     SIMULATION_FINISHED      = "SimulationFinished"
+    EXECUTION_REQUESTED      = "ExecutionRequested"
+    EXECUTION_APPROVED       = "ExecutionApproved"
     EXECUTION_STARTED        = "ExecutionStarted"
     EXECUTION_FINISHED       = "ExecutionFinished"
     EXECUTION_FAILED         = "ExecutionFailed"
+    EXECUTION_ROLLED_BACK    = "ExecutionRolledBack"
+    PERMISSION_DENIED        = "PermissionDenied"
+    HUMAN_APPROVAL_REQUESTED = "HumanApprovalRequested"
+    SAFETY_VIOLATION_DETECTED= "SafetyViolationDetected"
+    POLICY_OVERRIDE_APPLIED  = "PolicyOverrideApplied"
+    CONFIDENCE_DROPPED       = "ConfidenceDropped"
+    NEED_HUMAN_HELP          = "NeedHumanHelp"
+    PLANNER_ESCALATION_TRIGGERED = "PlannerEscalationTriggered"
     REFLECTION_COMPLETED     = "ReflectionCompleted"
     REFLECTION_PROPOSAL      = "ReflectionProposal"
     BLACKBOARD_OPENED        = "BlackboardOpened"
@@ -71,6 +86,9 @@ class EventName:
     CAPABILITY_ASSESSED      = "CapabilityAssessed"
     COGNITIVE_STATE_CHANGED  = "CognitiveStateChanged"
     TELEMETRY_RECORDED       = "TelemetryRecorded"
+    TOOL_INSTALLED           = "ToolInstalled"
+    MODEL_LOADED             = "ModelLoaded"
+    VOICE_SESSION_STARTED    = "VoiceSessionStarted"
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +138,18 @@ Handler = Callable[[Event], None]
 
 _LEDGER_LOCK = threading.Lock()
 _ledger_conn: sqlite3.Connection | None = None
+
+
+def _reset_ledger_conn() -> None:
+    """Close and discard the cached ledger connection. Called by EventBus.reset()."""
+    global _ledger_conn
+    with _LEDGER_LOCK:
+        if _ledger_conn is not None:
+            try:
+                _ledger_conn.close()
+            except Exception:
+                pass
+            _ledger_conn = None
 
 
 def _ledger_path() -> Path:
@@ -336,7 +366,7 @@ class EventBus:
 
     @classmethod
     def reset(cls) -> None:
-        """Clear all subscribers and history. For test isolation only."""
+        """Clear all subscribers, history, and recreate the thread pool. For test isolation only."""
         with cls._lock:
             cls._subscribers.clear()
             cls._history.clear()
@@ -344,6 +374,18 @@ class EventBus:
             cls._total_published = 0
             cls._total_delivered = 0
             cls._total_errors = 0
+            # Shut down the old pool (don't wait for pending work) and create a fresh one
+            # so stalled workers from previous tests can't block new test dispatches.
+            try:
+                cls._pool.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                # Python < 3.9 doesn't support cancel_futures
+                cls._pool.shutdown(wait=False)
+            cls._pool = ThreadPoolExecutor(
+                max_workers=_MAX_WORKERS, thread_name_prefix="event_bus"
+            )
+        # Reset the ledger connection so the new runtime_data_root() is used.
+        _reset_ledger_conn()
 
     # -- ledger query -------------------------------------------------------
 

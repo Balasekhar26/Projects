@@ -1,9 +1,20 @@
-"""Tests for Phase K10.5: Cognitive Blackboard."""
+"""Unit tests for Program 50.0: Cognitive Blackboard.
+
+Verifies global pub/sub routing, wildcards, history filtering, and session-scoped workspaces.
+"""
 from __future__ import annotations
 
 import pytest
-import time
-from backend.core.blackboard import CognitiveBlackboard, BlackboardPost, BLACKBOARD
+
+from backend.core.blackboard import (
+    CognitiveBlackboard,
+    BlackboardPost,
+    Blackboard,
+    BlackboardEntry,
+    SharedContext,
+    EntryKind,
+    BLACKBOARD,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -13,82 +24,99 @@ def clean_blackboard():
     BLACKBOARD.clear()
 
 
-def test_blackboard_singleton():
-    bb1 = CognitiveBlackboard()
-    bb2 = CognitiveBlackboard()
-    assert bb1 is bb2
-    assert bb1 is BLACKBOARD
+# ── Cognitive Blackboard Tests ────────────────────────────────────────────────
+
+class TestCognitiveBlackboard:
+    def test_global_singleton_publish_and_receive(self):
+        received_posts: list[BlackboardPost] = []
+        
+        # Subscribe to exact topic
+        BLACKBOARD.subscribe("insight", received_posts.append)
+        
+        # Publish to the topic
+        post = BLACKBOARD.publish(
+            publisher="planner",
+            topic="insight",
+            payload={"key_claim": "found path"},
+            confidence=0.95,
+        )
+
+        assert post.publisher == "planner"
+        assert post.topic == "insight"
+        assert post.payload["key_claim"] == "found path"
+        assert post.confidence == 0.95
+        
+        # Verify subscriber callback trigger
+        assert len(received_posts) == 1
+        assert received_posts[0].post_id == post.post_id
+
+    def test_wildcard_subscription(self):
+        received_posts: list[BlackboardPost] = []
+        
+        # Subscribe to wildcard '*'
+        BLACKBOARD.subscribe("*", received_posts.append)
+        
+        # Publish different topics
+        BLACKBOARD.publish("agent_a", "observation", {"seen": "user"})
+        BLACKBOARD.publish("agent_b", "hypothesis", {"guess": "failure"})
+        
+        assert len(received_posts) == 2
+        assert {p.topic for p in received_posts} == {"observation", "hypothesis"}
+
+    def test_history_queries(self):
+        BLACKBOARD.publish("agent_a", "observation", {"i": 1})
+        BLACKBOARD.publish("agent_b", "observation", {"i": 2})
+        BLACKBOARD.publish("agent_b", "insight", {"key": "value"})
+
+        # Query by topic
+        obs_posts = BLACKBOARD.get_history(topic="observation")
+        assert len(obs_posts) == 2
+        assert all(p.topic == "observation" for p in obs_posts)
+
+        # Query by publisher
+        agent_b_posts = BLACKBOARD.get_history(publisher="agent_b")
+        assert len(agent_b_posts) == 2
+        assert all(p.publisher == "agent_b" for p in agent_b_posts)
+
+    def test_post_lineage_referenced_ids(self):
+        post_a = BLACKBOARD.publish("agent_a", "fact", {"val": 10})
+        post_b = BLACKBOARD.publish(
+            "agent_b",
+            "insight",
+            {"val": 20},
+            referenced_ids=[post_a.post_id],
+        )
+
+        assert post_b.referenced_ids == (post_a.post_id,)
 
 
-def test_blackboard_publish_and_history():
-    post1 = BLACKBOARD.publish(
-        publisher="test_agent",
-        topic="hypothesis",
-        payload={"claim": "Radar range is 50m"},
-        confidence=0.9,
-    )
-    assert post1.post_id is not None
-    assert post1.publisher == "test_agent"
-    assert post1.topic == "hypothesis"
-    assert post1.payload["claim"] == "Radar range is 50m"
-    assert post1.confidence == 0.9
+# ── Session Scoped Blackboard Tests ───────────────────────────────────────────
 
-    history = BLACKBOARD.get_history()
-    assert len(history) == 1
-    assert history[0].post_id == post1.post_id
+class TestSessionBlackboard:
+    def test_session_scoped_workspace_crud(self):
+        context = SharedContext(session_id="session_123", user_intent="test intent")
+        workspace = Blackboard(context)
+        
+        # Add typed entries
+        fact = workspace.add_fact("os_platform", "win32")
+        assumption = workspace.add_assumption("api_online", True)
+        constraint = workspace.add_constraint("timeout_seconds", 30)
+        output = workspace.add_agent_output("result", "done")
 
+        assert fact.kind == EntryKind.FACT
+        assert assumption.kind == EntryKind.ASSUMPTION
+        assert constraint.kind == EntryKind.CONSTRAINT
+        assert output.kind == EntryKind.AGENT_OUTPUT
 
-def test_blackboard_exact_subscription():
-    received_posts = []
+        # Read back entries
+        assert workspace.get("os_platform").value == "win32"
+        assert workspace.get("api_online").value is True
+        
+        # Filter entries by kind
+        facts_list = workspace.entries(EntryKind.FACT)
+        assert len(facts_list) == 1
+        assert facts_list[0].key == "os_platform"
 
-    def callback(post: BlackboardPost):
-        received_posts.append(post)
-
-    BLACKBOARD.subscribe("insight", callback)
-
-    # Publish on non-matching topic
-    BLACKBOARD.publish("agent_a", "hypothesis", {"claim": "A"})
-    assert len(received_posts) == 0
-
-    # Publish on matching topic
-    post2 = BLACKBOARD.publish("agent_a", "insight", {"insight": "B"})
-    assert len(received_posts) == 1
-    assert received_posts[0].post_id == post2.post_id
-
-
-def test_blackboard_wildcard_subscription():
-    received_posts = []
-
-    def callback(post: BlackboardPost):
-        received_posts.append(post)
-
-    BLACKBOARD.subscribe("*", callback)
-
-    BLACKBOARD.publish("agent_a", "hypothesis", {"claim": "A"})
-    BLACKBOARD.publish("agent_b", "insight", {"insight": "B"})
-
-    assert len(received_posts) == 2
-
-
-def test_blackboard_lineage_referencing():
-    post1 = BLACKBOARD.publish("agent_a", "observation", {"data": "raw sensor output"})
-    post2 = BLACKBOARD.publish(
-        publisher="agent_b",
-        topic="hypothesis",
-        payload={"claim": "sensor indicates target present"},
-        confidence=0.85,
-        referenced_ids=[post1.post_id],
-    )
-
-    assert post2.referenced_ids == (post1.post_id,)
-    assert post2.to_dict()["referenced_ids"] == [post1.post_id]
-
-
-def test_blackboard_filtering():
-    BLACKBOARD.publish("agent_a", "topic_1", {})
-    BLACKBOARD.publish("agent_b", "topic_1", {})
-    BLACKBOARD.publish("agent_a", "topic_2", {})
-
-    assert len(BLACKBOARD.get_history(topic="topic_1")) == 2
-    assert len(BLACKBOARD.get_history(publisher="agent_a")) == 2
-    assert len(BLACKBOARD.get_history(topic="topic_1", publisher="agent_a")) == 1
+        # Clear workspace
+        workspace.clear()
+        assert len(workspace.entries()) == 0

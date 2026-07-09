@@ -25,8 +25,16 @@ _warmed_models: set[str] = set()
 class HardwareProfiler:
     """Detects system hardware resources: CPU cores, RAM, GPUs (CUDA/DirectML), Storage Type, and Power Mode."""
 
+    _cached_profile = None
+
     @classmethod
     def get_profile(cls) -> Dict[str, Any]:
+        if cls._cached_profile is not None:
+            profile = dict(cls._cached_profile)
+            profile["cpu_utilization"] = psutil.cpu_percent(interval=None)
+            profile["free_disk_space_gb"] = round(psutil.disk_usage("/").free / (1024**3), 1)
+            return profile
+
         ram_gb = round(psutil.virtual_memory().total / (1024**3), 1)
         cpu_count = psutil.cpu_count(logical=True) or 2
         physical_cores = psutil.cpu_count(logical=False) or cpu_count
@@ -49,7 +57,7 @@ class HardwareProfiler:
         on_ac = battery.power_plugged if battery else True
         cpu_load = psutil.cpu_percent(interval=None)
 
-        return {
+        cls._cached_profile = {
             "os": platform.system(),
             "os_release": platform.release(),
             "cpu_logical_cores": cpu_count,
@@ -63,6 +71,7 @@ class HardwareProfiler:
             "cpu_utilization": cpu_load,
             "free_disk_space_gb": round(psutil.disk_usage("/").free / (1024**3), 1)
         }
+        return cls._cached_profile
 
     @classmethod
     def _windows_wmi_gpu(cls) -> Tuple[str, float]:

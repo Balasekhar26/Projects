@@ -230,17 +230,56 @@ ACTION_CAPABILITY_MAP = {
 }
 
 
+import threading
+
 class CapabilityRegistry:
+    _lock = threading.RLock()
+
     @staticmethod
     def is_capability_allowed(agent_name: str, capability: str) -> bool:
         agent = str(agent_name).lower().strip()
-        if agent not in AGENT_CAPABILITIES:
-            # Deny by default for unknown agents
-            return False
         
-        allowed = AGENT_CAPABILITIES[agent]["allowed"]
-        denied = AGENT_CAPABILITIES[agent]["denied"]
-        
-        if capability in denied:
-            return False
-        return capability in allowed
+        # Check thread-local session overrides first
+        from backend.core.governance.permission_governor import SessionPermissionScope
+        override = SessionPermissionScope.get_override(agent, capability)
+        if override is not None:
+            return override
+
+        with CapabilityRegistry._lock:
+            if agent not in AGENT_CAPABILITIES:
+                # Deny by default for unknown agents
+                return False
+            
+            allowed = AGENT_CAPABILITIES[agent]["allowed"]
+            denied = AGENT_CAPABILITIES[agent]["denied"]
+            
+            if capability in denied:
+                return False
+            return capability in allowed
+
+    @staticmethod
+    def register_agent_capability(agent_name: str, capability: str) -> None:
+        """Dynamically registers allowed capability for an agent name."""
+        agent = str(agent_name).lower().strip()
+        with CapabilityRegistry._lock:
+            if agent not in AGENT_CAPABILITIES:
+                AGENT_CAPABILITIES[agent] = {"allowed": set(), "denied": set()}
+            
+            # Remove from denied if it exists, add to allowed
+            if capability in AGENT_CAPABILITIES[agent]["denied"]:
+                AGENT_CAPABILITIES[agent]["denied"].remove(capability)
+            AGENT_CAPABILITIES[agent]["allowed"].add(capability)
+
+    @staticmethod
+    def revoke_agent_capability(agent_name: str, capability: str) -> None:
+        """Dynamically revokes capability for an agent name by moving it to denied."""
+        agent = str(agent_name).lower().strip()
+        with CapabilityRegistry._lock:
+            if agent not in AGENT_CAPABILITIES:
+                AGENT_CAPABILITIES[agent] = {"allowed": set(), "denied": set()}
+            
+            # Remove from allowed, add to denied
+            if capability in AGENT_CAPABILITIES[agent]["allowed"]:
+                AGENT_CAPABILITIES[agent]["allowed"].remove(capability)
+            AGENT_CAPABILITIES[agent]["denied"].add(capability)
+
