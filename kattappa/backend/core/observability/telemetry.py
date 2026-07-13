@@ -22,6 +22,7 @@ class Span:
     name: str
     span_id: str
     parent_span_id: Optional[str] = None
+    trace_id: Optional[str] = None
     start_time: float = field(default_factory=time.time)
     end_time: Optional[float] = None
     status: str = "success"  # "success" or "error"
@@ -77,15 +78,20 @@ class TelemetryCollector:
         """Starts a new span. Automatically sets active parent span if nesting exists."""
         span_id = str(uuid.uuid4())
         parent_id = None
+        trace_id = None
 
         stack = self._active_stack
         if stack:
             parent_id = stack[-1].span_id
+            trace_id = stack[-1].trace_id
+        else:
+            trace_id = str(uuid.uuid4())
 
         span = Span(
             name=name,
             span_id=span_id,
             parent_span_id=parent_id,
+            trace_id=trace_id,
             metadata=metadata or {},
         )
 

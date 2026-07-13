@@ -531,6 +531,26 @@ class VerificationEngine:
         """Coordinates retry limits and reverse chronological rollbacks."""
         is_transient = cls._is_transient_failure(action, res)
 
+        # M37 Integration: log failure and update mission state blockers
+        try:
+            from backend.core.failure_recovery import FailureRecoveryEngine
+            mission_id = state.get("workflow_id") or state.get("chat_session_id") or "default_mission"
+            stage = "Execution"
+            reason = str(res.get("error") if isinstance(res, dict) else res)
+            # Seed default mission state if not existing
+            from backend.core.mission_state import MissionState
+            if not MissionState.get_state(mission_id):
+                MissionState.set_state(mission_id, {
+                    "mission_id": mission_id,
+                    "status": "running",
+                    "progress": 0.5,
+                    "blocked": False,
+                    "blockers": []
+                })
+            FailureRecoveryEngine.trigger_failure(mission_id, stage, agent, reason)
+        except Exception:
+            pass
+
         if is_transient:
             # Let ActionBroker coordinate the retry loop
             return {

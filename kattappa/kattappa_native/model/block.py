@@ -10,6 +10,7 @@ Structure:
 
 import torch
 import torch.nn as nn
+from typing import Optional
 
 from kattappa_native.model.attention import MultiHeadAttention
 from kattappa_native.model.mlp import SwiGLUMLP

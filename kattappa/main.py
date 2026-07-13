@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import platform
 import subprocess
 import sys
@@ -32,16 +31,7 @@ def run_backend() -> int:
     )
 
 
-def run_cli() -> int:
-    return subprocess.call([str(_venv_python()), "-m", "ai_system.cli", "chat"], cwd=ROOT)
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Kattappa AI OS launcher")
-    parser.add_argument("--mode", choices=["backend", "cli"], default="backend")
-    args = parser.parse_args()
-    if args.mode == "cli":
-        return run_cli()
     return run_backend()
 
 

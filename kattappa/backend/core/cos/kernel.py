@@ -192,6 +192,8 @@ class CognitiveKernel:
         self.agents = AgentBus()
         self.executive = CONTROLLER
         self.ledger = SQLiteLedgerStore(str(db_path))
+        from backend.core.governance.identity_registry import bootstrap_default_principals
+        bootstrap_default_principals(self.ledger)
         self._initialized = True
 
 

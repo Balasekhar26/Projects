@@ -1,0 +1,13 @@
+# Kattappa Planner Benchmark Parameters
+benchmark_mode: true
+random_seed: 42
+failure_injection_probabilities:
+  network_timeout: 0.15
+  tool_failure: 0.10
+  memory_corruption: 0.05
+  permission_denial: 0.10
+  contradictory_context: 0.10
+  planner_dead_end: 0.05
+pruning_utility_threshold: 0.50
+reproducible_replays: true
+provenance_class: "synthetic_planning_benchmark"

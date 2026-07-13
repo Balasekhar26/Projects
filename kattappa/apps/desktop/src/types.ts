@@ -696,3 +696,21 @@ export type DashboardData = {
   toolScout: ToolScoutStatus;
   toolAdoptions: ToolAdoptionJob[];
 };
+
+export type RequestTrace = {
+  trace_id: string;
+  input: string;
+  mode: string;
+  intent: string;
+  router: string;
+  model: string;
+  tools: string[];
+  capabilities: string[];
+  policy: string;
+  result: string;
+  failure_reason: string;
+  failure_detail: string;
+  latency_ms: number;
+  timestamp: number;
+};
+

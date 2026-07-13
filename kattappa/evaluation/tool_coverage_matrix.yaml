@@ -1,0 +1,199 @@
+# Tool Coverage Matrix — Kattappa M38
+#
+# Each entry maps a logical capability to:
+#   - agent:         the LangGraph node that handles it
+#   - tool_fn:       the Python function/module at the backend
+#   - backend_type:  STDLIB | OPTIONAL_DEPENDENCY | HARDWARE_REQUIRED | STUB
+#   - backend_dep:   importable module to probe (optional)
+#   - probe_prompt:  natural-language prompt sent to /chat to test routing
+#   - expected_agent: the value of state["selected_agent"] a PASS requires
+#   - canary:        if true, this capability is part of the Canary 50 benchmark
+
+capabilities:
+
+  # ── File Operations ─────────────────────────────────────────────────────────
+
+  - id: CAP_FILE_READ
+    label: "File Read"
+    agent: file
+    tool_fn: "backend.core.action_broker.ActionBroker.intake_request"
+    backend: "pathlib / file_parsers"
+    backend_type: STDLIB
+    probe_prompt: "Read the file backend/main.py"
+    expected_agent: file
+    canary: true
+
+  - id: CAP_FILE_LIST
+    label: "Directory Listing"
+    agent: file
+    tool_fn: "backend.core.action_broker.ActionBroker.intake_request"
+    backend: "os.listdir / pathlib"
+    backend_type: STDLIB
+    probe_prompt: "List all files in the backend folder"
+    expected_agent: file
+    canary: true
+
+  - id: CAP_FILE_WRITE
+    label: "File Write / Create"
+    agent: file
+    tool_fn: "backend.core.action_broker.ActionBroker.intake_request"
+    backend: "pathlib.Path.write_text"
+    backend_type: STDLIB
+    probe_prompt: "Create a file called hello.txt with the text Hello World"
+    expected_agent: file
+    canary: true
+
+  - id: CAP_FILE_SEARCH
+    label: "File Content Search"
+    agent: file
+    tool_fn: "backend.core.action_broker.ActionBroker.intake_request"
+    backend: "pathlib / grep"
+    backend_type: STDLIB
+    probe_prompt: "Search the project for the word 'FailureReason'"
+    expected_agent: file
+    canary: true
+
+  # ── Terminal ─────────────────────────────────────────────────────────────────
+
+  - id: CAP_TERMINAL_RUN
+    label: "Terminal Command"
+    agent: terminal
+    tool_fn: "backend.tools.terminal_tools.run_command"
+    backend: "subprocess.run"
+    backend_type: STDLIB
+    probe_prompt: "Run the command: git status"
+    expected_agent: terminal
+    canary: true
+
+  - id: CAP_TERMINAL_PYTEST
+    label: "Run Tests"
+    agent: terminal
+    tool_fn: "backend.tools.terminal_tools.run_command"
+    backend: "subprocess.run (pytest)"
+    backend_type: STDLIB
+    probe_prompt: "Run the tests with pytest"
+    expected_agent: terminal
+    canary: false
+
+  # ── Coding ───────────────────────────────────────────────────────────────────
+
+  - id: CAP_CODE_GENERATE
+    label: "Code Generation"
+    agent: coder
+    tool_fn: "backend.agents.coder.coder_node"
+    backend: "ask_model + action_broker patch"
+    backend_type: STDLIB
+    probe_prompt: "Write a Python function that reverses a string"
+    expected_agent: coder
+    canary: true
+
+  - id: CAP_CODE_FIX
+    label: "Code Fix / Debug"
+    agent: coder
+    tool_fn: "backend.agents.coder.coder_node"
+    backend: "ask_model + action_broker patch"
+    backend_type: STDLIB
+    probe_prompt: "Fix this Python syntax error: def foo(: pass"
+    expected_agent: coder
+    canary: false
+
+  # ── Browser ──────────────────────────────────────────────────────────────────
+
+  - id: CAP_BROWSER_READ
+    label: "Browser URL Read"
+    agent: browser
+    tool_fn: "backend.tools.browser_tools.read_url"
+    backend: "playwright.sync_api"
+    backend_type: OPTIONAL_DEPENDENCY
+    backend_dep: "playwright.sync_api"
+    probe_prompt: "Open the URL https://example.com and read its content"
+    expected_agent: browser
+    canary: false
+
+  - id: CAP_BROWSER_SEARCH
+    label: "Web Search"
+    agent: browser
+    tool_fn: "backend.tools.browser_tools.search_web_basic"
+    backend: "playwright.sync_api"
+    backend_type: OPTIONAL_DEPENDENCY
+    backend_dep: "playwright.sync_api"
+    probe_prompt: "Search the web for Python async best practices"
+    expected_agent: browser
+    canary: false
+
+  # ── Desktop ──────────────────────────────────────────────────────────────────
+
+  - id: CAP_DESKTOP_OPEN_APP
+    label: "Open Application"
+    agent: desktop
+    tool_fn: "backend.tools.desktop_tools.open_application"
+    backend: "subprocess (Windows start / macOS open)"
+    backend_type: HARDWARE_REQUIRED
+    probe_prompt: "Open calculator"
+    expected_agent: desktop
+    canary: true
+
+  - id: CAP_DESKTOP_SCREENSHOT
+    label: "Take Screenshot"
+    agent: desktop
+    tool_fn: "backend.tools.desktop_tools.take_screenshot"
+    backend: "pyautogui"
+    backend_type: HARDWARE_REQUIRED
+    backend_dep: "pyautogui"
+    probe_prompt: "Take a screenshot of the screen"
+    expected_agent: desktop
+    canary: true
+
+  # ── Memory ───────────────────────────────────────────────────────────────────
+
+  - id: CAP_MEMORY_STORE
+    label: "Memory Store (Preference)"
+    agent: memory_agent
+    tool_fn: "backend.core.memory.memory.add_memory"
+    backend: "ChromaDB / SQLite"
+    backend_type: STDLIB
+    probe_prompt: "Remember that my favorite color is blue"
+    expected_agent: memory_agent
+    canary: true
+
+  - id: CAP_MEMORY_RECALL
+    label: "Memory Recall"
+    agent: memory_agent
+    tool_fn: "backend.core.memory.memory.search_memories"
+    backend: "ChromaDB / SQLite"
+    backend_type: STDLIB
+    probe_prompt: "What is my favorite color?"
+    expected_agent: memory_agent
+    canary: true
+
+  # ── Stubs ────────────────────────────────────────────────────────────────────
+
+  - id: CAP_BUILDER
+    label: "Project Builder"
+    agent: builder
+    tool_fn: "backend.agents.builder.builder_node"
+    backend: "STUB"
+    backend_type: STUB
+    probe_prompt: "Build a new Flask project called myapp"
+    expected_agent: builder
+    canary: false
+
+  - id: CAP_VISION
+    label: "Vision / Image Analysis"
+    agent: vision
+    tool_fn: "backend.agents.vision.vision_node"
+    backend: "STUB (model-only)"
+    backend_type: STUB
+    probe_prompt: "Analyze the image at /tmp/test.png"
+    expected_agent: vision
+    canary: false
+
+  - id: CAP_SELF_IMPROVER
+    label: "Self Improvement"
+    agent: self_improver
+    tool_fn: "backend.agents.self_improver.self_improver_node"
+    backend: "STUB"
+    backend_type: STUB
+    probe_prompt: "Improve your own code quality"
+    expected_agent: self_improver
+    canary: false

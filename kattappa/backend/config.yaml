@@ -12,6 +12,11 @@ models:
   coder: qwen2.5-coder:3b
   vision: qwen3-vl:8b
   reasoning: gpt-oss:20b
+  planning: glm-5.2
+  reflection: glm-5.2
+  recovery: glm-5.2
+  compression: glm-5.2
+  safety: glm-5.2
 
 memory:
   chroma_path: backend/memory/chroma

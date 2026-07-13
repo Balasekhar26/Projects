@@ -82,7 +82,8 @@ CONTROL_REPLY_PREFIXES = (
 
 def content_terms(text: str) -> list[str]:
     terms: list[str] = []
-    for raw in re.findall(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", text.lower()):
+    processed_text = (text or "").replace("_", " ").replace("-", " ")
+    for raw in re.findall(r"[a-zA-Z0-9]+", processed_text.lower()):
         token = _normalize_token(raw)
         if len(token) < 3 or token in STOP_WORDS or token in terms:
             continue

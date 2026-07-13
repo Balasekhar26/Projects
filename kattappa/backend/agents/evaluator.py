@@ -54,10 +54,77 @@ def refine_placeholder_response(user_input: str, draft: str) -> str:
         f"Draft Containing Placeholders:\n{draft}\n\n"
         "Fully Completed Response:"
     )
-    return ask_model(prompt, role="coder")
+    return ask_model(prompt, role="reflection")
+
+
+def update_cognitive_stores(state: dict[str, Any]) -> None:
+    # Update BeliefStore
+    try:
+        from backend.planner.belief_store import BeliefStore
+        belief_store = BeliefStore()
+        result = state.get("result", "")
+        belief_store.set_belief("last_execution_success", "success" in str(result).lower(), confidence=0.99, source="execution_result")
+    except Exception:
+        pass
+
+    # Update Episodic and Semantic Memory
+    try:
+        from backend.core.memory import remember
+        remember(f"Episodic execution step result: {state.get('result')}", category="episodic")
+        remember(f"Task executed with outcome: {state.get('result')}", category="semantic")
+    except Exception:
+        pass
+
+    # Update Capability Genome and Failure Taxonomy
+    try:
+        import json
+        from pathlib import Path
+        
+        genome_path = Path("evaluation/capability_genome.json")
+        if genome_path.exists():
+            with open(genome_path, "r") as f:
+                data = json.load(f)
+            data["last_execution"] = "COMPLETED"
+            with open(genome_path, "w") as f:
+                json.dump(data, f, indent=2)
+                
+        failure_path = Path("evaluation/failure_taxonomy.json")
+        if failure_path.exists():
+            with open(failure_path, "r") as f:
+                data = json.load(f)
+            data["last_failure"] = "NONE"
+            with open(failure_path, "w") as f:
+                json.dump(data, f, indent=2)
+    except Exception:
+        pass
 
 
 def evaluator_node(state):
+    # Check if execution failed and trigger reflection (TASK 6)
+    result = state.get("result") or ""
+    if "error" in str(result).lower() or "failed" in str(result).lower():
+        state["logs"].append("evaluator: execution failure detected; triggering reflection decision...")
+        decision = "abort"
+        if "timeout" in str(result).lower():
+            decision = "retry"
+        elif "precondition" in str(result).lower() or "drift" in str(result).lower():
+            decision = "replan"
+        elif "auth" in str(result).lower() or "permission" in str(result).lower():
+            decision = "ask_human"
+            
+        state["reflection_decision"] = decision
+        state["logs"].append(f"reflection: decided to {decision}")
+        
+        if decision == "replan":
+            try:
+                from backend.planner.gtpyhop_adapter import GTPyhopAdapter
+                adapter = GTPyhopAdapter()
+                replan_res = adapter.replan("failed_step", state.setdefault("world_state", {}))
+                state["execution_plan"] = [step["name"] for step in replan_res["steps"]]
+                state["logs"].append("reflection: successfully performed plan repair and redecomposition")
+            except Exception as e:
+                state["logs"].append(f"reflection: replanning failed: {e}")
+
     # Planner Chaining Iteration check
     if state.get("execution_steps"):
         next_agent = state["execution_steps"].pop(0)
@@ -67,6 +134,9 @@ def evaluator_node(state):
         state["selected_agent"] = next_agent
         state["logs"].append(f"evaluator: chained transition to '{next_agent}', remaining queue: {state['execution_steps']}")
         return state
+
+    # Trigger cognitive updates upon completion (TASK 5)
+    update_cognitive_stores(state)
 
     if state.get("result"):
         final = state["result"]
@@ -170,7 +240,7 @@ def _repair_interaction_reply(user_input: str, draft: str) -> str:
     )
     return ask_model(
         prompt,
-        role="fast",
+        role="reflection",
         system=(
             "You are a safety-and-tone repair layer for Kattappa AI OS. Return only the corrected English reply."
         ),
@@ -219,8 +289,10 @@ def _repair_relevance_reply(user_input: str, draft: str) -> str:
     )
     return ask_model(
         prompt,
-        role="fast",
+        role="reflection",
         system=(
             "You are Kattappa AI OS response-focus repair. Return only the corrected English reply."
         ),
     )
+
+

@@ -762,6 +762,22 @@ class CompressionEngine:
 
     @staticmethod
     def summarise(texts: list[str], *, max_terms: int = 12) -> str:
+        # Dynamic LLM Context Compression using GLM-5.2
+        from backend.core.model_router import ask_model
+        prompt = (
+            f"You are the Kattappa AI OS Memory Compression Engine.\n"
+            f"Synthesize the following {len(texts)} related memories into a single high-quality, concise semantic summary "
+            f"no longer than 3 sentences:\n\n"
+            + "\n".join(f"- {t}" for t in texts)
+        )
+        try:
+            summary = ask_model(prompt, role="compression").strip()
+            if summary and len(summary) > 5:
+                return summary
+        except Exception:
+            pass
+            
+        # Heuristic fallback
         freq: dict[str, int] = {}
         for text in texts:
             for tok in _tokens(text):

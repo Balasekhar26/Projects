@@ -1,0 +1,421 @@
+# Kattappa Manual Evaluation Tasks — Canary 50
+#
+# This file is the source of truth for the M38 Canary 50 benchmark.
+# Tasks tagged canary: true are included in `--canary` runs.
+#
+# Assertion types:
+#   substring   — result must contain the expected text (case-insensitive)
+#   not_empty   — result must be non-empty
+#   agent       — state.selected_agent must equal expected value
+#
+# Each run is appended to evaluation/canary_history.jsonl for trend tracking.
+
+tasks:
+
+  # ── Category: Direct QA (8 tasks) ──────────────────────────────────────────
+
+  - id: qa_math_basic
+    category: "Direct QA"
+    prompt: "What is 2+2?"
+    canary: true
+    assertions:
+      - type: substring
+        expected: "4"
+
+  - id: qa_identity
+    category: "Direct QA"
+    prompt: "Who are you?"
+    canary: true
+    assertions:
+      - type: substring
+        expected: "Kattappa"
+
+  - id: qa_greeting
+    category: "Direct QA"
+    prompt: "Hello"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: qa_capital
+    category: "Direct QA"
+    prompt: "What is the capital of France?"
+    canary: true
+    assertions:
+      - type: substring
+        expected: "Paris"
+
+  - id: qa_translation
+    category: "Direct QA"
+    prompt: "Translate 'hello' to French"
+    canary: true
+    assertions:
+      - type: substring
+        expected: "bonjour"
+
+  - id: qa_definition
+    category: "Direct QA"
+    prompt: "What is a Python decorator?"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: qa_math_complex
+    category: "Direct QA"
+    prompt: "What is 15 multiplied by 7?"
+    canary: true
+    assertions:
+      - type: substring
+        expected: "105"
+
+  - id: qa_explain
+    category: "Direct QA"
+    prompt: "Explain what machine learning is in one sentence."
+    canary: true
+    assertions:
+      - type: not_empty
+
+  # ── Category: File Operations (10 tasks) ────────────────────────────────────
+
+  - id: file_read
+    category: "File Operations"
+    prompt: "Read the file backend/main.py"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+      - type: not_empty
+
+  - id: file_list
+    category: "File Operations"
+    prompt: "List all files in the backend folder"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+      - type: not_empty
+
+  - id: file_list_dir
+    category: "File Operations"
+    prompt: "List the files in the evaluation directory"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+      - type: not_empty
+
+  - id: file_find_python
+    category: "File Operations"
+    prompt: "Find all Python files in the backend directory"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+      - type: not_empty
+
+  - id: file_search_keyword
+    category: "File Operations"
+    prompt: "Search the project for the word 'FailureReason'"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+
+  - id: file_find_todos
+    category: "File Operations"
+    prompt: "Find all TODO comments in the codebase"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+
+  - id: file_create
+    category: "File Operations"
+    prompt: "Create a file called hello_canary.txt with the text 'Canary test passed'"
+    canary: false
+    assertions:
+      - type: agent
+        expected: "file"
+
+  - id: file_read_specific_line
+    category: "File Operations"
+    prompt: "Show me the first 5 lines of backend/core/graph.py"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+      - type: not_empty
+
+  - id: file_list_tests
+    category: "File Operations"
+    prompt: "What test files exist in the backend/tests directory?"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+      - type: not_empty
+
+  - id: file_read_yaml
+    category: "File Operations"
+    prompt: "Read the file evaluation/tool_coverage_matrix.yaml"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "file"
+      - type: not_empty
+
+  # ── Category: Memory (6 tasks) ──────────────────────────────────────────────
+
+  - id: memory_store_color
+    category: "Memory"
+    prompt: "Remember that my favorite color is blue"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: memory_recall_color
+    category: "Memory"
+    prompt: "What is my favorite color?"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: memory_store_name
+    category: "Memory"
+    prompt: "My name is Alex. Remember that."
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: memory_recall_name
+    category: "Memory"
+    prompt: "What is my name?"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: memory_store_preference
+    category: "Memory"
+    prompt: "Remember that I prefer dark mode interfaces"
+    canary: false
+    assertions:
+      - type: not_empty
+
+  - id: memory_what_you_know
+    category: "Memory"
+    prompt: "What do you know about me so far?"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  # ── Category: Planning & Coding (10 tasks) ──────────────────────────────────
+
+  - id: code_reverse_string
+    category: "Coding"
+    prompt: "Write a Python function that reverses a string"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "coder"
+      - type: substring
+        expected: "def"
+
+  - id: code_factorial
+    category: "Coding"
+    prompt: "Write a Python function to compute factorial"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "coder"
+      - type: substring
+        expected: "def"
+
+  - id: code_todo_list_plan
+    category: "Planning"
+    prompt: "Create a todo list for learning Python in 30 days"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: code_flask_plan
+    category: "Planning"
+    prompt: "Create a plan for building a simple Flask REST API"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: code_fix_syntax
+    category: "Coding"
+    prompt: "Fix this Python syntax error: def foo(: pass"
+    canary: false
+    assertions:
+      - type: agent
+        expected: "coder"
+
+  - id: code_fibonacci
+    category: "Coding"
+    prompt: "Write a Python function that returns the nth Fibonacci number"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "coder"
+      - type: substring
+        expected: "def"
+
+  - id: code_unit_test
+    category: "Coding"
+    prompt: "Write a unit test for a function called add(a, b) that returns a + b"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "coder"
+      - type: not_empty
+
+  - id: code_explain_code
+    category: "Coding"
+    prompt: "Explain what this code does: import os; print(os.listdir('.'))"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: code_run_tests
+    category: "Coding"
+    prompt: "Run the test suite with pytest"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "terminal"
+
+  - id: code_git_status
+    category: "Coding"
+    prompt: "Run git status and show me the current state"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "terminal"
+
+  # ── Category: Desktop (8 tasks) ─────────────────────────────────────────────
+
+  - id: desktop_open_calculator
+    category: "Desktop"
+    prompt: "Open calculator"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "desktop"
+
+  - id: desktop_open_browser
+    category: "Desktop"
+    prompt: "Open Chrome browser"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "desktop"
+
+  - id: desktop_screenshot
+    category: "Desktop"
+    prompt: "Take a screenshot of the screen"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "desktop"
+
+  - id: desktop_list_windows
+    category: "Desktop"
+    prompt: "What applications are currently open?"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "desktop"
+
+  - id: desktop_active_window
+    category: "Desktop"
+    prompt: "What is the currently active window?"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "desktop"
+
+  - id: desktop_open_vscode
+    category: "Desktop"
+    prompt: "Open VS Code"
+    canary: false
+    assertions:
+      - type: agent
+        expected: "desktop"
+
+  - id: desktop_open_terminal
+    category: "Desktop"
+    prompt: "Open a terminal window"
+    canary: true
+    assertions:
+      - type: agent
+        expected: "desktop"
+
+  - id: desktop_read_screen
+    category: "Desktop"
+    prompt: "Read what is on the screen right now"
+    canary: false
+    assertions:
+      - type: agent
+        expected: "desktop"
+
+  # ── Category: Multi-Step (5 tasks) ──────────────────────────────────────────
+
+  - id: multistep_read_then_summarize
+    category: "Multi-Step"
+    prompt: "Read backend/core/failure_codes.py and give me a one-line summary of what it does"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: multistep_list_then_describe
+    category: "Multi-Step"
+    prompt: "List the files in the evaluation directory and tell me what each one does"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: multistep_find_and_count
+    category: "Multi-Step"
+    prompt: "How many Python test files are in the backend/tests directory?"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: multistep_read_and_explain
+    category: "Multi-Step"
+    prompt: "Read evaluation/manual_tasks.yaml and tell me how many categories of tasks it contains"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: multistep_search_and_summarize
+    category: "Multi-Step"
+    prompt: "Find files that import FailureReason and summarize what they do with it"
+    canary: false
+    assertions:
+      - type: not_empty
+
+  # ── Category: Edge Cases (3 tasks) ──────────────────────────────────────────
+
+  - id: edge_empty_input
+    category: "Edge Cases"
+    prompt: "   "
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: edge_nonsense_input
+    category: "Edge Cases"
+    prompt: "xqzpbt foobar 123 zzz"
+    canary: true
+    assertions:
+      - type: not_empty
+
+  - id: edge_very_long_prompt
+    category: "Edge Cases"
+    prompt: "Please help me understand in great detail, with multiple examples, step-by-step explanations, code samples, diagrams described in text, and references to best practices, how to design a robust, scalable, maintainable, and secure REST API using Python and FastAPI, including authentication, authorization, rate limiting, versioning, documentation, testing, and deployment strategies for a production environment."
+    canary: false
+    assertions:
+      - type: not_empty

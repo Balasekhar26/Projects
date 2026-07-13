@@ -25,6 +25,7 @@ import type {
   VoicePipelineStatus,
   VoiceProcessResult,
   WritingResult,
+  RequestTrace,
 } from "../types";
 
 export const API_BASE_URL = "http://127.0.0.1:8000";
@@ -393,4 +394,9 @@ export function fetchSageStatus(): Promise<SageStatus> {
 export function submitSageFeedback(userInput: string, source: string, rating: number): Promise<{ success: boolean; new_weights: Record<string, number> }> {
   return postJson("/sage/feedback", { user_input: userInput, source, rating });
 }
+
+export function fetchRequestTraces(): Promise<RequestTrace[]> {
+  return requestJson<{ traces: RequestTrace[] }>("/telemetry/traces").then((data) => data.traces);
+}
+
 

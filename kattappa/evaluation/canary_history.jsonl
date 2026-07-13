@@ -1,0 +1,16 @@
+{"timestamp": "2026-07-10T14:51:58Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 19, "failed": 24, "success_rate": 44.19}
+{"timestamp": "2026-07-10T14:59:49Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 23, "failed": 20, "success_rate": 53.49}
+{"timestamp": "2026-07-10T15:07:10Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 24, "failed": 19, "success_rate": 55.81}
+{"timestamp": "2026-07-10T15:09:01Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 24, "failed": 19, "success_rate": 55.81}
+{"timestamp": "2026-07-10T15:12:25Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 25, "failed": 18, "success_rate": 58.14}
+{"timestamp": "2026-07-10T15:20:05Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 27, "failed": 16, "success_rate": 62.79}
+{"timestamp": "2026-07-10T15:29:18Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 37, "failed": 6, "success_rate": 86.05}
+{"timestamp": "2026-07-10T15:37:16Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 36, "failed": 7, "success_rate": 83.72}
+{"timestamp": "2026-07-10T15:52:20Z", "run_label": "ALL TASKS \u2014 Coding", "canary_only": false, "category_filter": "Coding", "total_tasks": 8, "passed": 7, "failed": 1, "success_rate": 87.5}
+{"timestamp": "2026-07-10T16:00:56Z", "run_label": "ALL TASKS \u2014 File Operations", "canary_only": false, "category_filter": "File Operations", "total_tasks": 10, "passed": 7, "failed": 3, "success_rate": 70.0}
+{"timestamp": "2026-07-10T16:06:06Z", "run_label": "ALL TASKS \u2014 File Operations", "canary_only": false, "category_filter": "File Operations", "total_tasks": 10, "passed": 7, "failed": 3, "success_rate": 70.0}
+{"timestamp": "2026-07-10T16:18:18Z", "run_label": "ALL TASKS \u2014 File Operations", "canary_only": false, "category_filter": "File Operations", "total_tasks": 10, "passed": 7, "failed": 3, "success_rate": 70.0}
+{"timestamp": "2026-07-10T16:20:22Z", "run_label": "ALL TASKS \u2014 File Operations", "canary_only": false, "category_filter": "File Operations", "total_tasks": 10, "passed": 9, "failed": 1, "success_rate": 90.0}
+{"timestamp": "2026-07-10T16:22:08Z", "run_label": "ALL TASKS \u2014 File Operations", "canary_only": false, "category_filter": "File Operations", "total_tasks": 10, "passed": 10, "failed": 0, "success_rate": 100.0}
+{"timestamp": "2026-07-10T16:25:39Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 42, "failed": 1, "success_rate": 97.67}
+{"timestamp": "2026-07-10T16:31:30Z", "run_label": "CANARY 50", "canary_only": true, "category_filter": null, "total_tasks": 43, "passed": 43, "failed": 0, "success_rate": 100.0}

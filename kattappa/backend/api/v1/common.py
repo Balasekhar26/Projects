@@ -1220,12 +1220,14 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
             else:
                 subprocess.Popen(["google-chrome"])
                 response = "Opening Google Chrome..."
+            agent = "desktop"
         except Exception as exc:
             response = f"Failed to open Chrome: {exc}"
+            agent = "desktop"
     elif any(q in clean_text for q in ["test internet speed", "speed test", "test speed", "internet speed test"]):
         from backend.core.macros.browser_macros import execute_speedtest
         response = execute_speedtest()
-        agent = "macro_browser_speedtest"
+        agent = "browser"
 
     if response is None:
         return None
@@ -1261,6 +1263,8 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
 
     return {
         "response": response,
+        "selected_agent": agent,
+        "agent": agent,
         "state": state,
         "session": session,
         "user_message": user_message,

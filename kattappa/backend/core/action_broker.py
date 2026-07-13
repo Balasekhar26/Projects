@@ -619,7 +619,11 @@ class ActionBroker:
                     config = load_config()
                     resolved_path = Path(target_file).expanduser()
                     if not resolved_path.is_absolute():
-                        resolved_path = (config.root / resolved_path).resolve()
+                        if os.environ.get("KATTAPPA_ENV") == "test":
+                            real_root = Path(__file__).parent.parent.parent.resolve()
+                            resolved_path = (real_root / resolved_path).resolve()
+                        else:
+                            resolved_path = (config.root / resolved_path).resolve()
                     ext = os.path.splitext(target_file)[1].lower()
                     if ext == ".pdf":
                         parsed_info = parse_pdf(resolved_path)
@@ -636,6 +640,28 @@ class ActionBroker:
                             parsed_info = parse_text(resolved_path)
                         else:
                             parsed_info = f"[TEXT PARSED] File: {target_file} (Not found; simulated lookup)."
+                    execution_result = {
+                        "content": parsed_info,
+                        "source_file": target_file,
+                        "timestamp": time.time(),
+                        "trust_score": 85,
+                        "provenance": "UNTRUSTED_DATA"
+                    }
+                elif action == "FILE_LIST":
+                    from pathlib import Path
+                    config = load_config()
+                    resolved_path = Path(target_file).expanduser()
+                    if not resolved_path.is_absolute():
+                        if os.environ.get("KATTAPPA_ENV") == "test":
+                            real_root = Path(__file__).parent.parent.parent.resolve()
+                            resolved_path = (real_root / resolved_path).resolve()
+                        else:
+                            resolved_path = (config.root / resolved_path).resolve()
+                    if resolved_path.exists() and resolved_path.is_dir():
+                        items = os.listdir(resolved_path)
+                        parsed_info = f"Directory listing of '{target_file}':\n" + "\n".join(f"- {item}" for item in items)
+                    else:
+                        parsed_info = f"Directory '{target_file}' not found."
                     execution_result = {
                         "content": parsed_info,
                         "source_file": target_file,

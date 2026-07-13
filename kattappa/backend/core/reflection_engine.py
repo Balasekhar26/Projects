@@ -197,7 +197,7 @@ class ReflectionEngine:
         )
         
         try:
-            response = ask_model(prompt, role="coder")
+            response = ask_model(prompt, role="reflection")
             
             # Simple JSON extraction in case model returned extra markdown backticks
             json_match = re.search(r"\{.*\}", response, re.DOTALL)
@@ -705,7 +705,7 @@ class ReflectionEngine:
                     f"\n\nRespond with a single concise sentence summarizing the principle."
                 )
                 try:
-                    statement = ask_model(prompt, role="coder").strip()
+                    statement = ask_model(prompt, role="reflection").strip()
                     if statement.startswith("```"):
                         lines = statement.splitlines()
                         if len(lines) > 2:
@@ -1170,4 +1170,40 @@ class ReflectionEngine:
     def reset(cls) -> None:
         with cls._lock:
             cls._save({"reflections": []})
+
+    @classmethod
+    def reflect_on_execution(cls, state: dict[str, Any]) -> dict[str, Any]:
+        """Performs a structured post-execution reflection and stores findings to evaluation/reflections/."""
+        import os
+        import uuid
+        import json
+        from pathlib import Path
+
+        user_input = state.get("user_input", "")
+        plan = state.get("execution_plan", [])
+        result = state.get("result", "")
+        logs = state.get("logs", [])
+
+        succeeded = "error" not in str(result).lower() and "failed" not in str(result).lower()
+        failures = [] if succeeded else [str(result)]
+
+        reflection_data = {
+            "what_happened": f"Processed request: '{user_input}'",
+            "what_succeeded": f"Successfully planned and executed steps: {plan}" if succeeded else "Partial planning completed",
+            "what_failed": failures,
+            "why_failure_occurred": "None" if succeeded else "Execution error/timeout encountered",
+            "future_utility_improvement": "Ensure system prerequisites are cached before running actions",
+            "should_memory_be_updated": True,
+            "should_beliefs_change": not succeeded,
+            "should_capability_genome_mutate": False
+        }
+
+        reflections_dir = Path("evaluation/reflections")
+        reflections_dir.mkdir(parents=True, exist_ok=True)
+        file_path = reflections_dir / f"reflection_{uuid.uuid4().hex[:8]}.json"
+        
+        with open(file_path, "w") as f:
+            json.dump(reflection_data, f, indent=2)
+
+        return reflection_data
 

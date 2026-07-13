@@ -476,9 +476,13 @@ class RuleBasedIntelligenceLayer:
         if any(word in text_lower for word in browser_speed_keywords):
             return 4
 
-        # Coding keywords and intent -> Level 4
-        coding_keywords = {"code", "python", "javascript", "program", "script", "hello world", "write a python", "write python"}
-        if any(word in text_lower for word in coding_keywords):
+        # Coding and Terminal / pytest / git -> Level 4
+        coding_keywords = {
+            "code", "python", "javascript", "program", "script", "hello world", 
+            "write a python", "write python", "pytest", "test suite", "run tests", 
+            "git status", "run git", "unit test", "write a", "function called"
+        }
+        if any(word in text_lower for word in coding_keywords) or text_lower.strip().startswith("git ") or "pytest" in text_lower:
             return 4
 
         # Check safety requirements first -> Level 4
@@ -487,14 +491,41 @@ class RuleBasedIntelligenceLayer:
         if safety_decision.approval_required or safety_decision.blocked:
             return 4
 
-        # Check memory commands (remember, recall, forget, save in memory) -> Level 4
-        memory_keywords = {"remember", "recall", "memorize", "forget", "save in memory", "store in memory"}
-        if any(re.search(rf"\b{re.escape(word)}\b", text_lower) for word in memory_keywords):
+        # Check memory commands (remember, recall, forget, save in memory, name is, favorite color, about me) -> Level 4
+        memory_keywords = {
+            "remember", "recall", "memorize", "forget", "save in memory", "store in memory",
+            "my name is", "favorite color", "about me", "what is my name", "what do you know"
+        }
+        if any(re.search(rf"\b{re.escape(word)}\b", text_lower) for word in memory_keywords) or "favorite color" in text_lower or "about me" in text_lower:
             return 4
 
+        # Check file read / inspect / view / list -> Level 4
+        file_read_keywords = {
+            "read file", "view file", "show file", "cat file", "inspect file", "get file",
+            "list files", "list directory", "list the files", "list folder", "show directory", "list dir",
+            "read the file", "list all files", "what test files", "find all python", "find all todo"
+        }
+        if (
+            any(re.search(rf"\b{re.escape(word)}\b", text_lower) for word in file_read_keywords)
+            or any(ext in text_lower for ext in (".py", ".yaml", ".yml", ".txt", ".json", ".csv", ".xlsx", ".docx", ".pdf"))
+            or text_lower.strip().startswith("cat ")
+            or text_lower.strip().startswith("ls ")
+            or text_lower.strip() == "ls"
+            or "read " in text_lower
+            or "list " in text_lower
+            or "find " in text_lower
+            or "search " in text_lower
+        ):
+            return 4
+
+
         # Desktop / Visual automation -> Level 4
-        desktop_keywords = {"cursor", "screen", "click", "type", "keypress", "press key", "desktop", "inspect screen", "ocr", "screenshot", "mouse", "scroll", "open app"}
-        if any(re.search(rf"\b{re.escape(word)}\b", text_lower) for word in desktop_keywords):
+        desktop_keywords = {
+            "cursor", "screen", "click", "type", "keypress", "press key", "desktop", 
+            "inspect screen", "ocr", "screenshot", "mouse", "scroll", "open app",
+            "calculator", "active window", "applications are currently open", "open a terminal"
+        }
+        if any(re.search(rf"\b{re.escape(word)}\b", text_lower) for word in desktop_keywords) or "calculator" in text_lower or "active window" in text_lower:
             return 4
 
         # Builder / Codex / Workspace -> Level 4
@@ -505,7 +536,7 @@ class RuleBasedIntelligenceLayer:
         # Keywords showing intent to execute terminal actions, write files, navigate browser, or run finance brain -> Level 4
         coding_write_patterns = [
             r"\b(create|write|modify|edit|save|add|delete|remove)\s+(?:[a-zA-Z0-9\-_]+\s+){0,3}(?:file|code|script|class|function|program|project)\b",
-            r"\b(run|execute|launch|start|kill|stop)\s+(?:[a-zA-Z0-9\-_]+\s+){0,3}(?:command|terminal|script|server|process|setup)\b",
+            r"\b(run|execute|launch|start|kill|stop)\s+(?:[a-zA-Z0-9\-_]+\s+){0,3}(?:command|terminal|script|server|process|setup|test|tests)\b",
             r"\b(scrape|browse|search web|open url|navigate)\b",
             r"\b(financial forecast|predict stock|ohlcv|kronos)\b",
         ]
@@ -522,6 +553,7 @@ class RuleBasedIntelligenceLayer:
         planning_keywords = {"build a project", "create a plan", "setup and run", "run setup"}
         if any(re.search(rf"\b{re.escape(kw)}\b", text_lower) for kw in planning_keywords):
             return 4
+
 
         # Length check: long prompts needing deep context or explanations -> Level 2
         # Otherwise, basic short chat or greeting/simple questions -> Level 1

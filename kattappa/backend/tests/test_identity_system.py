@@ -1,195 +1,412 @@
-# test_identity_system.py
-# ========================
-# Integration and unit tests for the Long-Term Identity System (LIS).
-
-from __future__ import annotations
-
-import sqlite3
-import time
 import pytest
+import time
+import uuid
+import warnings
+import threading
+from fastapi.testclient import TestClient
 
-from backend.core.consensus_engine import (
-    AgentOutput,
-    ConsensusEngine,
-    ConsensusStatus,
-    Decision,
-    Recommendation,
-    Veto,
+from backend.core.ledger.stores.sqlite_store import SQLiteLedgerStore
+from backend.core.ledger.stores.memory_store import MemoryLedgerStore
+from backend.core.governance.identity_registry import (
+    IdentityRegistry,
+    Principal,
+    PrincipalValidationError,
+    bootstrap_default_principals,
+    PRINCIPAL_SYSTEM,
+    PRINCIPAL_HUMAN_DEFAULT,
 )
-from backend.core.identity_system import IdentitySystem
+from backend.core.governance.permission_governor import PermissionGovernor
+from backend.core.governance.policy_engine import PolicyEngine
+from backend.core.governance.safety_monitor import SafetyMonitor
+from backend.core.governance.goal_lifecycle import GoalLifecycleGovernor, GoalStatus
+from backend.core.governance.delegation_token_manager import mint_delegation_token, validate_token_capability
+from backend.core.cos.kernel import KERNEL
+from backend.main import app
+
+# Parametrize over SQLiteStore and MemoryStore backends
+@pytest.fixture(params=["sqlite", "memory"])
+def store(request):
+    if request.param == "sqlite":
+        # Shared connection in-memory sqlite store
+        store_obj = SQLiteLedgerStore(":memory:")
+    else:
+        store_obj = MemoryLedgerStore()
+    return store_obj
 
 
-@pytest.fixture(autouse=True)
-def clean_db():
-    # Make sure we clean/seed tables before and after each test
-    def _do_clean():
-        conn = IdentitySystem._get_sqlite_conn()
-        try:
-            conn.execute("DELETE FROM lis_drift_tracker")
-            conn.execute("DELETE FROM lis_role_logs")
-            conn.execute("DELETE FROM lis_identity_ledger")
-            conn.execute("DELETE FROM lis_value_checks")
-            conn.execute("DELETE FROM lis_identity_metrics")
-            conn.execute("DELETE FROM lis_identity_profile")
-            
-            # Seed default profile clean
-            now = time.time()
-            conn.execute(
-                "INSERT INTO lis_identity_profile (profile_id, current_health_state, composite_health_score, last_verification_timestamp) VALUES (?, ?, ?, ?)",
-                ("default_profile", "EXEMPLARY", 100.0, now)
-            )
-            conn.execute(
-                "INSERT INTO lis_identity_metrics (profile_id, rolling_truth_index, rolling_alignment_index, rolling_reliability_index, rolling_learning_index, rolling_creativity_index, updated_at) VALUES (?, 100.0, 100.0, 100.0, 100.0, 100.0, ?)",
-                ("default_profile", now)
-            )
-            conn.commit()
-        finally:
-            conn.close()
+def test_principal_registration(store):
+    registry = IdentityRegistry(store)
 
-    _do_clean()
-    yield
-    _do_clean()
-
-
-def test_get_or_create_profile():
-    profile = IdentitySystem.get_or_create_profile("test_profile")
-    assert profile["profile_id"] == "test_profile"
-    assert profile["current_health_state"] == "EXEMPLARY"
-    assert profile["composite_health_score"] == 100.0
-    
-    autonomy = IdentitySystem.get_autonomy_level("test_profile")
-    assert autonomy == "FULL_AUTONOMY"
-
-
-def test_derive_role_weights_boundaries():
-    # Domain specific Teacher match
-    weights = IdentitySystem.derive_role_weights({"domain": "explain concepts to user"})
-    assert weights["Teacher"] >= 0.30  # Floor for matched domain
-    assert weights["Teacher"] <= 0.60  # Ceiling
-    assert abs(sum(weights.values()) - 1.0) < 1e-6
-
-    # Domain specific Engineer match
-    weights_eng = IdentitySystem.derive_role_weights({"domain": "architect database code"})
-    assert weights_eng["Engineer"] >= 0.30
-    assert weights_eng["Engineer"] <= 0.60
-    assert abs(sum(weights_eng.values()) - 1.0) < 1e-6
-
-    # Verifying floor bounds are respected for non-matched roles
-    for role, val in weights_eng.items():
-        if role != "Engineer":
-            assert val >= 0.10
-
-
-def test_truth_gate_evaluation():
-    # Passed verification
-    assert IdentitySystem.evaluate_truth_gate({"verification": {"outcome": "VERIFIED"}}) is True
-    
-    # Failed verification status
-    assert IdentitySystem.evaluate_truth_gate({"verification": {"outcome": "FAILED"}}) is False
-    assert IdentitySystem.evaluate_truth_gate({"verification": {"status": "CONTRADICTED"}}) is False
-    
-    # Low confidence score
-    assert IdentitySystem.evaluate_truth_gate({"verification": {"score": 0.40}}) is False
-    assert IdentitySystem.evaluate_truth_gate({"verification": {"confidence_score": 0.30}}) is False
-    
-    # Low truthfulness rating
-    assert IdentitySystem.evaluate_truth_gate({"truthfulness_rating": 40}) is False
-    assert IdentitySystem.evaluate_truth_gate({"truthfulness_rating": 80}) is True
-
-
-def test_ledger_and_retraction():
-    profile_id = "default_profile"
-    action_id = "action_1"
-    verification_report_id = "report_1"
-    
-    # Verify starting health
-    profile = IdentitySystem.get_or_create_profile(profile_id)
-    assert profile["composite_health_score"] == 100.0
-    
-    # Record bad behavior (TRUTH score drops by 60.0, composite health should drop accordingly)
-    # TRUTH has 30% weight, so delta of -60 should lower composite health by 18 points (from 100 to 82)
-    entry_id = IdentitySystem.record_behavior(
-        profile_id=profile_id,
-        action_id=action_id,
-        verification_report_id=verification_report_id,
-        evidence_hash="hash123",
-        summary="Failed to verify factual claims",
-        value="TRUTH",
-        delta=-60.0
+    # 1. Successful registration with numeric trust
+    p = registry.register(
+        name="test-agent",
+        principal_type="AGENT",
+        trust_level=2,
+        capabilities=["CAP_FILE_READ", "CAP_FILE_WRITE"],
+        metadata={"role": "worker"},
     )
-    
-    updated_profile = IdentitySystem.get_or_create_profile(profile_id)
-    assert updated_profile["composite_health_score"] < 100.0
-    assert updated_profile["composite_health_score"] == pytest.approx(82.0)
-    assert updated_profile["current_health_state"] == "STRONG"  # 75-89 is STRONG
+    assert p.principal_id.startswith("PRINCIPAL-")
+    assert p.name == "test-agent"
+    assert p.principal_type == "AGENT"
+    assert p.trust_level == 2
+    assert "CAP_FILE_READ" in p.capabilities
+    assert p.metadata["role"] == "worker"
+    assert p.is_active is True
+    assert p.status == "ACTIVE"
+    assert p.expires_at is None
 
-    # Retract the behavior
-    retract_entry_id = IdentitySystem.retract_behavior(
-        profile_id=profile_id,
-        target_report_id=verification_report_id,
-        retraction_reason="audit confirmed accuracy"
+    # Retrieve by ID
+    p2 = registry.get(p.principal_id)
+    assert p2 is not None
+    assert p2.name == "test-agent"
+
+    # Retrieve by name
+    p3 = registry.resolve("test-agent")
+    assert p3 is not None
+    assert p3.principal_id == p.principal_id
+
+
+def test_invalid_registration(store):
+    registry = IdentityRegistry(store)
+
+    # Invalid type
+    with pytest.raises(PrincipalValidationError, match="Invalid principal_type"):
+        registry.register(name="bad-type", principal_type="alien")
+
+    # Invalid trust level
+    with pytest.raises(PrincipalValidationError, match="trust_level must be 0–5"):
+        registry.register(name="bad-trust", principal_type="human", trust_level=9)
+
+    # Invalid status
+    with pytest.raises(PrincipalValidationError, match="Invalid status"):
+        registry.register(name="bad-status", principal_type="human", status="TERMINATED")
+
+
+def test_string_trust_levels(store):
+    registry = IdentityRegistry(store)
+
+    # String trust mapping tests
+    p_sys = registry.register(name="sys-user", principal_type="human", trust_level="SYSTEM")
+    assert p_sys.trust_level == 5
+
+    p_trusted = registry.register(name="trusted-user", principal_type="human", trust_level="TRUSTED")
+    assert p_trusted.trust_level == 3
+
+    p_limited = registry.register(name="limited-user", principal_type="human", trust_level="LIMITED")
+    assert p_limited.trust_level == 2
+
+    p_sandboxed = registry.register(name="sandboxed-user", principal_type="human", trust_level="SANDBOXED")
+    assert p_sandboxed.trust_level == 1
+
+    p_untrusted = registry.register(name="untrusted-user", principal_type="human", trust_level="UNTRUSTED")
+    assert p_untrusted.trust_level == 0
+
+    p_revoked = registry.register(name="revoked-user", principal_type="human", trust_level="REVOKED")
+    assert p_revoked.trust_level == -1
+
+
+def test_unique_name_constraint(store):
+    registry = IdentityRegistry(store)
+    registry.register(name="unique-name", principal_type="AGENT")
+
+    if isinstance(store, SQLiteLedgerStore):
+        # sqlite will IGNORE the insert since create_principal uses INSERT OR IGNORE
+        # resolved name should still point to first agent
+        p2 = registry.register(name="unique-name", principal_type="HUMAN", trust_level=4)
+        resolved = registry.resolve("unique-name")
+        assert resolved.principal_type == "AGENT"
+    else:
+        pass
+
+
+def test_deactivation_reactivation_and_lifecycle(store):
+    registry = IdentityRegistry(store)
+    p = registry.register(name="active-agent", principal_type="AGENT")
+    assert p.is_active is True
+    assert p.status == "ACTIVE"
+
+    # Require active principal succeeds
+    assert registry.require(p.principal_id) is not None
+
+    # Suspend
+    registry.suspend(p.principal_id)
+    p_sus = registry.get(p.principal_id)
+    assert p_sus.is_active is False
+    assert p_sus.status == "SUSPENDED"
+
+    with pytest.raises(PermissionError, match="suspended"):
+        registry.require(p.principal_id)
+
+    # Revoke
+    registry.revoke(p.principal_id)
+    p_rev = registry.get(p.principal_id)
+    assert p_rev.is_active is False
+    assert p_rev.status == "REVOKED"
+
+    with pytest.raises(PermissionError, match="revoked"):
+        registry.require(p.principal_id)
+
+    # Reactivate
+    registry.reactivate(p.principal_id)
+    p_react = registry.get(p.principal_id)
+    assert p_react.is_active is True
+    assert p_react.status == "ACTIVE"
+
+
+def test_principal_expiry(store):
+    registry = IdentityRegistry(store)
+    past_time = time.time() - 10
+    p_expired = registry.register(name="expired-agent", principal_type="AGENT", expires_at=past_time)
+    
+    assert p_expired.can_authorize(1) is False
+
+    with pytest.raises(PermissionError, match="expired"):
+        registry.require(p_expired.principal_id)
+
+
+def test_permission_governor_integration(store):
+    registry = IdentityRegistry(store)
+    
+    p_agent = registry.register(
+        name="governor-agent",
+        principal_type="AGENT",
+        trust_level=2,
+        capabilities=["CAP_FILE_READ", "CAP_FILE_CREATE"],
     )
-    assert retract_entry_id is not None
-    
-    # Verify score recovered to original 100.0
-    recovered_profile = IdentitySystem.get_or_create_profile(profile_id)
-    assert recovered_profile["composite_health_score"] == pytest.approx(100.0)
-    assert recovered_profile["current_health_state"] == "EXEMPLARY"
+
+    policy = PolicyEngine()
+    safety = SafetyMonitor()
+
+    # Allowed capability
+    allowed, status = PermissionGovernor.authorize_action_request(
+        agent_name="governor-agent",
+        tool_name="CAP_FILE_READ",
+        args={},
+        policy=policy,
+        safety=safety,
+        principal=p_agent,
+    )
+    assert allowed is True
+    assert status == "AUTHORIZED"
+
+    # Blocked capability (not explicitly granted)
+    allowed, status = PermissionGovernor.authorize_action_request(
+        agent_name="governor-agent",
+        tool_name="CAP_WEB_SEARCH",
+        args={},
+        policy=policy,
+        safety=safety,
+        principal=p_agent,
+    )
+    assert allowed is False
+    assert status == "BLOCKED_BY_CAPABILITY_REGISTRY"
 
 
-def test_drift_alarms():
-    profile_id = "default_profile"
-    
-    # To trip sycophancy: TRUTH drops (delta < 0) and ALIGNMENT rises (delta > 0) in recent 10 logs
-    # Let's add multiple logs to establish this trend.
-    for i in range(5):
-        IdentitySystem.record_behavior(profile_id, f"a_{i}", f"r_t_{i}", "h", "ch", "TRUTH", -10.0)
-        IdentitySystem.record_behavior(profile_id, f"a_{i}", f"r_a_{i}", "h", "ch", "ALIGNMENT", 5.0)
+def test_trust_level_gating(store):
+    registry = IdentityRegistry(store)
 
-    # Query drift tracker database to check if SYCOPHANCY_INDEX alarm tripped
-    conn = IdentitySystem._get_sqlite_conn()
+    p_low_trust = registry.register(
+        name="low-trust",
+        principal_type="AGENT",
+        trust_level=2,
+        capabilities=["CAP_TERMINAL_EXECUTE"],
+    )
+
+    policy = PolicyEngine()
+    safety = SafetyMonitor()
+
+    allowed, status = PermissionGovernor.authorize_action_request(
+        agent_name="low-trust",
+        tool_name="CAP_TERMINAL_EXECUTE",
+        args={"command": "ls"},
+        policy=policy,
+        safety=safety,
+        principal=p_low_trust,
+    )
+    assert allowed is False
+    assert status == "REQUIRES_APPROVAL"
+
+
+def test_goal_ownership(store):
+    registry = IdentityRegistry(store)
+    governor = GoalLifecycleGovernor(store)
+
+    # 1. Create with no owner_id
+    g1 = governor.create_goal(title="g1")
+    assert g1["owner_id"] is None
+
+    # 2. Create with valid owner_id
+    p = registry.register(name="goal-owner", principal_type="HUMAN")
+    g2 = governor.create_goal(title="g2", owner_id=p.principal_id)
+    assert g2["owner_id"] == p.principal_id
+
+    # 3. Create with invalid owner_id
+    with pytest.raises(KeyError, match="not found"):
+        governor.create_goal(title="g3", owner_id="PRINCIPAL-NONEXISTENT")
+
+
+def test_bootstrap_idempotent(store):
+    bootstrap_default_principals(store)
+    registry = IdentityRegistry(store)
+
+    p_sys = registry.get(PRINCIPAL_SYSTEM)
+    assert p_sys is not None
+    assert p_sys.name == "kattappa-system"
+    assert p_sys.principal_type == "SYSTEM"
+    assert p_sys.trust_level == 5
+
+    p_human = registry.get(PRINCIPAL_HUMAN_DEFAULT)
+    assert p_human is not None
+    assert p_human.name == "human-default"
+    assert p_human.principal_type == "HUMAN"
+    assert p_human.trust_level == 3
+
+
+def test_delegation_issuer_validation(store):
+    # Set the global KERNEL ledger to this test store so delegation token manager uses it
+    old_ledger = KERNEL.ledger
+    KERNEL.ledger = store
     try:
-        tripped = conn.execute(
-            "SELECT COUNT(*) as count FROM lis_drift_tracker WHERE profile_id = ? AND metric_monitored = 'SYCOPHANCY_INDEX' AND is_alarm_tripped = 1",
-            (profile_id,)
-        ).fetchone()
-        assert tripped["count"] > 0
+        registry = IdentityRegistry(store)
+        p_active = registry.register(name="issuer-active", principal_type="HUMAN")
+        p_inactive = registry.register(name="issuer-inactive", principal_type="HUMAN")
+        registry.deactivate(p_inactive.principal_id)
+
+        # 1. Unknown issuer emits warning
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            mint_delegation_token(
+                trace_id="t1",
+                capabilities=["CAP_FILE_READ"],
+                expires_in_minutes=10,
+                max_invocations=5,
+                allowed_paths=[],
+                allowed_domains=[],
+                issued_by="UNKNOWN_ISSUER",
+            )
+            assert len(w) == 1
+            assert "Unknown issuer principal" in str(w[0].message)
+
+        # 2. Known active issuer accepted without warning
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            tok = mint_delegation_token(
+                trace_id="t1",
+                capabilities=["CAP_FILE_READ"],
+                expires_in_minutes=10,
+                max_invocations=5,
+                allowed_paths=[],
+                allowed_domains=[],
+                issued_by=p_active.principal_id,
+            )
+            assert len(w) == 0
+
+        # Validate capabilities work
+        valid, msg = validate_token_capability(tok["token_id"], "CAP_FILE_READ")
+        assert valid is True
+
+        # 3. Disabled principal issuer rejected at mint time
+        with pytest.raises(PermissionError, match="deactivated, suspended, revoked, or expired"):
+            mint_delegation_token(
+                trace_id="t1",
+                capabilities=["CAP_FILE_READ"],
+                expires_in_minutes=10,
+                max_invocations=5,
+                allowed_paths=[],
+                allowed_domains=[],
+                issued_by=p_inactive.principal_id,
+            )
+
+        # 4. Deactivated principal validation rejection
+        # If principal is deactivated *after* token minting, token validation should reject
+        tok_valid_at_mint = mint_delegation_token(
+            trace_id="t1",
+            capabilities=["CAP_FILE_READ"],
+            expires_in_minutes=10,
+            max_invocations=5,
+            allowed_paths=[],
+            allowed_domains=[],
+            issued_by=p_active.principal_id,
+        )
+        registry.deactivate(p_active.principal_id)
+        valid, msg = validate_token_capability(tok_valid_at_mint["token_id"], "CAP_FILE_READ")
+        assert valid is False
+        assert "deactivated, suspended, revoked, or expired" in msg
+
     finally:
-        conn.close()
+        KERNEL.ledger = old_ledger
 
 
-def test_autonomy_gating_integration():
-    profile_id = "default_profile"
-    
-    # Record bad behaviors to drop health below 60.0 (Reduced Autonomy)
-    # TRUTH delta = -100.0 (rolling_truth = 0)
-    # ALIGNMENT delta = -60.0 (rolling_alignment = 40)
-    # Composite: 0.30*0 + 0.25*40 + 0.20*100 + 0.15*100 + 0.10*100 = 55.0
-    IdentitySystem.record_behavior(profile_id, "act_d1", "rep_d1", "hash", "desc", "TRUTH", -100.0)
-    IdentitySystem.record_behavior(profile_id, "act_d2", "rep_d2", "hash", "desc", "ALIGNMENT", -60.0)
-    
-    autonomy = IdentitySystem.get_autonomy_level(profile_id)
-    assert autonomy == "REDUCED_AUTONOMY"
-    
-    # Check consensus integration: Reduced Autonomy forces requires_human_approval = True
-    outputs = [
-        AgentOutput("Engineer", Decision.APPROVE, source_id="m1"),
-    ]
-    # Use a dummy project to trigger weight derivation + project check
-    decision = ConsensusEngine.decide(outputs)
-    assert decision.status is ConsensusStatus.APPROVED
-    assert decision.requires_human_approval is True
-    assert any("Reduced Autonomy active" in r for r in decision.reasons)
+def test_concurrency_principals_creation(store):
+    registry = IdentityRegistry(store)
+    errors = []
 
-    # Record more bad behaviors to drop health below 40.0 (Restricted Mode)
-    # RELIABILITY delta = -100.0 (rolling_reliability = 0)
-    # Composite: 0.30*0 + 0.25*40 + 0.20*0 + 0.15*100 + 0.10*100 = 35.0
-    IdentitySystem.record_behavior(profile_id, "act_d3", "rep_d3", "hash", "desc", "RELIABILITY", -100.0)
-    
-    autonomy_crit = IdentitySystem.get_autonomy_level(profile_id)
-    assert autonomy_crit == "RESTRICTED_MODE"
-    
-    # Verify consensus decider forces Restricted Mode constraints
-    crit_decision = ConsensusEngine.decide(outputs)
-    assert crit_decision.requires_human_approval is True
-    assert any("Restricted Mode active" in r for r in crit_decision.reasons)
+    def create_batch(thread_idx: int):
+        try:
+            for i in range(10):
+                registry.register(
+                    name=f"thread-{thread_idx}-principal-{i}",
+                    principal_type="AGENT",
+                    trust_level=2,
+                )
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=create_batch, args=(i,)) for i in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"Concurrent registration errors: {errors}"
+    all_principals = registry.list(active_only=False)
+    # 10 threads * 10 principals = 100 principals
+    # Plus the default bootstrapped system/human default if sqlite bootstrapped
+    assert len(all_principals) >= 100
+
+
+def test_api_principal_endpoints():
+    client = TestClient(app)
+
+    reg_req = {
+        "name": "api-principal",
+        "principal_type": "AGENT",
+        "trust_level": "TRUSTED",
+        "capabilities": ["CAP_FILE_READ"],
+        "metadata": {"source": "api-test"},
+    }
+    response = client.post("/api/v1/principals/register", json=reg_req)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    pid = data["principal"]["principal_id"]
+    assert pid.startswith("PRINCIPAL-")
+    assert data["principal"]["trust_level"] == 3  # TRUSTED resolves to 3
+
+    # Duplicate name conflict
+    response = client.post("/api/v1/principals/register", json=reg_req)
+    assert response.status_code == 409
+
+    # Retrieve info
+    response = client.get(f"/api/v1/principals/{pid}")
+    assert response.status_code == 200
+    p_data = response.json()["principal"]
+    assert p_data["name"] == "api-principal"
+    assert p_data["is_active"] is True
+    assert p_data["status"] == "ACTIVE"
+
+    # List
+    response = client.get("/api/v1/principals/list")
+    assert response.status_code == 200
+    principals = response.json()["principals"]
+    assert len(principals) >= 3
+
+    # Deactivate
+    response = client.post(f"/api/v1/principals/{pid}/deactivate")
+    assert response.status_code == 200
+
+    # Retrieve info again
+    response = client.get(f"/api/v1/principals/{pid}")
+    assert response.status_code == 200
+    assert response.json()["principal"]["is_active"] is False
+    assert response.json()["principal"]["status"] == "SUSPENDED"

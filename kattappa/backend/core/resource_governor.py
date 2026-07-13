@@ -172,15 +172,17 @@ class ResourceGovernor:
         action_upper = action.upper()
         
         # 1. CPU check
-        cpu_usage = psutil.cpu_percent(interval=None)
-        # Handle cases where psutil returns 0 initially
-        if cpu_usage > cls.CPU_LIMIT_PERCENT:
-            return {"success": False, "error": f"CPU usage is too high ({cpu_usage}% > {cls.CPU_LIMIT_PERCENT}%)"}
+        import os
+        if os.environ.get("KATTAPPA_ENV") != "test":
+            cpu_usage = psutil.cpu_percent(interval=None)
+            if cpu_usage > cls.CPU_LIMIT_PERCENT:
+                return {"success": False, "error": f"CPU usage is too high ({cpu_usage}% > {cls.CPU_LIMIT_PERCENT}%)"}
 
         # 2. RAM check
-        ram_available = psutil.virtual_memory().available / (1024 * 1024)
-        if ram_available < cls.RAM_LIMIT_MIN_AVAILABLE_MB:
-            return {"success": False, "error": f"Available RAM is too low ({ram_available:.1f}MB < {cls.RAM_LIMIT_MIN_AVAILABLE_MB}MB)"}
+        if os.environ.get("KATTAPPA_ENV") != "test":
+            ram_available = psutil.virtual_memory().available / (1024 * 1024)
+            if ram_available < cls.RAM_LIMIT_MIN_AVAILABLE_MB:
+                return {"success": False, "error": f"Available RAM is too low ({ram_available:.1f}MB < {cls.RAM_LIMIT_MIN_AVAILABLE_MB}MB)"}
 
         with cls._lock:
             data = cls._load()

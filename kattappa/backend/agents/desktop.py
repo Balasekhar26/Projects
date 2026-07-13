@@ -50,7 +50,7 @@ def classify_desktop_action(user_input: str) -> tuple[str, dict[str, Any]]:
         return "DESKTOP_CLOSE_APP", {}
         
     # 2. Basic capabilities
-    if "open" in lower:
+    if "open" in lower and not any(kw in lower for kw in ("what", "which", "are open", "currently")):
         app_name = "VS Code"
         if "chrome" in lower:
             app_name = "Chrome"

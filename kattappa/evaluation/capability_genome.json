@@ -1,0 +1,69 @@
+{
+  "provenance": {
+    "benchmark_class": "synthetic",
+    "production_equivalent": false,
+    "intelligence_measurement": false,
+    "timestamp": "2026-07-11T09:53:23Z"
+  },
+  "overall_metrics": {
+    "total_tasks": 1000,
+    "passed": 826,
+    "failed": 174,
+    "success_rate": 82.6,
+    "average_latency_ms": 2341.25,
+    "synthetic_governance_bypass": true
+  },
+  "cognitive_domain_scores": {
+    "long_horizon_planning": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 4812.5
+    },
+    "memory_and_consolidation": {
+      "success_rate": 0.0,
+      "reliability": "fail_strict_assertion",
+      "average_latency_ms": 2650.11
+    },
+    "reasoning_and_math": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 1345.82
+    },
+    "tool_orchestration": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 1150.32
+    },
+    "failure_recovery": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 2842.1
+    },
+    "reflection_and_self_correction": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 1945.3
+    },
+    "multimodal_understanding": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 1582.44
+    },
+    "security_analysis": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 2105.67
+    },
+    "autonomous_research": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 1845.22
+    },
+    "robotics_readiness": {
+      "success_rate": 1.0,
+      "reliability": "high_pipeline_only",
+      "average_latency_ms": 1285.9
+    }
+  },
+  "last_execution": "COMPLETED"
+}

@@ -21,12 +21,21 @@ class CompressionEngine:
 
         words = item.value.split()
         if len(words) > max_words:
-            # Extractive compression: take first max_words and add ellipsis
-            summary = " ".join(words[:max_words]) + "..."
-            logger.info("Compressed context item %s to %d words", item.item_id, max_words)
-            
+            from backend.core.model_router import ask_model
+            prompt = (
+                f"Perform high-quality semantic compression/summarization of the following context item. "
+                f"Compress it down to at most {max_words} words while preserving critical semantic facts:\n\n"
+                f"{item.value}"
+            )
+            try:
+                summary = ask_model(prompt, role="compression").strip()
+                if not summary or len(summary.split()) > max_words * 2:
+                    summary = " ".join(words[:max_words]) + "..."
+            except Exception:
+                summary = " ".join(words[:max_words]) + "..."
+                
+            logger.info("Compressed context item %s dynamically", item.item_id)
             item.value = summary
-            # Re-estimate token counts (approx 4 chars per token)
             item.token_estimate = len(summary) // 4
 
         return item

@@ -22,6 +22,7 @@ import type {
   WritingResult,
 } from "../types";
 import { SystemDiagnostics } from "./SystemDiagnostics";
+import { TracesPanel } from "./TracesPanel";
 import { MemoryPanel } from "./MemoryPanel";
 import { TasksPanel } from "./TasksPanel";
 import { WritingPanel } from "./WritingPanel";
@@ -111,6 +112,8 @@ export function PanelContent(props: PanelContentProps) {
           sourcePolicy={props.sourcePolicy}
         />
       );
+    case "Traces":
+      return <TracesPanel />;
     case "Memory":
       return <MemoryPanel health={props.health} onRefreshHealth={props.onRefreshHealth} />;
     case "Tasks":

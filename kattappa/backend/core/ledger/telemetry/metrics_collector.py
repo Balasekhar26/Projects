@@ -23,15 +23,32 @@ class MetricsCollector:
             "interrupted_goals": deque(maxlen=window_size),
         }
 
-    def record(self, metric_name: str, value: float) -> None:
-        """Records an observation for the given metric."""
+    def record(self, metric_name: str, value: float, metadata: dict | None = None) -> None:
+        """Records an observation for the given metric and persists to SQLite if available."""
+        now = time.time()
         with self._lock:
             if metric_name not in self._metrics:
                 self._metrics[metric_name] = deque(maxlen=self._window_size)
-            self._metrics[metric_name].append((time.time(), value))
+            self._metrics[metric_name].append((now, value))
+
+        try:
+            from backend.core.cos.kernel import KERNEL
+            if KERNEL and hasattr(KERNEL, "ledger") and KERNEL.ledger is not None:
+                KERNEL.ledger.record_metric(now, metric_name, value, metadata)
+        except Exception:
+            pass
 
     def get_values(self, metric_name: str) -> List[float]:
         """Returns the collected list of values for the given metric name."""
+        try:
+            from backend.core.cos.kernel import KERNEL
+            if KERNEL and hasattr(KERNEL, "ledger") and KERNEL.ledger is not None:
+                db_values = KERNEL.ledger.get_metric_values(metric_name)
+                if db_values:
+                    return [val for _, val in db_values]
+        except Exception:
+            pass
+
         with self._lock:
             if metric_name not in self._metrics:
                 return []
@@ -39,6 +56,15 @@ class MetricsCollector:
 
     def get_values_since(self, metric_name: str, since_timestamp: float) -> List[float]:
         """Returns the collected list of values since the target timestamp."""
+        try:
+            from backend.core.cos.kernel import KERNEL
+            if KERNEL and hasattr(KERNEL, "ledger") and KERNEL.ledger is not None:
+                db_values = KERNEL.ledger.get_metric_values(metric_name, since_timestamp)
+                if db_values:
+                    return [val for _, val in db_values]
+        except Exception:
+            pass
+
         with self._lock:
             if metric_name not in self._metrics:
                 return []

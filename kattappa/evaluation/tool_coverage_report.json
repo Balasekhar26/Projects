@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-07-10T14:47:27Z",
+  "capabilities": [
+    {
+      "id": "CAP_FILE_READ",
+      "label": "File Read",
+      "backend_type": "STDLIB",
+      "expected_agent": "file",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_FILE_LIST",
+      "label": "Directory Listing",
+      "backend_type": "STDLIB",
+      "expected_agent": "file",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_FILE_WRITE",
+      "label": "File Write / Create",
+      "backend_type": "STDLIB",
+      "expected_agent": "file",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_FILE_SEARCH",
+      "label": "File Content Search",
+      "backend_type": "STDLIB",
+      "expected_agent": "file",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_TERMINAL_RUN",
+      "label": "Terminal Command",
+      "backend_type": "STDLIB",
+      "expected_agent": "terminal",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_TERMINAL_PYTEST",
+      "label": "Run Tests",
+      "backend_type": "STDLIB",
+      "expected_agent": "terminal",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_CODE_GENERATE",
+      "label": "Code Generation",
+      "backend_type": "STDLIB",
+      "expected_agent": "coder",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_CODE_FIX",
+      "label": "Code Fix / Debug",
+      "backend_type": "STDLIB",
+      "expected_agent": "coder",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_BROWSER_READ",
+      "label": "Browser URL Read",
+      "backend_type": "OPTIONAL_DEPENDENCY",
+      "expected_agent": "browser",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_BROWSER_SEARCH",
+      "label": "Web Search",
+      "backend_type": "OPTIONAL_DEPENDENCY",
+      "expected_agent": "browser",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_DESKTOP_OPEN_APP",
+      "label": "Open Application",
+      "backend_type": "HARDWARE_REQUIRED",
+      "expected_agent": "desktop",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_DESKTOP_SCREENSHOT",
+      "label": "Take Screenshot",
+      "backend_type": "HARDWARE_REQUIRED",
+      "expected_agent": "desktop",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_MEMORY_STORE",
+      "label": "Memory Store (Preference)",
+      "backend_type": "STDLIB",
+      "expected_agent": "memory_agent",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_MEMORY_RECALL",
+      "label": "Memory Recall",
+      "backend_type": "STDLIB",
+      "expected_agent": "memory_agent",
+      "status": "SKIPPED",
+      "note": "--deps-only: routing probe skipped."
+    },
+    {
+      "id": "CAP_BUILDER",
+      "label": "Project Builder",
+      "backend_type": "STUB",
+      "expected_agent": "builder",
+      "status": "STUB",
+      "note": "No backend implemented \u2014 stub agent only."
+    },
+    {
+      "id": "CAP_VISION",
+      "label": "Vision / Image Analysis",
+      "backend_type": "STUB",
+      "expected_agent": "vision",
+      "status": "STUB",
+      "note": "No backend implemented \u2014 stub agent only."
+    },
+    {
+      "id": "CAP_SELF_IMPROVER",
+      "label": "Self Improvement",
+      "backend_type": "STUB",
+      "expected_agent": "self_improver",
+      "status": "STUB",
+      "note": "No backend implemented \u2014 stub agent only."
+    }
+  ]
+}

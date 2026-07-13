@@ -1,0 +1,8 @@
+# Kattappa Planner Settings Profile
+max_depth: 10
+max_branch_factor: 20
+max_retries: 3
+timeout_budget: 120.0
+risk_coefficient: 1.0
+required_confidence_threshold: 0.85
+provenance_label: "persistent_htn_v1"

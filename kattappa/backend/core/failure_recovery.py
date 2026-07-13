@@ -59,14 +59,40 @@ class FailureRecoveryEngine:
             recent_retries = sum(1 for f in failures if f["mission_id"] == mission_id and f["stage"] == stage and not f["resolved"])
             retry_count = recent_retries + 1
             
-            # Generate RCA and alternative path
-            rca_reason = f"RCA Analysis: {agent} agent failed due to: {reason}"
-            if "compile" in reason.lower() or "syntax" in reason.lower():
-                recovery_path = "Scan target files for syntax issues, apply corrective patches, and retry tests."
-            elif "timeout" in reason.lower() or "network" in reason.lower():
-                recovery_path = "Re-check connection stability, expand timeout parameters to 15s, and run request again."
-            else:
-                recovery_path = "Fallback to generic validation checks, retrieve last safe checkpoint, and ask human clearance."
+            # Generate RCA and alternative path dynamically using LLM recovery worker
+            from backend.core.model_router import ask_model
+            import re
+            
+            prompt = (
+                f"You are the Kattappa AI OS Failure Recovery and Replanning Engine.\n"
+                f"Mission ID: {mission_id}\n"
+                f"Stage: {stage}\n"
+                f"Agent: {agent}\n"
+                f"Failure Reason: {reason}\n\n"
+                f"Task: Perform a brief root-cause analysis (RCA) and generate a practical alternative recovery path/action plan. "
+                f"Return a JSON object with two fields:\n"
+                f"1. 'rca': a summary of the root cause.\n"
+                f"2. 'recovery_path': a specific, actionable instruction or sequence of steps to recover or bypass this failure.\n"
+                f"Do not return any markdown wrappers, just the raw JSON object."
+            )
+            try:
+                response = ask_model(prompt, role="recovery")
+                json_match = re.search(r"\{.*\}", response, re.DOTALL)
+                if json_match:
+                    data = json.loads(json_match.group(0))
+                    rca_reason = data.get("rca", f"RCA Analysis: {agent} agent failed due to: {reason}")
+                    recovery_path = data.get("recovery_path", "Fallback to generic validation checks and human clearance.")
+                else:
+                    rca_reason = f"RCA Analysis: {agent} agent failed due to: {reason}"
+                    recovery_path = "Fallback to generic validation checks and human clearance."
+            except Exception:
+                rca_reason = f"RCA Analysis: {agent} agent failed due to: {reason}"
+                if "compile" in reason.lower() or "syntax" in reason.lower():
+                    recovery_path = "Scan target files for syntax issues, apply corrective patches, and retry tests."
+                elif "timeout" in reason.lower() or "network" in reason.lower():
+                    recovery_path = "Re-check connection stability, expand timeout parameters to 15s, and run request again."
+                else:
+                    recovery_path = "Fallback to generic validation checks, retrieve last safe checkpoint, and ask human clearance."
                 
             fail_id = f"fail_{int(time.time())}_{len(failures)}"
             failure_report = {

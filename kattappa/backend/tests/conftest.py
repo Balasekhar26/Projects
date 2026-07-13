@@ -107,6 +107,17 @@ def cleanup_test_data():
 def reset_all_schemas():
     """Dynamically reset _schema_ensured flags in backend.core classes for full test isolation."""
     import sys
+    
+    # Reset singleton memory instance attributes to force Chroma PersistentClient re-initialization
+    try:
+        from backend.core.memory import memory as legacy_memory
+        legacy_memory.collection = None
+        legacy_memory.chroma = None
+        if hasattr(legacy_memory, "chat_col"):
+            legacy_memory.chat_col = None
+    except Exception:
+        pass
+
     for name, module in list(sys.modules.items()):
         if name.startswith("backend.core"):
             for attr_name in dir(module):

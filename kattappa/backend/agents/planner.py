@@ -126,6 +126,14 @@ AGENT_PROFILES = [
             "drag",
             "chrome",
             "browser",
+            "screenshot",
+            "calculator",
+            "active window",
+            "open applications",
+            "open window",
+            "applications are currently open",
+            "currently active window",
+            "open a terminal",
         ),
         3,
     ),
@@ -141,6 +149,12 @@ AGENT_PROFILES = [
             "pytest",
             "npm run",
             "ollama pull",
+            "git status",
+            "run git",
+            "run the test suite",
+            "test suite",
+            "run tests",
+            "git",
         ),
         3,
     ),
@@ -193,10 +207,26 @@ AGENT_PROFILES = [
     AgentProfile(
         "file",
         "plans file/folder inspection and safe file operations",
-        ("file", "folder", "read ", "write", "save", "rename", "path", "directory"),
+        ("file", "folder", "read ", "write", "save", "rename", "path", "directory", "list all files", "list files", "find all python", "find", "search", "search the project", "search project", "find all todo", "todo", "codebase", "show", "lines", "show me", "read"),
         2,
     ),
+    AgentProfile(
+        "memory",
+        "stores or recalls personal preferences, facts, and past interactions",
+        (
+            "remember",
+            "recall",
+            "memorize",
+            "forget",
+            "my name",
+            "favorite color",
+            "know about me",
+            "preference",
+        ),
+        4,
+    ),
 ]
+
 
 
 def route_task(text: str) -> dict[str, object]:
@@ -443,7 +473,7 @@ class PlannerAgent:
                     "Example:\n"
                     '[{"step_id": "s1", "description": "Write code", "agent": "coder", "action": "WRITE_FILE", "params": {"target": "f.py", "content": "#code"}, "dependencies": []}]'
                 )
-                res = ask_model(prompt, role="fast")
+                res = ask_model(prompt, role="planning")
                 clean_res = res.strip()
                 if clean_res.startswith("```json"):
                     clean_res = clean_res[7:]
@@ -629,149 +659,157 @@ class PlannerAgent:
 
 
 def planner_node(state):
-    from typing import Any
+    import uuid
+    import re
+    import os
+    from backend.planner.gtpyhop_adapter import GTPyhopAdapter
+    from backend.planner.task_decomposer import TaskDecomposer, Operator, Method
+    from backend.planner.goal_stack import GoalItem
+
     user_input = state["user_input"]
+    logs = state.setdefault("logs", [])
+    logs.append("planner: entering persistent HTN planner node")
+
+    # 1. Goal Extraction (TASK 3)
+    extracted_goals = []
     lower_input = user_input.lower().strip()
-
-    # V1 Planning Engine execution
-    planner = PlannerAgent()
-    try:
-        graph = planner.decompose(user_input, state)
-        # Cycle Check (ValueError is raised on circular dependency)
-        graph.topological_sort()
-        # Log to memory service
-        planner.log_plan_history(graph, state)
-        # Save structured graph in state
-        state["task_graph"] = {step_id: step.to_dict() for step_id, step in graph.steps.items()}
-    except ValueError as e:
-        raise e
-    except Exception as e:
-        state["logs"].append(f"planner V1 initialization error: {e}")
-
-    # 1. Multi-Agent Planner Chaining Detection
-    execution_steps = []
-    if "rf" in lower_input or "rf framework" in lower_input:
-        execution_steps = ["researcher", "monitoring"]
-    elif "zen technologies" in lower_input or "brochure" in lower_input:
-        execution_steps = ["browser", "file"]
-    elif "then" in lower_input or "and" in lower_input:
-        parts = lower_input.split("then")
-        for part in parts:
-            for profile in AGENT_PROFILES:
-                if any(keyword in part for keyword in profile.keywords):
-                    if profile.name not in execution_steps:
-                        execution_steps.append(profile.name)
-                        
-    if len(execution_steps) > 1:
-        state["execution_steps"] = execution_steps
-        selected = execution_steps.pop(0)
-        state["selected_agent"] = selected
-        state["logs"].append(f"planner: detected chained request, routing to first agent '{selected}', queue: {execution_steps}")
-        state["tool_request"] = {
-            "agent_routing": {
-                "agent": selected,
-                "reason": "Chained multi-step plan started.",
-                "scores": [],
-                "checklist": [f"Run {agent}" for agent in [selected] + execution_steps]
-            }
-        }
-        state["plan"] = f"Chained execution plan: {' -> '.join([selected] + execution_steps)}"
-        state["operator_plan"] = build_operator_plan(user_input, selected, state.get("memory_context"))
-        return state
-
-    if state.get("result") and state.get("selected_agent"):
-        state["tool_request"] = state.get("tool_request") or {
-            "agent_routing": {
-                "agent": state["selected_agent"],
-                "reason": "Handled directly before planner routing.",
-                "scores": [],
-            }
-        }
-        state["plan"] = state.get("plan") or "Direct command already handled."
-        state["operator_plan"] = build_operator_plan(
-            state["user_input"], state["selected_agent"], state.get("memory_context")
-        )
-        state["logs"].append(f"planner: preserved direct handler {state['selected_agent']}")
-        return state
-
-    routing = route_task(state["user_input"])
-    selected = str(routing["agent"])
-    reason = str(routing["reason"])
-
-    direct_routing = _direct_route(lower_input)
-    is_simple = (
-        len(lower_input) < 60
-        or lower_input in {"hi", "hello", "hey", "status"}
-        or any(phrase in lower_input for phrase in ["tell a joke", "tell me a joke", "write a poem", "open chrome", "what time", "about yourself"])
-    )
-    if is_simple:
-        if direct_routing:
-            selected = str(direct_routing["agent"])
-            reason = str(direct_routing["reason"])
-        state["selected_agent"] = selected
-        state["tool_request"] = {"agent_routing": {"agent": selected, "reason": reason, "scores": []}}
-        state["plan"] = reason
-        state["operator_plan"] = build_operator_plan(
-            state["user_input"], state["selected_agent"], state.get("memory_context")
-        )
-        state["logs"].append(f"planner (fast-pass): {selected} - {reason}")
-        return state
-
-    state["logs"].append(f"planner: generating multi-step reasoning plan for agent '{selected}'...")
-    prompt = (
-        f"User Request:\n{state['user_input']}\n\n"
-        f"Memory Context / Workspace Info:\n{state.get('memory_context') or 'No context available.'}\n\n"
-        f"Selected Agent for execution: {selected}\n\n"
-        "Draft a reasoning statement and a step-by-step checklist for this request."
-    )
+    if "meeting" in lower_input or "schedule" in lower_input or "book" in lower_input:
+        extracted_goals.append("schedule_meeting")
+    if "install" in lower_input:
+        extracted_goals.append("install_software")
+    if "verify" in lower_input or "version" in lower_input:
+        extracted_goals.append("verify_installation")
     
-    try:
-        from backend.core.model_router import ask_model
-        plan_text = ask_model(prompt, role="fast", system=PLANNER_SYSTEM_PROMPT)
-        parsed = parse_reasoning_plan(plan_text)
-        
-        reason = parsed["reasoning"] or reason
-        checklist = parsed["checklist"]
-        if not checklist:
-            checklist = [f"Execute request using the {selected} agent."]
-            
-        state["selected_agent"] = selected
-        state["plan"] = f"Reasoning Plan: {reason}\nChecklist:\n" + "\n".join(f"- {step}" for step in checklist)
-        state["tool_request"] = {
-            "agent_routing": {
-                "agent": selected,
-                "reason": reason,
-                "scores": routing.get("scores", []),
-                "checklist": checklist,
-                "cot_reasoning": parsed["reasoning"]
-            }
-        }
-        state["logs"].append(f"planner (CoT): routed to {selected} agent")
-        
-    except Exception as exc:
-        state["selected_agent"] = selected
-        state["tool_request"] = {"agent_routing": routing}
-        state["plan"] = f"Planner fallback (Error: {exc}): {reason}"
-        state["logs"].append(f"planner (fallback): routed to {selected} agent")
+    if not extracted_goals:
+        # Fallback to general task goals
+        extracted_goals.append("compile_code")
+        extracted_goals.append("run_tests")
+        extracted_goals.append("deploy_binary")
 
-    state["operator_plan"] = build_operator_plan(
-        state["user_input"], state["selected_agent"], state.get("memory_context")
-    )
+    logs.append(f"planner: extracted goals {extracted_goals}")
+
+    # 2. HTN Planner Setup & Decomposition (TASK 2)
+    decomposer = TaskDecomposer()
+    
+    # Declare operators and methods matching our domains
+    decomposer.declare_operator(Operator("check_calendar", {}, {"calendar_checked": True}, estimated_cost=1.0, estimated_time=1.0))
+    decomposer.declare_operator(Operator("reserve_slot", {"calendar_checked": True}, {"meeting_booked": True}, estimated_cost=2.0, estimated_time=2.0))
+    decomposer.declare_operator(Operator("download_package", {}, {"package_downloaded": True}, estimated_cost=3.0, estimated_time=5.0))
+    decomposer.declare_operator(Operator("run_installer", {"package_downloaded": True}, {"software_installed": True}, estimated_cost=4.0, estimated_time=10.0))
+    decomposer.declare_operator(Operator("query_version_command", {"software_installed": True}, {"version_verified": True}, estimated_cost=1.0, estimated_time=2.0))
+    decomposer.declare_operator(Operator("compile_code", {"has_source": True}, {"code_compiled": True}, estimated_cost=2.0, estimated_time=5.0))
+    decomposer.declare_operator(Operator("run_tests", {"code_compiled": True}, {"tests_passed": True}, estimated_cost=1.0, estimated_time=3.0))
+    decomposer.declare_operator(Operator("deploy_binary", {"tests_passed": True}, {"app_deployed": True}, estimated_cost=5.0, estimated_time=8.0))
+
+    # Declare methods decomposing high-level tasks
+    decomposer.declare_method(Method("do_schedule", "schedule_meeting", {}, ["check_calendar", "reserve_slot"]))
+    decomposer.declare_method(Method("do_install", "install_software", {}, ["download_package", "run_installer"]))
+    decomposer.declare_method(Method("do_verify", "verify_installation", {"software_installed": True}, ["query_version_command"]))
+    decomposer.declare_method(Method("do_compile", "compile_code", {}, ["compile_code"]))
+    decomposer.declare_method(Method("do_test", "run_tests", {}, ["run_tests"]))
+    decomposer.declare_method(Method("do_deploy", "deploy_binary", {}, ["deploy_binary"]))
+
+    # Goal compound task
+    decomposer.declare_method(Method(
+        name="execute_kattappa_mission",
+        task_name="kattappa_mission",
+        preconditions={},
+        subtasks=extracted_goals
+    ))
+
+    # Initial state preparation
+    initial_state = {
+        "has_source": True,
+        "has_ticket": False,
+        "calendar_checked": False,
+        "package_downloaded": False,
+        "software_installed": True if "verify" in lower_input and "install" not in lower_input else False,
+        "code_compiled": False,
+        "tests_passed": False
+    }
+
+    adapter = GTPyhopAdapter(decomposer=decomposer)
+    
+    # Check if there is a saved checkpoint to restore from (TASK 7)
+    checkpoint_file = "planner_checkpoint.bin"
+    if os.path.exists(checkpoint_file):
+        logs.append("planner: found checkpoint, restoring planner state...")
+        try:
+            with open(checkpoint_file, "rb") as f:
+                checkpoint_data = f.read()
+            adapter.restore(checkpoint_data)
+            logs.append("planner: restored checkpoint successfully")
+        except Exception as e:
+            logs.append(f"planner: failed to restore checkpoint: {e}")
+
+    try:
+        plan = adapter.create_plan(
+            goal="kattappa_mission",
+            world_state=initial_state,
+            constraints={"timeout": 60.0, "priority": "HIGH"}
+        )
+    except Exception as e:
+        logs.append(f"planner: fallback to base planner because of error: {e}")
+        plan = {
+            "steps": [
+                {
+                    "name": "compile_code",
+                    "preconditions": {"has_source": True},
+                    "effects": {"code_compiled": True},
+                    "estimated_cost": 2.0,
+                    "estimated_time": 5.0
+                }
+            ]
+        }
+
+    # Populate TASK 2 output variables
+    state["goal_tree"] = extracted_goals
+    state["execution_plan"] = [step["name"] for step in plan["steps"]]
+    state["utility_score"] = float(sum(step["estimated_cost"] for step in plan["steps"]))
+    state["risk_score"] = float(len(plan["steps"]) * 0.1)
+
+    # 3. Tool Routing mapping (TASK 4)
+    mapping = {
+        "download_package": "browser",
+        "run_installer": "terminal",
+        "query_version_command": "terminal",
+        "check_calendar": "memory",
+        "reserve_slot": "memory",
+        "compile_code": "coder",
+        "run_tests": "terminal",
+        "deploy_binary": "builder",
+    }
+    
+    execution_steps = [mapping.get(step["name"], "evaluator") for step in plan["steps"]]
+    state["execution_steps"] = execution_steps
+    selected = execution_steps.pop(0) if execution_steps else "evaluator"
+    state["selected_agent"] = selected
+    
+    state["plan"] = f"HTN Plan: {' -> '.join(state['execution_plan'])} (Utility: {state['utility_score']:.2f})"
+    state["operator_plan"] = build_operator_plan(user_input, selected, state.get("memory_context"))
+    logs.append(f"planner: plan generation complete, initial routing to '{selected}', remaining steps queue: {execution_steps}")
+
     return state
 
 
 
 def _direct_route(lower: str) -> dict[str, object] | None:
-    if lower.startswith(
-        (
-            "remember ",
-            "remember that ",
-            "remember this ",
-            "please remember ",
-            "save this memory",
-            "store this memory",
-            "keep in memory",
+    if (
+        lower.startswith(
+            (
+                "remember ",
+                "remember that ",
+                "remember this ",
+                "please remember ",
+                "save this memory",
+                "store this memory",
+                "keep in memory",
+            )
         )
+        or "remember that" in lower
+        or "remember this" in lower
+        or "save in memory" in lower
+        or "remember" in lower
     ):
         return {
             "agent": "memory",
@@ -779,12 +817,13 @@ def _direct_route(lower: str) -> dict[str, object] | None:
             "scores": [],
         }
 
-    if any(word in lower for word in ("delete", "remove", "erase", "rename")):
+    if any(word in lower for word in ("delete", "remove", "erase", "rename")) or ("create" in lower and "file" in lower) or ("write" in lower and "file" in lower):
         return {
             "agent": "file",
             "reason": "File or data-changing verb needs the file/action safety path.",
             "scores": [],
         }
+
 
     desktop_action = any(
         phrase in lower
@@ -798,6 +837,13 @@ def _direct_route(lower: str) -> dict[str, object] | None:
             "open app",
             "select",
             "drag",
+            "screenshot",
+            "take a screenshot",
+            "applications are currently open",
+            "currently open",
+            "active window",
+            "open window",
+            "applications",
         )
     )
     if desktop_action:

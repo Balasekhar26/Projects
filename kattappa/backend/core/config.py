@@ -146,6 +146,11 @@ def load_config() -> BackendConfig:
             "reasoning": os.getenv(
                 "KATTAPPA_MODEL_REASONING", models.get("reasoning", d_reasoning)
             ),
+            "planning": os.getenv("KATTAPPA_MODEL_PLANNING", models.get("planning", "glm-5.2")),
+            "reflection": os.getenv("KATTAPPA_MODEL_REFLECTION", models.get("reflection", "glm-5.2")),
+            "recovery": os.getenv("KATTAPPA_MODEL_RECOVERY", models.get("recovery", "glm-5.2")),
+            "compression": os.getenv("KATTAPPA_MODEL_COMPRESSION", models.get("compression", "glm-5.2")),
+            "safety": os.getenv("KATTAPPA_MODEL_SAFETY", models.get("safety", "glm-5.2")),
         },
         chroma_path=_resolve_runtime_path(
             memory.get("chroma_path"), "backend/memory/chroma"

@@ -54,6 +54,38 @@ def classify_risk(text: str, trust_tag: str = "SYSTEM_TRUST") -> RiskDecision:
             return RiskDecision("blocked", False, True, f"Blocked untrusted action: {risky_hit}", trust_tag)
         return RiskDecision("medium", True, False, f"Approval keyword: {risky_hit}", trust_tag)
 
+    # 3. Secondary dynamic safety classification using GLM-5.2 Governance Reviewer
+    from backend.core.model_router import ask_model
+    import json
+    import re
+
+    prompt = (
+        f"You are the Kattappa AI OS Governance Reviewer.\n"
+        f"Evaluate the security and risk of the following user request:\n\n"
+        f"Request: {text}\n\n"
+        f"Rules:\n"
+        f"- Analyze if the request attempts dangerous operations, command injection, exfiltration, "
+        f"  privilege escalation, system destruction, file deletion, or other malicious actions.\n"
+        f"- Return a JSON object with keys:\n"
+        f"  * 'risk': one of 'safe', 'medium', 'blocked'\n"
+        f"  * 'reason': a brief explanation of the decision\n"
+        f"Do not return markdown wrappers, return only the JSON object."
+    )
+    try:
+        response = ask_model(prompt, role="safety")
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group(0))
+            risk_level = data.get("risk", "safe").strip().lower()
+            reason = data.get("reason", "Intelligent safety scan complete").strip()
+            
+            if risk_level == "blocked":
+                return RiskDecision("blocked", False, True, f"Intelligent Block: {reason}", trust_tag)
+            elif risk_level == "medium":
+                return RiskDecision("medium", True, False, f"Intelligent Risk Approval: {reason}", trust_tag)
+    except Exception:
+        pass
+
     return RiskDecision("safe", False, False, "No risky action detected", trust_tag)
 
 

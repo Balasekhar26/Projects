@@ -10,7 +10,15 @@ proactively before launching steps.
 from __future__ import annotations
 
 import contextlib
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 import gc
 import os
 import time
@@ -35,7 +43,7 @@ def heavyweight_task(task_name: str, lock_path: Optional[str] = None):
     """
     Guarantees that only one heavyweight operation (training, evaluation, 
     checkpointing, indexing, embedding, preprocessing) runs at a time.
-    Uses Unix fcntl flock on a global lock file.
+    Uses Unix fcntl flock or Windows msvcrt locking on a global lock file.
     """
     if lock_path is None:
         lock_path = os.path.expanduser("~/.gemini/antigravity-ide/kattappa_heavyweight.lock")
@@ -45,14 +53,24 @@ def heavyweight_task(task_name: str, lock_path: Optional[str] = None):
     # Open lock file
     lock_file = open(lock_path, "w")
     try:
-        # Request exclusive lock (blocks if another process/thread holds it)
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        if fcntl is not None:
+            # Unix/Linux: Request exclusive lock (blocks if another process/thread holds it)
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+        elif msvcrt is not None:
+            # Windows: locking via msvcrt (LK_LOCK blocks until lock is acquired)
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            
         lock_file.write(task_name)
         lock_file.flush()
         yield
     finally:
         try:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+            elif msvcrt is not None:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
             lock_file.close()
         except Exception:
             pass
