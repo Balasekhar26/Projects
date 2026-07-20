@@ -43,6 +43,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .runtime/
+.kattappa/runtime/
 
 # Stabilization tooling is source code even when a local exclude contains
 # the Windows-style `Scripts/` virtual-environment pattern.

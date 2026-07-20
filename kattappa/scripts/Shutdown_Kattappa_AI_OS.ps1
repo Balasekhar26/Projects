@@ -33,7 +33,17 @@ function Stop-PidFile($path, $label) {
 
 Write-ShutdownLog "Shutdown requested."
 
-Stop-PidFile (Join-Path $runtime "backend.pid") "backend"
+$venvPython = Join-Path $root "ai_system_env\Scripts\python.exe"
+$backendStopScript = Join-Path $root "scripts\dev\stop_backend.py"
+if ((Test-Path $venvPython) -and (Test-Path $backendStopScript)) {
+  & $venvPython $backendStopScript 2>&1 | ForEach-Object {
+    Write-ShutdownLog "backend lifecycle: $_"
+  }
+}
+
+# Backward-compatible cleanup for PID files created by launchers predating the
+# authoritative .kattappa/runtime lifecycle contract.
+Stop-PidFile (Join-Path $runtime "backend.pid") "legacy backend"
 
 $backendConn = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($backendConn) {

@@ -590,6 +590,12 @@ def planner_node(state):
     # 1. Goal Extraction (TASK 3)
     extracted_goals = []
     lower_input = user_input.lower().strip()
+    compound_web_download = (
+        "download" in lower_input
+        and any(token in lower_input for token in ("website", "web page", "url"))
+    )
+    if compound_web_download:
+        extracted_goals.append("acquire_web_document")
     if "meeting" in lower_input or "schedule" in lower_input or "book" in lower_input:
         extracted_goals.append("schedule_meeting")
     if "install" in lower_input:
@@ -624,6 +630,8 @@ def planner_node(state):
     decomposer.declare_operator(Operator("compile_code", {"has_source": True}, {"code_compiled": True}, estimated_cost=2.0, estimated_time=5.0))
     decomposer.declare_operator(Operator("run_tests", {"code_compiled": True}, {"tests_passed": True}, estimated_cost=1.0, estimated_time=3.0))
     decomposer.declare_operator(Operator("deploy_binary", {"tests_passed": True}, {"app_deployed": True}, estimated_cost=5.0, estimated_time=8.0))
+    decomposer.declare_operator(Operator("open_target_website", {}, {"website_opened": True}, estimated_cost=1.0, estimated_time=2.0))
+    decomposer.declare_operator(Operator("store_downloaded_document", {"website_opened": True}, {"document_stored": True}, estimated_cost=2.0, estimated_time=4.0))
 
     # Declare methods decomposing high-level tasks
     decomposer.declare_method(Method("do_schedule", "schedule_meeting", {}, ["check_calendar", "reserve_slot"]))
@@ -632,6 +640,7 @@ def planner_node(state):
     decomposer.declare_method(Method("do_compile", "compile_code", {}, ["compile_code"]))
     decomposer.declare_method(Method("do_test", "run_tests", {}, ["run_tests"]))
     decomposer.declare_method(Method("do_deploy", "deploy_binary", {}, ["deploy_binary"]))
+    decomposer.declare_method(Method("do_web_download", "acquire_web_document", {}, ["open_target_website", "store_downloaded_document"]))
     
     if specialist_agent and specialist_agent != "evaluator" and f"execute_{specialist_agent}" in extracted_goals:
         goal_name = f"execute_{specialist_agent}"
@@ -654,7 +663,9 @@ def planner_node(state):
         "package_downloaded": False,
         "software_installed": True if "verify" in lower_input and "install" not in lower_input else False,
         "code_compiled": False,
-        "tests_passed": False
+        "tests_passed": False,
+        "website_opened": False,
+        "document_stored": False,
     }
 
     adapter = GTPyhopAdapter(decomposer=decomposer)
@@ -707,6 +718,8 @@ def planner_node(state):
         "compile_code": "coder",
         "run_tests": "terminal",
         "deploy_binary": "builder",
+        "open_target_website": "browser",
+        "store_downloaded_document": "file",
     }
     if specialist_agent and specialist_agent != "evaluator":
         mapping[f"execute_{specialist_agent}"] = specialist_agent
@@ -716,7 +729,8 @@ def planner_node(state):
     selected = execution_steps.pop(0) if execution_steps else "evaluator"
     state["selected_agent"] = selected
     
-    state["plan"] = f"HTN Plan: {' -> '.join(state['execution_plan'])} (Utility: {state['utility_score']:.2f})"
+    plan_label = "Chained execution plan" if compound_web_download else "HTN Plan"
+    state["plan"] = f"{plan_label}: {' -> '.join(state['execution_plan'])} (Utility: {state['utility_score']:.2f})"
     state["operator_plan"] = build_operator_plan(user_input, selected, state.get("memory_context"))
     logs.append(f"planner: plan generation complete, initial routing to '{selected}', remaining steps queue: {execution_steps}")
 

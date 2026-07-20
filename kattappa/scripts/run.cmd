@@ -156,12 +156,8 @@ if not exist "ai_system_env\Scripts\python.exe" (
   exit /b 1
 )
 echo Starting backend...
-if exist "ai_system_env\Scripts\pythonw.exe" (
-  powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%PROJECT_ROOT%\ai_system_env\Scripts\pythonw.exe' -ArgumentList '%PROJECT_ROOT%\backend\run_server.py' -PassThru; Set-Content -LiteralPath '%PROJECT_ROOT%\runtime\backend.pid' -Value $p.Id"
-) else (
-  powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$p=Start-Process -WindowStyle Hidden -FilePath '%PROJECT_ROOT%\ai_system_env\Scripts\python.exe' -ArgumentList '%PROJECT_ROOT%\backend\run_server.py' -PassThru; Set-Content -LiteralPath '%PROJECT_ROOT%\runtime\backend.pid' -Value $p.Id"
-)
-exit /b 0
+"%PROJECT_ROOT%\ai_system_env\Scripts\python.exe" "%PROJECT_ROOT%\scripts\dev\start_backend.py" --port 8000 --wait-seconds 30
+exit /b %errorlevel%
 
 :wait_backend
 echo Waiting for backend readiness...

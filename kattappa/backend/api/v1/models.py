@@ -1678,13 +1678,17 @@ def value_drift() -> dict[str, object]:
 
 @models_router.get("/health")
 def health_check() -> dict[str, object]:
-    ok, message = health()
+    # Liveness must remain fast and must not depend on Ollama or model discovery.
+    # Provider diagnostics belong in dedicated status endpoints; otherwise a
+    # slow or offline model server prevents the process manager from proving
+    # that the HTTP backend itself is alive.
     config = load_config()
     return {
         "status": "Kattappa AI OS backend running",
-        "ollama_ok": ok,
-        "ollama_message": message,
-        "models": available_models(),
+        "live": True,
+        "ollama_ok": None,
+        "ollama_message": "not probed by liveness endpoint",
+        "models": [],
         "memory_count": memory.count(),
         "workspace": str(config.workspace_dir),
     }

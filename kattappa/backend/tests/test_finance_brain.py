@@ -127,6 +127,12 @@ def test_ready_endpoint_reports_vendored_finance_without_loading_model(
             "source": "vendored",
             "execution_enabled": False,
         },
+        "semantic_cache": {
+            "available": True,
+            "semantic_available": False,
+            "mode": "exact_match_with_lazy_semantic",
+            "reason": "semantic provider has not been initialized",
+        },
     }
 
 

@@ -5,7 +5,6 @@ import platform
 import subprocess
 import threading
 import time
-import json
 import sqlite3
 import concurrent.futures
 from datetime import datetime
@@ -13,13 +12,22 @@ from uuid import uuid4
 from typing import Any, Dict, List, Tuple
 
 import psutil
-import torch
 import httpx
+
+from backend.core.semantic_cache import SemanticResponseCache as SemanticResponseCache
 
 # In-memory execution logs for the Self-Learning engine
 _metrics_log: Dict[str, List[float]] = {}
 _model_load_failures: Dict[str, int] = {}
 _warmed_models: set[str] = set()
+
+
+def _load_torch():
+    """Load PyTorch only when a GPU-aware operation actually needs it."""
+
+    import torch
+
+    return torch
 
 
 class HardwareProfiler:
@@ -39,7 +47,8 @@ class HardwareProfiler:
         cpu_count = psutil.cpu_count(logical=True) or 2
         physical_cores = psutil.cpu_count(logical=False) or cpu_count
         
-        # GPU detection
+        # GPU detection is lazy so backend readiness does not import PyTorch.
+        torch = _load_torch()
         has_cuda = torch.cuda.is_available()
         gpu_name = torch.cuda.get_device_name(0) if has_cuda else "Unknown / CPU"
         gpu_vram_gb = 0.0
@@ -306,6 +315,7 @@ class AgentHibernationEngine:
                     pass
                 
                 # 2. Fallback: query via torch.cuda if available
+                torch = _load_torch()
                 if torch.cuda.is_available():
                     try:
                         allocated = torch.cuda.memory_allocated(0)
@@ -447,86 +457,6 @@ class PredictiveModelLoader:
             pass
 
 
-class SemanticResponseCache:
-    """Semantic Response Cache powered by ChromaDB vector similarity."""
-
-    _chroma_client: Any = None
-    _collection: Any = None
-    _lock = threading.Lock()
-
-    @classmethod
-    def _get_collection(cls):
-        with cls._lock:
-            if cls._collection is None:
-                import chromadb
-                from chromadb.config import Settings as ChromaSettings
-                from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
-                from backend.core.config import load_config
-                cfg = load_config()
-                cfg.chroma_path.mkdir(parents=True, exist_ok=True)
-                cls._chroma_client = chromadb.PersistentClient(
-                    path=str(cfg.chroma_path),
-                    settings=ChromaSettings(anonymized_telemetry=False),
-                )
-                cls._collection = cls._chroma_client.get_or_create_collection(
-                    "kattappa_semantic_cache",
-                    embedding_function=DefaultEmbeddingFunction(),
-                )
-            return cls._collection
-
-    @classmethod
-    def get(cls, query: str, ttl_seconds: float = 3600.0) -> Tuple[str | None, str | None]:
-        try:
-            coll = cls._get_collection()
-            if coll.count() == 0:
-                return None, None
-                
-            res = coll.query(query_texts=[query], n_results=1)
-            if not res or not res.get("documents") or not res["documents"][0]:
-                return None, None
-                
-            distance = res["distances"][0][0]
-            # Cosine/L2 distance metric threshold for semantic similarity
-            if distance > 0.45:
-                return None, None
-                
-            meta = res["metadatas"][0][0]
-            
-            if time.time() - meta.get("timestamp", 0.0) > ttl_seconds:
-                return None, None
-                
-            return meta.get("response"), meta.get("selected_agent")
-        except Exception as e:
-            if os.getenv("KATTAPPA_TEST_MODE") == "true":
-                import traceback
-                traceback.print_exc()
-            return None, None
-
-    @classmethod
-    def set(cls, query: str, response: str, selected_agent: str) -> None:
-        try:
-            coll = cls._get_collection()
-            # Remove old close query entry if present
-            existing = coll.query(query_texts=[query], n_results=1)
-            if existing and existing.get("ids") and existing["ids"][0]:
-                if existing["distances"][0][0] < 0.01:
-                    coll.delete(ids=[existing["ids"][0][0]])
-                    
-            coll.add(
-                ids=[str(uuid4())],
-                documents=[query],
-                metadatas=[{
-                    "response": response,
-                    "timestamp": time.time(),
-                    "selected_agent": selected_agent
-                }]
-            )
-        except Exception as e:
-            if os.getenv("KATTAPPA_TEST_MODE") == "true":
-                import traceback
-                traceback.print_exc()
-
-
 class MemoryPrefetcher:
     """Runs memory and db retrieval concurrently in a background thread to yield 0ms graph latency."""
 
@@ -578,6 +508,7 @@ class GPUTaskScheduler:
 
     @classmethod
     def get_vram_free_gb(cls) -> float:
+        torch = _load_torch()
         if torch.cuda.is_available():
             try:
                 t = torch.cuda.get_device_properties(0).total_memory
@@ -599,6 +530,7 @@ class GPUTaskScheduler:
         if is_simple and role == "general":
             return cfg.model_map.get("fast", "qwen2.5:0.5b")
             
+        torch = _load_torch()
         if torch.cuda.is_available() and cls.get_vram_free_gb() < 0.5:
             return cfg.model_map.get("fast", "qwen2.5:0.5b")
             

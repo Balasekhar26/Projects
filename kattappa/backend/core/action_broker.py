@@ -89,6 +89,27 @@ class ActionBroker:
                     "approval_required": False
                 }
 
+        # Protected credential/security applications are blocked before policy,
+        # approval, or executor dispatch. This keeps mock/test executors and
+        # alternate callers from bypassing the desktop tool's own guard.
+        if action.upper() == "DESKTOP_OPEN_APP":
+            app_name = str(params.get("app_name") or "")
+            from backend.tools.desktop_tools import _log_desktop_audit, is_ui_protected
+
+            if is_ui_protected(app_name):
+                reason = f"Access to protected application '{app_name}' is strictly prohibited."
+                _log_desktop_audit(
+                    "security", "block_protected_app", {"app_name": app_name}
+                )
+                cls.log_audit_trail(
+                    agent_name, action, "blocked", "blocked", reason
+                )
+                return {
+                    "success": False,
+                    "error": f"Security Error: {reason}",
+                    "approval_required": False,
+                }
+
         # 0.5 Rate Limiter Check
         from backend.core.rate_limiter import RateLimiter
         if not RateLimiter.check_rate_limit(session_id, action):

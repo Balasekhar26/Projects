@@ -66,6 +66,23 @@ def test_readiness_probe_does_not_import_torch() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.unit
+def test_backend_route_registration_does_not_import_torch() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import backend.main; assert 'torch' not in sys.modules",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 def test_backend_subprocess_reaches_readiness_within_30_seconds() -> None:
@@ -119,6 +136,12 @@ def test_backend_subprocess_reaches_readiness_within_30_seconds() -> None:
                 "available": True,
                 "source": "vendored",
                 "execution_enabled": False,
+            },
+            "semantic_cache": {
+                "available": True,
+                "semantic_available": False,
+                "mode": "exact_match_with_lazy_semantic",
+                "reason": "semantic provider has not been initialized",
             },
         }
     finally:

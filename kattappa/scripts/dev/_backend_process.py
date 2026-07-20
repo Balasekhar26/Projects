@@ -1,14 +1,14 @@
-"""Shared identity and lifecycle primitives for the development backend."""
+"""Authoritative, idempotent lifecycle management for the development backend."""
 
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
-import sys
 import time
 import urllib.request
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,7 +16,26 @@ from typing import Any
 import psutil
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_METADATA = ROOT / ".runtime" / "backend-server.json"
+DEFAULT_RUNTIME_DIR = ROOT / ".kattappa" / "runtime"
+DEFAULT_METADATA = DEFAULT_RUNTIME_DIR / "backend.state.json"
+
+
+@dataclass(frozen=True)
+class RuntimePaths:
+    state: Path
+    pid: Path
+    port: Path
+    log: Path
+
+    @classmethod
+    def from_metadata(cls, metadata_path: Path) -> "RuntimePaths":
+        state = metadata_path.resolve()
+        return cls(
+            state=state,
+            pid=state.parent / "backend.pid",
+            port=state.parent / "backend.port",
+            log=state.parent / "backend.log",
+        )
 
 
 @dataclass(frozen=True)
@@ -29,26 +48,60 @@ class BackendProcessMetadata:
     started_at: str
     started_epoch: float
     git_checkout: str
+    state: str = "running"
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "BackendProcessMetadata":
-        return cls(**payload)
+        if not isinstance(payload, dict):
+            raise RuntimeError("backend state must be a JSON object")
+        try:
+            return cls(**payload)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"invalid backend state: {exc}") from exc
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path = path.resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
+    temporary.write_text(content, encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def write_metadata(metadata: BackendProcessMetadata, path: Path) -> None:
-    path = path.resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(asdict(metadata), indent=2) + "\n", encoding="utf-8"
-    )
-    temporary.replace(path)
+    _atomic_write(path, json.dumps(asdict(metadata), indent=2) + "\n")
+
+
+def write_runtime_state(metadata: BackendProcessMetadata, paths: RuntimePaths) -> None:
+    write_metadata(metadata, paths.state)
+    _atomic_write(paths.pid, f"{metadata.pid}\n")
+    _atomic_write(paths.port, f"{metadata.port}\n")
+
+
+def cleanup_runtime_state(paths: RuntimePaths) -> None:
+    for path in (paths.pid, paths.port, paths.state):
+        path.unlink(missing_ok=True)
 
 
 def read_metadata(path: Path) -> BackendProcessMetadata:
-    return BackendProcessMetadata.from_dict(
-        json.loads(path.resolve().read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(path.resolve().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot read backend state {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("backend state must be a JSON object")
+    return BackendProcessMetadata.from_dict(payload)
+
+
+def project_python() -> Path:
+    candidate = ROOT / "ai_system_env" / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
     )
+    if not candidate.is_file():
+        raise RuntimeError(
+            f"Kattappa virtual-environment interpreter is missing: {candidate}"
+        )
+    return candidate.resolve()
 
 
 def port_is_available(host: str, port: int) -> bool:
@@ -58,6 +111,28 @@ def port_is_available(host: str, port: int) -> bool:
         except OSError:
             return False
     return True
+
+
+def listener_pid_for_port(port: int) -> int | None:
+    """Resolve a listener PID without assuming psutil address tuple shape."""
+    try:
+        connections = psutil.net_connections(kind="tcp")
+    except (psutil.AccessDenied, OSError):
+        return None
+    for connection in connections:
+        if connection.status != psutil.CONN_LISTEN:
+            continue
+        address = connection.laddr
+        address_port = getattr(address, "port", None)
+        if address_port is None and isinstance(address, (tuple, list)) and len(address) > 1:
+            address_port = address[1]
+        if address_port == port:
+            return connection.pid
+    return None
+
+
+def process_owns_port(pid: int, port: int) -> bool:
+    return listener_pid_for_port(port) == pid
 
 
 def identity_errors(metadata: BackendProcessMetadata) -> list[str]:
@@ -83,8 +158,7 @@ def identity_errors(metadata: BackendProcessMetadata) -> list[str]:
         errors.append("working directory is unavailable")
 
     try:
-        argv = process.cmdline()
-        command = " ".join(argv)
+        command = " ".join(process.cmdline())
         required = ("uvicorn", "backend.main:app", "--port", str(metadata.port))
         missing = [token for token in required if token not in command]
         if missing:
@@ -122,21 +196,43 @@ def terminate_recorded_process(
     psutil.wait_procs(alive, timeout=5.0)
 
 
-def wait_for_ready(port: int, timeout: float) -> dict[str, Any]:
+def _fetch_json(url: str) -> dict[str, Any]:
+    with urllib.request.urlopen(url, timeout=1.0) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"endpoint returned non-object JSON: {url}")
+    return payload
+
+
+def wait_for_ready(
+    port: int, timeout: float, process: subprocess.Popen[str] | None = None
+) -> dict[str, Any]:
     deadline = time.perf_counter() + timeout
     delay = 0.1
-    last_error: Exception | None = None
+    last_error: BaseException | None = None
     while time.perf_counter() < deadline:
+        if process is not None and process.poll() is not None:
+            raise RuntimeError(f"backend exited during startup with code {process.returncode}")
         try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/ready", timeout=1.0
-            ) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except OSError as exc:
+            health = _fetch_json(f"http://127.0.0.1:{port}/health")
+            readiness = _fetch_json(f"http://127.0.0.1:{port}/ready")
+            if not health.get("status"):
+                raise RuntimeError(f"health endpoint is not healthy: {health}")
+            if readiness.get("ready") is not True:
+                raise RuntimeError(f"readiness endpoint is not ready: {readiness}")
+            return readiness
+        except (OSError, RuntimeError, json.JSONDecodeError) as exc:
             last_error = exc
             time.sleep(delay)
             delay = min(delay * 1.5, 1.0)
-    raise TimeoutError(f"backend did not become ready: {last_error}")
+    raise TimeoutError(f"backend did not become ready within {timeout:g}s: {last_error}")
+
+
+def _log_tail(path: Path, max_chars: int = 4000) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[-max_chars:]
+    except OSError:
+        return "<backend log unavailable>"
 
 
 def start_backend(
@@ -145,20 +241,29 @@ def start_backend(
     metadata_path: Path = DEFAULT_METADATA,
     wait_seconds: float = 30.0,
 ) -> tuple[BackendProcessMetadata, dict[str, Any]]:
-    metadata_path = metadata_path.resolve()
-    metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    if metadata_path.exists():
-        existing = read_metadata(metadata_path)
+    paths = RuntimePaths.from_metadata(metadata_path)
+    paths.state.parent.mkdir(parents=True, exist_ok=True)
+
+    if paths.state.exists():
+        existing = read_metadata(paths.state)
         errors = identity_errors(existing)
         if not errors:
-            raise RuntimeError(
-                f"recorded Kattappa backend is already running as PID {existing.pid}"
-            )
+            readiness = wait_for_ready(existing.port, wait_seconds)
+            return replace(existing, state="running"), readiness
         if errors != ["process does not exist"]:
+            raise RuntimeError("unsafe or inconsistent backend state: " + "; ".join(errors))
+        cleanup_runtime_state(paths)
+    elif paths.pid.exists() or paths.port.exists():
+        stale_pid = None
+        try:
+            stale_pid = int(paths.pid.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            pass
+        if stale_pid and psutil.pid_exists(stale_pid):
             raise RuntimeError(
-                "unsafe or inconsistent backend metadata: " + "; ".join(errors)
+                f"orphaned backend PID record points to live PID {stale_pid}; refusing unsafe start"
             )
-        metadata_path.unlink()
+        cleanup_runtime_state(paths)
 
     if not port_is_available("127.0.0.1", port):
         raise RuntimeError(
@@ -166,7 +271,7 @@ def start_backend(
         )
 
     argv = [
-        sys.executable,
+        str(project_python()),
         "-m",
         "uvicorn",
         "backend.main:app",
@@ -175,8 +280,7 @@ def start_backend(
         "--port",
         str(port),
     ]
-    log_path = metadata_path.parent / "backend-server.log"
-    log_handle = log_path.open("a", encoding="utf-8")
+    log_handle = paths.log.open("a", encoding="utf-8")
     try:
         process = subprocess.Popen(
             argv,
@@ -184,6 +288,9 @@ def start_backend(
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             text=True,
+            creationflags=(
+                subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            ),
         )
     finally:
         log_handle.close()
@@ -198,27 +305,97 @@ def start_backend(
         started_at=datetime.now(timezone.utc).isoformat(),
         started_epoch=started_epoch,
         git_checkout=str(ROOT.resolve()),
+        state="starting",
     )
-    write_metadata(metadata, metadata_path)
+    write_runtime_state(metadata, paths)
     try:
-        readiness = wait_for_ready(port, wait_seconds)
-    except Exception:
+        readiness = wait_for_ready(port, wait_seconds, process)
+        listener_pid = listener_pid_for_port(port)
+        descendants = {
+            child.pid for child in psutil.Process(process.pid).children(recursive=True)
+        }
+        if listener_pid not in {process.pid, *descendants}:
+            raise RuntimeError(
+                f"backend became ready but its process tree does not own port {port}"
+            )
+        if listener_pid != process.pid:
+            listener = psutil.Process(listener_pid)
+            metadata = replace(
+                metadata,
+                pid=listener_pid,
+                started_epoch=listener.create_time(),
+            )
+        metadata = replace(metadata, state="running")
+        write_runtime_state(metadata, paths)
+    except Exception as exc:
         if process.poll() is None:
             terminate_recorded_process(metadata)
-        metadata_path.unlink(missing_ok=True)
-        raise
+        cleanup_runtime_state(paths)
+        raise RuntimeError(f"{exc}\nbackend log tail:\n{_log_tail(paths.log)}") from exc
     return metadata, readiness
 
 
-def stop_backend(metadata_path: Path = DEFAULT_METADATA) -> BackendProcessMetadata:
-    metadata_path = metadata_path.resolve()
-    if not metadata_path.exists():
-        raise RuntimeError(f"backend metadata does not exist: {metadata_path}")
-    metadata = read_metadata(metadata_path)
+def stop_backend(
+    metadata_path: Path = DEFAULT_METADATA,
+) -> BackendProcessMetadata | None:
+    paths = RuntimePaths.from_metadata(metadata_path)
+    if not paths.state.exists():
+        if paths.pid.exists() or paths.port.exists():
+            stale_pid = None
+            try:
+                stale_pid = int(paths.pid.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                pass
+            if stale_pid and psutil.pid_exists(stale_pid):
+                raise RuntimeError(
+                    f"cannot identify live PID {stale_pid} without backend state"
+                )
+        cleanup_runtime_state(paths)
+        return None
+
+    metadata = read_metadata(paths.state)
     errors = identity_errors(metadata)
     if errors == ["process does not exist"]:
-        metadata_path.unlink()
+        cleanup_runtime_state(paths)
         return metadata
+    if errors:
+        raise RuntimeError("unsafe or inconsistent backend state: " + "; ".join(errors))
     terminate_recorded_process(metadata)
-    metadata_path.unlink(missing_ok=True)
+    deadline = time.perf_counter() + 5.0
+    while time.perf_counter() < deadline and not port_is_available("127.0.0.1", metadata.port):
+        time.sleep(0.1)
+    cleanup_runtime_state(paths)
+    if not port_is_available("127.0.0.1", metadata.port):
+        raise RuntimeError(f"backend stopped but port {metadata.port} was not released")
     return metadata
+
+
+class DevBackendProcess:
+    """Small programmatic facade used by development tooling and tests."""
+
+    def __init__(self, *, port: int = 8000, metadata_path: Path = DEFAULT_METADATA):
+        self.port = port
+        self.metadata_path = metadata_path
+
+    def is_running(self) -> bool:
+        path = self.metadata_path.resolve()
+        if not path.exists():
+            return False
+        try:
+            metadata = read_metadata(path)
+            return not identity_errors(metadata) and process_owns_port(
+                metadata.pid, metadata.port
+            )
+        except RuntimeError:
+            return False
+
+    def start(self, *, wait_seconds: float = 30.0) -> BackendProcessMetadata:
+        metadata, _ = start_backend(
+            port=self.port,
+            metadata_path=self.metadata_path,
+            wait_seconds=wait_seconds,
+        )
+        return metadata
+
+    def stop(self) -> BackendProcessMetadata | None:
+        return stop_backend(self.metadata_path)

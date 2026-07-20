@@ -154,6 +154,11 @@ def desktop_node(state: dict[str, Any]) -> dict[str, Any]:
     # 1. Classify desktop action
     action, params = classify_desktop_action(user_input)
     logs.append(f"desktop: classified action as {action} with params {params}")
+    _log_desktop_audit(
+        "request",
+        "classified",
+        {"user_input": user_input, "action": action, "params": params},
+    )
     
     # Delegate to Action Broker
     from backend.core.action_broker import ActionBroker

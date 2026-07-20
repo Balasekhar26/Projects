@@ -3,21 +3,31 @@ from __future__ import annotations
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import os
 import threading
 from contextlib import asynccontextmanager
 
 from backend.api.v1.common import *
 from backend.core.workspace import WorkspaceManager
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup tasks
+
+_background_shutdown = threading.Event()
+
+
+def _start_background_services_after_ready() -> None:
+    """Start nonessential maintenance after ASGI readiness is published."""
+
+    if _background_shutdown.wait(1.0):
+        return
+
     from backend.core.cluster_runtime import internet_hub_worker_poll_loop
 
-    thread = threading.Thread(target=internet_hub_worker_poll_loop, daemon=True)
-    thread.start()
+    threading.Thread(
+        target=internet_hub_worker_poll_loop,
+        name="internet-hub-worker",
+        daemon=True,
+    ).start()
 
-    # Start Step 9.0 Daily Research Loop
     try:
         from backend.core.research_scheduler import ResearchScheduler
 
@@ -25,7 +35,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-    # Start Phase K13 KG Sync Scheduler
     try:
         from backend.core.kg_scheduler import start_kg_scheduler
 
@@ -33,7 +42,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-    # Run Experiment Sandbox startup orphan cleanup scan
     try:
         from backend.core.experiment_sandbox import ExperimentManager
 
@@ -41,7 +49,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-    # Start Program 3 Memory Consolidation Engine Scheduler
     try:
         from backend.core.mce.scheduler import MCEScheduler
 
@@ -49,19 +56,28 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-    # Warm up default fast and coder models in the background on startup
-    from backend.core.config import load_config
-    from backend.core.adaptive_runtime import WarmupManager
-
     try:
+        from backend.core.config import load_config
+        from backend.core.adaptive_runtime import WarmupManager
+
         cfg = load_config()
         WarmupManager.warm_model_background(cfg.model_map["fast"], cfg.ollama_host)
     except Exception:
         pass
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _background_shutdown.clear()
+    if os.getenv("KATTAPPA_TEST_MODE") != "true":
+        threading.Thread(
+            target=_start_background_services_after_ready,
+            name="kattappa-post-ready-services",
+            daemon=True,
+        ).start()
+
     yield
 
-    # Shutdown tasks
+    _background_shutdown.set()
     try:
         from backend.core.research_scheduler import ResearchScheduler
 

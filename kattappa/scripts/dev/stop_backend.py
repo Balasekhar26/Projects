@@ -17,7 +17,10 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     metadata = stop_backend(args.metadata)
-    print(f"Stopped recorded Kattappa backend PID {metadata.pid}")
+    if metadata is None:
+        print("Kattappa backend is already stopped")
+    else:
+        print(f"Stopped recorded Kattappa backend PID {metadata.pid}")
     return 0
 
 

@@ -1,14 +1,48 @@
 import unittest
-import time
+import hashlib
+import re
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 from backend.core.adaptive_runtime import HardwareProfiler, PerformanceProfile, AdaptiveContext, SelfLearningEngine
+
+
+class TestSemanticEmbedding:
+    """Small deterministic semantic provider injected only by cache tests."""
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        results: list[list[float]] = []
+        for text in input:
+            normalized = re.sub(r"[^a-z0-9 ]", "", text.casefold())
+            tokens = ["one" if token == "single" else token for token in normalized.split()]
+            vector = [0.0] * 32
+            for token in tokens:
+                index = int(hashlib.sha256(token.encode()).hexdigest(), 16) % len(vector)
+                vector[index] += 1.0
+            results.append(vector)
+        return results
+
+
+class UnavailableEmbedding:
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        raise RuntimeError("test embedding provider unavailable")
 
 class TestAdaptiveRuntime(unittest.TestCase):
 
     def setUp(self):
         from backend.core.adaptive_runtime import SemanticResponseCache
-        SemanticResponseCache._collection = None
-        SemanticResponseCache._chroma_client = None
+        self._cache_directory = tempfile.TemporaryDirectory()
+        self._cache_path = Path(self._cache_directory.name) / "cache.sqlite3"
+        SemanticResponseCache.configure(
+            embedding_function=TestSemanticEmbedding(),
+            storage_path=self._cache_path,
+        )
+
+    def tearDown(self):
+        from backend.core.adaptive_runtime import SemanticResponseCache
+
+        SemanticResponseCache.reset()
+        self._cache_directory.cleanup()
 
     def test_hardware_profiler(self):
         profile = HardwareProfiler.get_profile()
@@ -139,6 +173,30 @@ class TestAdaptiveRuntime(unittest.TestCase):
         
         cached_res2, _ = SemanticResponseCache.get("Explain git in single word")
         self.assertEqual(cached_res2, response)
+
+    def test_semantic_response_cache_persists_exact_entries_when_embeddings_fail(self):
+        from backend.core.adaptive_runtime import SemanticResponseCache
+
+        SemanticResponseCache.configure(
+            embedding_function=UnavailableEmbedding(),
+            storage_path=self._cache_path,
+        )
+        SemanticResponseCache.set("  Exact   Query ", "persisted", "general")
+
+        response, agent = SemanticResponseCache.get("exact query")
+        self.assertEqual((response, agent), ("persisted", "general"))
+        self.assertEqual(
+            SemanticResponseCache.health()["mode"], "exact_match_fallback"
+        )
+        self.assertIn("test embedding provider unavailable", SemanticResponseCache.health()["reason"])
+
+        SemanticResponseCache.configure(
+            embedding_function=UnavailableEmbedding(),
+            storage_path=self._cache_path,
+        )
+        self.assertEqual(
+            SemanticResponseCache.get("exact query"), ("persisted", "general")
+        )
 
     def test_memory_prefetcher(self):
         from backend.core.adaptive_runtime import MemoryPrefetcher

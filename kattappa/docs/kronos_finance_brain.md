@@ -61,12 +61,20 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/finance/forecast-csv -
 
 `use_kronos=false` uses Kattappa AI OS's own small OHLCV baseline forecaster. It is fast, local, and good for testing the full pipeline.
 
-`use_kronos=true` calls the real Kronos adapter. The first real run can download model weights from Hugging Face:
+`use_kronos=true` reaches the real Kronos adapter boundary. The first real run
+may download model weights from Hugging Face:
 
 - Tokenizer: `NeoQuasar/Kronos-Tokenizer-base`
 - Model: `NeoQuasar/Kronos-small`
 
 Use real Kronos with longer candle history. At least 128 candles is better than a tiny sample.
+
+The canonical `/ready` contract currently reports
+`finance_brain.execution_enabled=false`. This is intentional: vendored source
+discovery, imports, endpoint wiring, and the local baseline are verified, but a
+controlled end-to-end model-load, forecast, uncertainty, and cleanup test has
+not yet passed on the supported local runtime. Do not describe real Kronos
+inference as production-ready until that evidence exists.
 
 ## Build-Own Boundary
 
