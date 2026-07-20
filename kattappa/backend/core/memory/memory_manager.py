@@ -348,3 +348,52 @@ class MemoryManager:
     def __repr__(self) -> str:
         registered = [mt.value for mt in self._stores]
         return f"MemoryManager(registered={registered!r})"
+
+    @classmethod
+    def record_interaction(cls, text: str, importance: float = 0.5) -> None:
+        """Parses interaction text, records entities and relationships, and commits an episodic memory trace."""
+        import uuid
+        from backend.core.memory.memory_store import MemoryStore
+        from backend.core.memory.entity_extractor import EntityExtractor
+        from backend.core.memory.relationship_extractor import RelationshipExtractor
+        
+        entities = EntityExtractor.extract_entities(text)
+        for ent in entities:
+            MemoryStore.upsert_entity(
+                entity_id=ent["id"],
+                name=ent["name"],
+                entity_type=ent["type"],
+                metadata=ent.get("metadata")
+            )
+            
+        relationships = RelationshipExtractor.extract_relationships(text, entities)
+        for rel in relationships:
+            MemoryStore.add_relationship(
+                rel_id=rel["id"],
+                source_id=rel["source_id"],
+                target_id=rel["target_id"],
+                predicate=rel["predicate"],
+                metadata=rel.get("metadata")
+            )
+            
+        # Save episodic memory
+        mem_id = f"mem_ep_{uuid.uuid4().hex[:6]}"
+        MemoryStore.add_memory(
+            mem_id=mem_id,
+            content=text,
+            mem_type="episodic",
+            importance=importance,
+            confidence=1.0
+        )
+
+    @classmethod
+    def get_planner_context(cls, query: str) -> dict:
+        """Assembles scoring-weighted context fragments and entity link triples for query terms."""
+        from backend.core.memory.memory_retriever import MemoryRetriever
+        mems = MemoryRetriever.retrieve_memories(query)
+        triples = MemoryRetriever.retrieve_graph_context(query)
+        
+        return {
+            "relevant_memories": [m["content"] for m in mems],
+            "relationships": triples
+        }

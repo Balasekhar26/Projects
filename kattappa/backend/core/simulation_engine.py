@@ -159,6 +159,114 @@ class SimulationEngine:
     def simulate_dict(cls, raw: dict[str, Any], *, trials: int = 1000, seed: int = 42) -> SimulationReport:
         return cls.simulate(Scenario.from_dict(raw), trials=trials, seed=seed)
 
+    @classmethod
+    def compare_and_select_plan(
+        cls,
+        candidate_plans: List[Dict[str, Any]],
+        world_state_context: Dict[str, Any],
+        safety_threshold: float = 0.70
+    ) -> Dict[str, Any]:
+        """Compares multiple candidate plans and selects the best one.
+
+        Evaluates success probability, risk, rollback cost, token/time cost.
+        Blocks plans exceeding the safety_threshold.
+        """
+        results = []
+        for idx, plan in enumerate(candidate_plans):
+            plan_id = plan.get("id") or f"plan-{idx}"
+            steps = plan.get("steps") or []
+
+            # Predict step-by-step outcomes
+            total_duration = 0
+            accumulated_risk = 0.0
+            rollback_costs = []
+
+            for step in steps:
+                action = step.get("action", "").upper()
+                agent = step.get("agent", "unknown").lower()
+
+                # Rollback ease / cost calculations
+                # Rule definitions:
+                # DELETE_FILE, DELETE_DIR, FORMAT_DISK: 1.0 (non-reversible)
+                # WRITE_FILE, MODIFY_FILE: 0.5 (semi-reversible)
+                # CREATE_FILE, CREATE_DIR: 0.1 (easily reversible)
+                # Others (READ_FILE, RUN_TESTS, SEARCH_WEB): 0.0 (no side effects)
+                if any(kw in action for kw in ["DELETE", "REMOVE", "FORMAT"]):
+                    rollback_cost = 1.0
+                elif any(kw in action for kw in ["WRITE", "MODIFY", "EDIT", "REPLACE"]):
+                    rollback_cost = 0.5
+                elif any(kw in action for kw in ["CREATE", "ADD", "NEW"]):
+                    rollback_cost = 0.1
+                else:
+                    rollback_cost = 0.0
+
+                rollback_costs.append(rollback_cost)
+
+                # Base step duration and cost calculations
+                base_duration = cls._ACTION_DURATIONS.get(action, 2000)
+                multiplier = cls._AGENT_MULTIPLIERS.get(agent, 1.0)
+                duration = int(base_duration * multiplier)
+                total_duration += duration
+
+                # Compute risk per step
+                step_risk = 0.10
+                if rollback_cost == 1.0:
+                    step_risk += 0.50
+                elif rollback_cost == 0.5:
+                    step_risk += 0.25
+                if "SHELL" in action or "RUN" in action:
+                    step_risk += 0.15
+
+                accumulated_risk = max(accumulated_risk, step_risk)
+
+            # Normalize composite variables
+            avg_rollback_cost = sum(rollback_costs) / max(1, len(steps))
+            predicted_risk = min(1.0, accumulated_risk)
+
+            # Estimate token costs: 2000 base tokens per step
+            estimated_tokens = len(steps) * 2000
+
+            # Completion Probability based on step complexity
+            completion_prob = max(0.20, 1.0 - (predicted_risk * 0.40))
+
+            # Plan expected utility calculation
+            expected_utility = completion_prob * (1.0 - predicted_risk) * (1.0 - avg_rollback_cost * 0.3)
+
+            # Gating status
+            is_blocked = predicted_risk > safety_threshold or (any(rc == 1.0 for rc in rollback_costs) and predicted_risk > 0.50)
+            status = "BLOCKED_BY_SAFETY" if is_blocked else "ALLOWED"
+
+            results.append({
+                "plan_id": plan_id,
+                "expected_utility": round(expected_utility, 3),
+                "predicted_risk": round(predicted_risk, 3),
+                "rollback_cost": round(avg_rollback_cost, 3),
+                "completion_probability": round(completion_prob, 3),
+                "estimated_duration_ms": total_duration,
+                "estimated_tokens": estimated_tokens,
+                "status": status,
+                "plan": plan
+            })
+
+        # Filter allowed plans
+        allowed_results = [r for r in results if r["status"] == "ALLOWED"]
+
+        # Sort allowed plans descending by utility
+        allowed_results.sort(key=lambda r: r["expected_utility"], reverse=True)
+        results.sort(key=lambda r: r["expected_utility"], reverse=True)
+
+        best_allowed = allowed_results[0] if allowed_results else None
+
+        # Format the selection report
+        report = {
+            "selected_plan_id": best_allowed["plan_id"] if best_allowed else None,
+            "status": "PROCEED" if best_allowed else "BLOCKED",
+            "reason": "Optimal plan selected under acceptable risk bounds." if best_allowed else "All candidate plans blocked by safety gates.",
+            "candidates": results
+        }
+
+        return report
+
     # ------------------------------------------------------------------
     # Extended API — Phase K17+
     # ------------------------------------------------------------------
@@ -653,7 +761,7 @@ class SimulationEngine:
         }
 
         run_id = str(uuid.uuid4())
-        created_at = datetime.datetime.utcnow().isoformat() + "Z"
+        created_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat() + "Z"
 
         conn = cls._get_sqlite_conn()
         conn.execute(
@@ -693,7 +801,7 @@ class SimulationEngine:
                 actual_success, actual_cost, actual_time, status, created_at)
                VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 'pending', ?)""",
             (decision_id, decision, predicted_success, predicted_cost, predicted_time,
-             datetime.datetime.utcnow().isoformat() + "Z"),
+             datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat() + "Z"),
         )
         conn.commit()
         conn.close()
@@ -914,6 +1022,31 @@ class SimulationReport:
             "top_risks": self.top_risks,
             "recommendation": self.recommendation,
         }
+
+
+from backend.core.cognitive_kernel import CognitiveService, ServiceStatus
+
+class SimulationService(CognitiveService):
+    """Microkernel service wrapper for the SimulationEngine."""
+
+    def __init__(self) -> None:
+        super().__init__("simulation", dependencies=["memory", "goals", "events", "tools", "agents"])
+        self._engine = None
+
+    def initialize(self) -> None:
+        self._engine = SimulationEngine
+        self.set_status(ServiceStatus.ACTIVE)
+
+    def shutdown(self) -> None:
+        self._engine = None
+        self.set_status(ServiceStatus.INACTIVE)
+
+    @property
+    def engine(self) -> Any:
+        if self._engine is None:
+            raise RuntimeError("Simulation service is not initialized.")
+        return self._engine
+
 
 
 

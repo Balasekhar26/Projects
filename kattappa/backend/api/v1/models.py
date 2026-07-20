@@ -2,6 +2,7 @@ from fastapi import APIRouter, WebSocket, Header, HTTPException, Body
 from typing import Any
 from backend.api.v1.chat import _resolve_action_success
 from backend.api.v1.common import *
+from backend.core.readiness import runtime_readiness
 
 models_router = APIRouter(tags=["Models"])
 
@@ -1691,8 +1692,10 @@ def health_check() -> dict[str, object]:
 
 
 @models_router.get("/ready")
-def ready_check() -> dict[str, str]:
-    return {"status": "ready"}
+def ready_check() -> dict[str, object]:
+    # This router is intentionally mounted both at / and /api/v1; both aliases
+    # delegate to this single canonical readiness service.
+    return runtime_readiness().model_dump()
 
 
 

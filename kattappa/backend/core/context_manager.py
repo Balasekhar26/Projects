@@ -137,6 +137,17 @@ class ContextManager:
         except Exception:
             pass
 
+        # Call ContextAssembler.build to compile K20 context bundle
+        from backend.core.context.assembler import ContextAssembler
+        active_goal = goals[0] if goals else None
+        bundle = ContextAssembler.build(
+            goal=active_goal,
+            memories=recalled,
+            tools=tools,
+            environment=env,
+            conversation=[]
+        )
+
         context_obj = ExecutionContext(
             session_id=session_id,
             timestamp=time.time(),
@@ -155,5 +166,6 @@ class ContextManager:
         return {
             "session_id": session_id,
             "compiled_context": compiled_md,
-            "raw": context_obj
+            "raw": context_obj,
+            "bundle": bundle
         }

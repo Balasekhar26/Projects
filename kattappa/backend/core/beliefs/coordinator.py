@@ -21,6 +21,7 @@ from backend.core.beliefs.belief_revision import BeliefRevisionEngine
 from backend.core.beliefs.explanation_engine import ExplanationEngine
 from backend.core.provenance.coordinator import ProvenanceCoordinator
 from backend.core.provenance.models import ProvenanceEvidenceItem
+from backend.core.trust_evidence import EvidenceLevel
 from backend.core.knowledge_graph import KnowledgeGraph, EntityType, RelationType
 from backend.core.logger import log_event
 
@@ -85,11 +86,36 @@ class BeliefCoordinator:
         rationale: str = "",
         dependencies: Optional[List[str]] = None,
         valid_until: Optional[float] = None,
+        learning_rate: float = 0.3,
     ) -> Belief:
         """Processes a new belief assertion, validating it against conflicts and propagating truth bounds.
 
         Saves the resulting active belief in the Knowledge Graph automatically.
         """
+        # Source weighting: map source_id to appropriate EvidenceLevel
+        src_id = str(evidence.source_id).lower()
+        mapped_level = evidence.evidence_level
+        if "peer_reviewed" in src_id or "academic" in src_id or "journal" in src_id:
+            mapped_level = EvidenceLevel.REAL_WORLD
+        elif "wikipedia" in src_id:
+            mapped_level = EvidenceLevel.VALIDATOR
+        elif "forum" in src_id or "reddit" in src_id or "blog" in src_id or "post" in src_id:
+            mapped_level = EvidenceLevel.OPINION
+
+        # Reconstruct evidence if level is updated
+        if mapped_level != evidence.evidence_level:
+            evidence = ProvenanceEvidenceItem(
+                evidence_id=evidence.evidence_id,
+                source_id=evidence.source_id,
+                evidence_level=mapped_level,
+                confidence=evidence.confidence,
+                verification_state=evidence.verification_state,
+                observed_at=evidence.observed_at,
+                context_citation=evidence.context_citation,
+                supports=evidence.supports,
+                metadata=evidence.metadata
+            )
+
         # 1. Register evidence in Provenance Store first
         self._prov.store.save_evidence(evidence)
 
@@ -101,6 +127,9 @@ class BeliefCoordinator:
 
         confidence = ConfidenceEngine.calculate_confidence(evidence_list, statement=f"{subject}.{predicate}")
 
+        # Determine metadata from evidence or defaults
+        metadata = dict(evidence.metadata) if evidence.metadata else {}
+
         # 3. Create candidate belief object
         candidate = Belief.create(
             subject=subject,
@@ -111,28 +140,41 @@ class BeliefCoordinator:
             source_ids=[evidence.source_id],
             evidence_ids=[evidence.evidence_id],
             valid_until=valid_until,
+            metadata=metadata,
         )
 
         # 4. Check for conflicts with existing active beliefs
-        prior = self._store.get_belief_by_claim(subject, predicate)
+        priors = self._store.get_beliefs_for_claim(subject, predicate)
+        candidate_temp = candidate.metadata.get("temporal_scope")
+        
+        prior = None
+        for p in priors:
+            prior_temp = p.metadata.get("temporal_scope")
+            if candidate_temp is not None or prior_temp is not None:
+                if prior_temp == candidate_temp:
+                    prior = p
+                    break
+            else:
+                prior = p
+                break
+
         if prior:
             conflict = self._contradictions.check_conflict(candidate)
             if conflict:
                 # Conflict resolution: check confidence scores
                 if candidate.confidence > prior.confidence:
-                    # Incoming belief is stronger: retract/refute prior belief, keep candidate
+                    # Incoming belief is stronger: decay prior confidence and refute it
                     self._revision.revise_belief(prior, prior.claim_value, prior.confidence * 0.5, BeliefStatus.REFUTED)
-                    # Candidate remains active
                     self._store.save_belief(candidate)
                     log_event("tms_conflict_resolved", f"Incoming belief '{value}' superseded prior '{prior.claim_value}'")
                 else:
-                    # Prior belief is stronger: incoming is stored as refuted hypothesis
+                    # Prior belief is stronger: decay incoming belief confidence and mark as refuted hypothesis
                     candidate = Belief(
                         belief_id=candidate.belief_id,
                         claim_subject=candidate.claim_subject,
                         claim_predicate=candidate.claim_predicate,
                         claim_value=candidate.claim_value,
-                        confidence=candidate.confidence,
+                        confidence=candidate.confidence * 0.5,
                         truth_status=BeliefStatus.REFUTED,
                         source_ids=candidate.source_ids,
                         evidence_ids=candidate.evidence_ids,
@@ -146,13 +188,14 @@ class BeliefCoordinator:
                     self._store.save_belief(candidate)
                     log_event("tms_conflict_resolved", f"Prior belief '{prior.claim_value}' resisted incoming '{value}'")
             else:
-                # No contradiction — update version
+                # No contradiction (values match) — update confidence gradually
+                gradual_confidence = prior.confidence * (1 - learning_rate) + confidence * learning_rate
                 candidate = Belief(
                     belief_id=prior.belief_id,
                     claim_subject=candidate.claim_subject,
                     claim_predicate=candidate.claim_predicate,
                     claim_value=value,
-                    confidence=confidence,
+                    confidence=gradual_confidence,
                     truth_status=candidate.truth_status,
                     source_ids=list(set(prior.source_ids + candidate.source_ids)),
                     evidence_ids=list(set(prior.evidence_ids + candidate.evidence_ids)),
@@ -165,7 +208,7 @@ class BeliefCoordinator:
                 )
                 self._store.save_belief(candidate)
         else:
-            # Fresh belief
+            # Fresh belief (supports temporal co-existence)
             self._store.save_belief(candidate)
 
         # 5. Save justification entry

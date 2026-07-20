@@ -420,91 +420,8 @@ class PlannerAgent:
         pass
 
     def decompose(self, goal: str, context: dict[str, Any] = None) -> TaskGraph:
-        graph = TaskGraph(goal)
-        lower_goal = goal.lower()
-
-        if "write" in lower_goal and "test" in lower_goal:
-            step1 = TaskStep(
-                step_id="step1",
-                description="Write the implementation file",
-                agent="coder",
-                action="WRITE_FILE",
-                params={"target": "backend/core/sample.py", "content": "print('hello')"},
-                dependencies=[]
-            )
-            step2 = TaskStep(
-                step_id="step2",
-                description="Run the verification tests",
-                agent="coder",
-                action="RUN_TESTS",
-                params={"target": "backend/tests/test_sample.py"},
-                dependencies=["step1"]
-            )
-            graph.add_step(step1)
-            graph.add_step(step2)
-        elif "read" in lower_goal and "search" in lower_goal:
-            step1 = TaskStep(
-                step_id="read_step",
-                description="Read configuration details",
-                agent="file",
-                action="READ_FILE",
-                params={"target": "backend/config.yaml"},
-                dependencies=[]
-            )
-            step2 = TaskStep(
-                step_id="search_step",
-                description="Search web for updates",
-                agent="researcher",
-                action="BROWSER_SEARCH",
-                params={"query": "latest kattappa OS config"},
-                dependencies=[]
-            )
-            graph.add_step(step1)
-            graph.add_step(step2)
-        else:
-            try:
-                from backend.core.model_router import ask_model
-                prompt = (
-                    f"Goal: {goal}\n"
-                    f"Context: {context or {}}\n"
-                    "Decompose this goal into a list of steps. Output only a valid JSON array of objects. "
-                    "Each object MUST have: step_id (string), description (string), agent (string), action (string), "
-                    "params (dict), dependencies (list of step_ids).\n"
-                    "Example:\n"
-                    '[{"step_id": "s1", "description": "Write code", "agent": "coder", "action": "WRITE_FILE", "params": {"target": "f.py", "content": "#code"}, "dependencies": []}]'
-                )
-                res = ask_model(prompt, role="planning")
-                clean_res = res.strip()
-                if clean_res.startswith("```json"):
-                    clean_res = clean_res[7:]
-                if clean_res.endswith("```"):
-                    clean_res = clean_res[:-3]
-                clean_res = clean_res.strip()
-                steps_data = json.loads(clean_res)
-                for item in steps_data:
-                    step = TaskStep(
-                        step_id=item["step_id"],
-                        description=item["description"],
-                        agent=item["agent"],
-                        action=item["action"],
-                        params=item.get("params", {}),
-                        dependencies=item.get("dependencies", [])
-                    )
-                    graph.add_step(step)
-            except Exception:
-                from backend.agents.planner import route_task
-                routing = route_task(goal)
-                agent = routing["agent"]
-                step = TaskStep(
-                    step_id="default_step",
-                    description=f"Execute request: {goal}",
-                    agent=agent,
-                    action="EXECUTE",
-                    params={"text": goal},
-                    dependencies=[]
-                )
-                graph.add_step(step)
-        
+        from backend.core.planner.planner_engine import PlannerEngine
+        graph = PlannerEngine.decompose(goal, context)
         for step_id, step in graph.steps.items():
             self.estimate_resources(step)
             self.insert_approval_gates(step)
@@ -680,11 +597,18 @@ def planner_node(state):
     if "verify" in lower_input or "version" in lower_input:
         extracted_goals.append("verify_installation")
     
+    from backend.agents.planner import route_task
+    routed = route_task(user_input)
+    specialist_agent = routed.get("agent") if routed else None
+
     if not extracted_goals:
-        # Fallback to general task goals
-        extracted_goals.append("compile_code")
-        extracted_goals.append("run_tests")
-        extracted_goals.append("deploy_binary")
+        if specialist_agent and specialist_agent != "evaluator":
+            extracted_goals.append(f"execute_{specialist_agent}")
+        else:
+            # Fallback to general task goals
+            extracted_goals.append("compile_code")
+            extracted_goals.append("run_tests")
+            extracted_goals.append("deploy_binary")
 
     logs.append(f"planner: extracted goals {extracted_goals}")
 
@@ -708,6 +632,11 @@ def planner_node(state):
     decomposer.declare_method(Method("do_compile", "compile_code", {}, ["compile_code"]))
     decomposer.declare_method(Method("do_test", "run_tests", {}, ["run_tests"]))
     decomposer.declare_method(Method("do_deploy", "deploy_binary", {}, ["deploy_binary"]))
+    
+    if specialist_agent and specialist_agent != "evaluator" and f"execute_{specialist_agent}" in extracted_goals:
+        goal_name = f"execute_{specialist_agent}"
+        decomposer.declare_operator(Operator(goal_name, {}, {f"{specialist_agent}_done": True}, estimated_cost=1.0, estimated_time=1.0))
+        decomposer.declare_method(Method(f"do_{specialist_agent}", goal_name, {}, [goal_name]))
 
     # Goal compound task
     decomposer.declare_method(Method(
@@ -779,6 +708,8 @@ def planner_node(state):
         "run_tests": "terminal",
         "deploy_binary": "builder",
     }
+    if specialist_agent and specialist_agent != "evaluator":
+        mapping[f"execute_{specialist_agent}"] = specialist_agent
     
     execution_steps = [mapping.get(step["name"], "evaluator") for step in plan["steps"]]
     state["execution_steps"] = execution_steps

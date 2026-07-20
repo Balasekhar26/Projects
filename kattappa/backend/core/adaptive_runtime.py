@@ -496,7 +496,10 @@ class SemanticResponseCache:
                 return None, None
                 
             return meta.get("response"), meta.get("selected_agent")
-        except Exception:
+        except Exception as e:
+            if os.getenv("KATTAPPA_TEST_MODE") == "true":
+                import traceback
+                traceback.print_exc()
             return None, None
 
     @classmethod
@@ -518,8 +521,10 @@ class SemanticResponseCache:
                     "selected_agent": selected_agent
                 }]
             )
-        except Exception:
-            pass
+        except Exception as e:
+            if os.getenv("KATTAPPA_TEST_MODE") == "true":
+                import traceback
+                traceback.print_exc()
 
 
 class MemoryPrefetcher:

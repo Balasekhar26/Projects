@@ -34,6 +34,7 @@ import { AgentsPanel } from "./AgentsPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { ProjectsPanel } from "./ProjectsPanel";
 import { WorkspacePanel } from "./WorkspacePanel";
+import { SuperbenchPanel } from "./SuperbenchPanel";
 
 export type PanelContentProps = {
   activePanel: string;
@@ -41,6 +42,9 @@ export type PanelContentProps = {
   freeStack: FreeStack | null;
   sourcePolicy: SourcePolicy | null;
   toolScout: ToolScoutStatus | null;
+  selfModel: any | null;
+  toolsReputation: Record<string, any>;
+  agentsReputation: Record<string, any>;
   toolAdoptions: ToolAdoptionJob[];
   clusterStatus: ClusterStatus | null;
   clusterDraft: { name: string; base_url: string; token: string; capabilities: string };
@@ -136,6 +140,8 @@ export function PanelContent(props: PanelContentProps) {
       return <ProjectsPanel {...props} />;
     case "Workspaces":
       return <WorkspacePanel />;
+    case "Superbench":
+      return <SuperbenchPanel />;
     default:
       return (
         <SystemDiagnostics

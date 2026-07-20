@@ -1,0 +1,1 @@
+# Kattappa User Model Package

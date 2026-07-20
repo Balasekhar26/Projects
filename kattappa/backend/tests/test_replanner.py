@@ -1,157 +1,128 @@
-"""Unit and integration tests for Program 12.4 Replanner and Recovery Engine.
-"""
-from __future__ import annotations
-
-import socket
 import pytest
-from backend.core.planning.task_library import TaskLibrary
-from backend.core.planning.planner_types import GoalPriority, GoalStatus
-from backend.core.planning.plan_node import PlanNode
-from backend.core.planning.plan import Plan
-from backend.core.planning.htn_planner import HTNPlanner
-from backend.core.planning.replanner import Replanner
-from backend.core.planning.failure_classifier import FailureClassifier, FailureCategory
-from backend.core.execution.typed_errors import ValidationError, PermissionDenied
+import os
+import tempfile
+from pathlib import Path
+from backend.core.orchestrator.base import Task, TaskResult, BaseAgent
+from backend.core.orchestrator.task_graph import TaskGraph
+from backend.core.orchestrator.scheduler import TaskScheduler
+from backend.core.orchestrator.registry import AgentRegistry
+from backend.core.orchestrator.replanner import FailureReplanner
 
+# Custom mock agent for testing failure replan execution
+class FailingAgent(BaseAgent):
+    def __init__(self, name: str = "FailingAgent"):
+        self.call_count = 0
+        self._name = name
+        
+    @property
+    def name(self) -> str:
+        return self._name
 
+    def initialize(self) -> None:
+        pass
 
-def test_failure_classifier():
-    """Verifies exception mappings to FailureCategory enums."""
-    classifier = FailureClassifier()
+    def execute(self, task: Task, context) -> TaskResult:
+        self.call_count += 1
+        if task.action == "INSTALL":
+            if self.call_count == 1:
+                # Fail the first attempt to trigger retry and replan
+                return TaskResult(success=False, error="Pip install failed: no virtualenv active")
+            else:
+                # Succeed after recovery has executed
+                return TaskResult(success=True, output="Successfully installed package")
+        elif task.action == "RUN_SHELL":
+            # Recovery task execution
+            return TaskResult(success=True, output="Created virtualenv")
+        return TaskResult(success=True)
 
-    assert classifier.classify(socket.timeout("Connection lost")) == FailureCategory.NETWORK_TIMEOUT
-    assert classifier.classify(PermissionDenied("Invalid API Key")) == FailureCategory.PERMISSION_DENIED
+    def terminate(self, task_id: str) -> None:
+        pass
 
-    assert classifier.classify(ValidationError("Exceeded cost budget")) == FailureCategory.INSUFFICIENT_BUDGET
-    assert classifier.classify(ValidationError("Policy blocked task")) == FailureCategory.POLICY_VIOLATION
-    assert classifier.classify(Exception("Database connection rate limit")) == FailureCategory.API_RATE_LIMIT
-    assert classifier.classify(Exception("Disk exhaustion trigger")) == FailureCategory.RESOURCE_EXHAUSTION
+@pytest.fixture
+def test_env_setup(monkeypatch):
+    temp_dir = tempfile.mkdtemp(prefix="replanner_test_")
+    monkeypatch.setenv("KATTAPPA_ROOT", temp_dir)
+    monkeypatch.setenv("KATTAPPA_TEST_MODE", "true")
+    monkeypatch.setenv("KATTAPPA_ENV", "test")
+    yield temp_dir
 
-
-def test_replanner_retry_strategy():
-    """Verifies retry policy resets node status to PROPOSED and increments plan generation."""
-    planner = HTNPlanner()
-    replanner = Replanner(planner, max_attempts=2)
-
-    plan = planner.generate_plan(
-        goal_id="g1",
-        root_task_name="PrepareDemoSystem",
-        initial_state=["internet_available"]
-    )
-
-    # Set one node as failed (e.g. DownloadBinary)
-    node_id = None
-    for nid, node in plan.graph.nodes.items():
-        if node.title == "DownloadBinary":
-            node_id = nid
-            node.status = GoalStatus.FAILED
-            break
-
-    # Run replanner on timeout error -> should retry
-    repaired_plan = replanner.handle_failure(
-        plan=plan,
-        failed_node_id=node_id,
-        error=socket.timeout("Temporary glitch"),
-        world_state={"final_state": ["internet_available"]}
-    )
-
-    assert repaired_plan.plan_id != plan.plan_id
-    assert repaired_plan.parent_plan_id == plan.plan_id
-    assert repaired_plan.generation == 2
+def test_replanner_dynamic_graph_mutation(test_env_setup) -> None:
+    graph = TaskGraph()
+    graph.goal = "Setup and run flask app"
     
-    # Target node should be reset back to PROPOSED
-    repaired_node = repaired_plan.graph.nodes[node_id]
-    assert repaired_node.status == GoalStatus.PROPOSED
-    assert repaired_node.retry_count == 1
-
-
-def test_replanner_budget_exhaustion_escalation():
-    """Verifies that exceeding node recovery retry budgets triggers escalation."""
-    planner = HTNPlanner()
-    replanner = Replanner(planner, max_attempts=2)
-
-    plan = planner.generate_plan(
-        goal_id="g1",
-        root_task_name="PrepareDemoSystem",
-        initial_state=["internet_available"]
+    t1 = Task(
+        task_id="t1",
+        agent_name="FailingAgent",
+        action="INSTALL",
+        params={"package": "flask"},
+        dependencies=[]
     )
-
-    node_id = None
-    for nid, node in plan.graph.nodes.items():
-        if node.title == "DownloadBinary":
-            node_id = nid
-            break
-
-    # First attempt: Retry
-    plan_1 = replanner.handle_failure(plan, node_id, socket.timeout("glitch"), {})
-    # Second attempt: Retry
-    plan_2 = replanner.handle_failure(plan_1, node_id, socket.timeout("glitch"), {})
-    # Third attempt: Exceeds max_attempts=2 -> should ESCALATE
-    plan_escaped = replanner.handle_failure(plan_2, node_id, socket.timeout("glitch"), {})
-
-    assert plan_escaped.metadata.get("requires_human_approval") is True
-    assert "ESCALATE" in plan_escaped.metadata.get("escalation_reason", "")
-
-
-
-def test_replanner_partial_subtree_repair():
-    """Verifies partial plan repair: completed tasks are kept, downstream subtree is replaced."""
-    planner = HTNPlanner()
-    replanner = Replanner(planner)
-
-    plan = planner.generate_plan(
-        goal_id="g1",
-        root_task_name="PrepareDemoSystem",
-        initial_state=["internet_available"]
+    t1.max_attempts = 1  # force direct replanning on first failure after exhaustion
+    graph.add_task(t1)
+    
+    # 1. Directly invoke analyzer to verify graph mutation
+    replan_ok = FailureReplanner.analyze_and_replan(
+        graph=graph,
+        failed_task=t1,
+        error_msg="pip install failed: no virtualenv active",
+        context={}
     )
+    
+    assert replan_ok is True
+    
+    # Verify corrective task was injected
+    recovery_tasks = [tid for tid in graph.tasks if tid.startswith("recover_venv_t1")]
+    assert len(recovery_tasks) == 1
+    recovery_task_id = recovery_tasks[0]
+    
+    rec_task = graph.tasks[recovery_task_id]
+    assert rec_task.action == "RUN_SHELL"
+    assert rec_task.status == "PENDING"
+    
+    # Verify dependencies are mapped correctly
+    assert t1.dependencies == [recovery_task_id]
+    assert rec_task.dependencies == []
+    
+    # Verify failed task state reset
+    assert t1.status == "PENDING"
+    assert t1.retry_count == 0
 
-    # Pre-complete:
-    # VerifyHardware (2.0s) -> set to COMPLETED
-    # DownloadBinary -> set to FAILED
-    # Dependents (ConfigureSettings, RunDiagnostics, GenerateReport) must be removed and replaced!
-    verify_hw_id = None
-    download_bin_id = None
-    for nid, node in plan.graph.nodes.items():
-        if node.title == "VerifyHardware":
-            verify_hw_id = nid
-            node.status = GoalStatus.COMPLETED
-        elif node.title == "DownloadBinary":
-            download_bin_id = nid
-            node.status = GoalStatus.FAILED
-
-    world_state = {
-        "final_state": ["internet_available", "hardware_verified", "binary_downloaded"],
-    }
-
-
-    # Trigger repair under dependency failure exception
-    repaired_plan = replanner.handle_failure(
-        plan=plan,
-        failed_node_id=download_bin_id,
-        error=Exception("generic error on download source"),
-
-        world_state=world_state
+def test_scheduler_replanning_loop(test_env_setup) -> None:
+    registry = AgentRegistry()
+    agent = FailingAgent("FailingAgent")
+    tool_exec = FailingAgent("Tool Executor")
+    registry.register(agent)
+    registry.register(tool_exec)
+    
+    scheduler = TaskScheduler(registry=registry)
+    
+    graph = TaskGraph()
+    graph.goal = "Setup project dependencies"
+    
+    t1 = Task(
+        task_id="t1",
+        agent_name="FailingAgent",
+        action="INSTALL",
+        params={"package": "flask"},
+        dependencies=[]
     )
-
-    # 1. Lineage checks
-    assert repaired_plan.generation == 2
-    assert repaired_plan.parent_plan_id == plan.plan_id
-
-    # 2. Subgraph checks
-    # VerifyHardware must still exist with COMPLETED status
-    assert verify_hw_id in repaired_plan.graph.nodes
-    assert repaired_plan.graph.nodes[verify_hw_id].status == GoalStatus.COMPLETED
-
-    # The failed DownloadBinary ID must NOT exist in repaired plan
-    assert download_bin_id not in repaired_plan.graph.nodes
-
-    # The rule (DownloadBinary) was marked as tabu
-    assert replanner.policy_engine.is_tabu("DownloadBinary")
-
-    # Entry nodes of repaired subtree should depend on VerifyHardware (preserved parent dependency)
-    # The substitute task here was DownloadBinary -> tool substitution to ConfigureSettings!
-    # ConfigureSettings requires binary_downloaded, so to check the graft:
-    # Let's ensure the grafted nodes are in the graph.
-    grafted_titles = {n.title for n in repaired_plan.graph.nodes.values() if n.status == GoalStatus.PROPOSED}
-    assert "ConfigureSettings" in grafted_titles
-    assert "RunDiagnostics" in grafted_titles
+    t1.max_attempts = 1  # trigger replan on first attempt failure
+    graph.add_task(t1)
+    
+    # Run the scheduler
+    context = scheduler.run_graph(graph, graph_id="test_run_1")
+    
+    # Verify the entire graph completed successfully
+    assert graph.is_finished() is True
+    assert graph.has_failures() is False
+    
+    # Verify execution order:
+    # 1. failing agent called for t1 (attempt 1) -> fails
+    # 2. replanner runs -> injects recovery task (recover_venv_t1)
+    # 3. recovery task runs -> succeeds (run_shell on tool_exec)
+    # 4. t1 runs again (attempt 2) -> succeeds
+    assert agent.call_count == 2
+    assert tool_exec.call_count == 1
+    
+    assert graph.tasks["t1"].status == "COMPLETED"
+    assert any(tid.startswith("recover_venv_t1") and t.status == "COMPLETED" for tid, t in graph.tasks.items())

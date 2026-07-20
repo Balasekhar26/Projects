@@ -148,3 +148,54 @@ class SkillComposer:
             estimated_cost=estimated_cost,
             execution_plan=execution_plan,
         )
+
+    @classmethod
+    def compile_procedure_from_trace(
+        cls,
+        task_title: str,
+        execution_steps: List[str] | List[Dict[str, Any]],
+        success: bool
+    ) -> Optional[Dict[str, Any]]:
+        """Extracts, optimizes, and stores a successful task procedure as a reusable skill (Phase K26)."""
+        if not success or not execution_steps:
+            return None
+
+        # 1. Procedure Extraction
+        steps_extracted = []
+        for step in execution_steps:
+            if isinstance(step, dict):
+                action = step.get("action") or step.get("step_name") or "unknown"
+            else:
+                action = str(step)
+            steps_extracted.append(action)
+
+        # 2. Optimization
+        seen_actions = set()
+        optimized_steps = []
+        for act in steps_extracted:
+            clean_act = act.strip()
+            if clean_act and clean_act not in seen_actions and clean_act != "unknown":
+                seen_actions.add(clean_act)
+                optimized_steps.append(clean_act)
+
+        if not optimized_steps:
+            return None
+
+        # 3. Reusable Skill Storage
+        import re
+        skill_name = f"skill_{task_title.lower().replace(' ', '_')}"
+        skill_name = re.sub(r'[^a-zA-Z0-9_]', '', skill_name)[:40]
+
+        try:
+            from backend.core.skill_library import SkillLibrary
+            SkillLibrary.remove(skill_name)
+            skill = SkillLibrary.add_skill(
+                name=skill_name,
+                description=f"Auto-compiled skill sequence for: {task_title}",
+                steps=optimized_steps,
+                tags=["compiled", "auto"]
+            )
+            return skill
+        except Exception:
+            return None
+

@@ -3,56 +3,177 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AI_System</title>
+    <title>Kattappa Cognitive Console</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <aside>
-      <h1>AI_System</h1>
-      <div id="status" class="status">Loading...</div>
-      <nav>
-        <button data-view="chat" class="active">Chat</button>
-        <button data-view="tasks">Tasks</button>
-        <button data-view="memory">Memory</button>
-        <button data-view="events">Events</button>
+    <!-- Left Sidebar: Brand & Navigation -->
+    <aside class="sidebar-left">
+      <div class="brand">
+        <h1>Kattappa</h1>
+        <div class="brand-subtitle">Cognitive Runtime v1</div>
+      </div>
+      
+      <nav class="nav-links">
+        <button data-view="chat" class="nav-btn active">Dialogue</button>
+        <button data-view="missions" class="nav-btn">Missions</button>
+        <button data-view="memory" class="nav-btn">Memory Vault</button>
+        <button data-view="settings" class="nav-btn">Console Settings</button>
       </nav>
+
+      <div class="system-status">
+        <div class="status-indicator">
+          <div class="status-dot"></div>
+          <span>KATTAPPA ONLINE</span>
+        </div>
+        <div id="quick-telemetry">Loading core status...</div>
+      </div>
     </aside>
-    <main>
+
+    <!-- Center Panel: Dialogue stream and active mission board -->
+    <main class="console-center">
+      <header class="console-header">
+        <div class="console-title" id="view-title">DIALOGUE MODE</div>
+        <button class="toggle-mode-btn" id="toggle-mode">Expert Mode: OFF</button>
+      </header>
+
+      <!-- Dialogue View -->
       <section id="chat" class="view active">
-        <div id="messages" class="messages"></div>
-        <form id="ask-form" class="composer">
-          <select id="mode">
-            <option value="planner">Planner</option>
-            <option value="coder">Coder</option>
-            <option value="fast">Fast</option>
-          </select>
-          <textarea id="prompt" rows="3" placeholder="Ask the local AI..."></textarea>
-          <button type="submit">Send</button>
+        <div id="messages" class="messages-timeline"></div>
+        <div class="activity-tracker" id="chat-activity">
+          <div class="activity-gear" id="gear-input">Awaiting next objective...</div>
+        </div>
+        <form id="ask-form" class="console-composer">
+          <textarea id="prompt" class="composer-input" rows="1" placeholder="Type your objective for Kattappa..."></textarea>
+          <button type="submit" class="composer-submit">Execute</button>
         </form>
       </section>
-      <section id="tasks" class="view">
-        <form id="task-form" class="panel">
-          <textarea id="goal" rows="4" placeholder="Give the AI a goal to plan and execute..."></textarea>
-          <label><input id="execute-tools" type="checkbox" /> Allow safe tool routing</label>
-          <button type="submit">Run Task</button>
+
+      <!-- Missions View -->
+      <section id="missions" class="view">
+        <form id="task-form" class="card-panel">
+          <textarea id="goal" class="composer-input" rows="3" placeholder="Define a complex mission goal (e.g. Design a drone schematic and verify)..."></textarea>
+          <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <label style="font-size: 13px; font-family: var(--font-mono); color: var(--text-secondary); cursor: pointer;">
+              <input id="execute-tools" type="checkbox" checked /> Permit tool execution
+            </label>
+            <button type="submit" class="composer-submit">Initialize Mission</button>
+          </div>
         </form>
-        <div id="task-list" class="list"></div>
+        <div id="task-list" class="messages-timeline"></div>
       </section>
+
+      <!-- Memory View -->
       <section id="memory" class="view">
-        <form id="memory-form" class="panel">
-          <textarea id="memory-text" rows="3" placeholder="Store a memory..."></textarea>
-          <button type="submit">Remember</button>
+        <form id="memory-form" class="card-panel">
+          <textarea id="memory-text" class="composer-input" rows="2" placeholder="Record knowledge in the permanent vault..."></textarea>
+          <button type="submit" class="composer-submit">Commit to Memory</button>
         </form>
-        <form id="recall-form" class="panel inline">
-          <input id="memory-query" placeholder="Search memory" />
-          <button type="submit">Recall</button>
+        <form id="recall-form" class="card-panel" style="display: grid; grid-template-columns: 1fr auto; gap: 10px;">
+          <input id="memory-query" class="composer-input" placeholder="Search the Memory Vault..." />
+          <button type="submit" class="composer-submit">Recall</button>
         </form>
-        <div id="memory-results" class="list"></div>
+        <div id="memory-results" class="messages-timeline"></div>
       </section>
-      <section id="events" class="view">
-        <div id="event-list" class="list"></div>
+
+      <!-- Settings View -->
+      <section id="settings" class="view">
+        <div class="card-panel">
+          <h3>Local Model Allocations</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 10px 0;">
+            Kattappa manages dynamic fallback routing between local lightweight models (Fast) and developer models (Coder).
+          </p>
+          <div id="models-list" style="font-family: var(--font-mono); font-size: 12.5px; line-height: 1.8;"></div>
+        </div>
       </section>
     </main>
+
+    <!-- Right Sidebar: Cognitive and Substrate Telemetry (User / Expert toggled) -->
+    <aside class="sidebar-right">
+      <!-- 1. USER MODE PANELS -->
+      <div class="user-only">
+        <div class="telemetry-section">
+          <h3>Active Task Tree</h3>
+          <div class="task-tree" id="user-task-tree">
+            <div class="task-tree-node">
+              <span class="task-node-status pending">○</span>
+              <span class="task-node-desc">No active execution scheduled.</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="telemetry-section" style="margin-top: 24px;">
+          <h3>Timeline</h3>
+          <div class="timeline-list" id="user-timeline">
+            <div class="timeline-entry">
+              <span class="timeline-time">--:--</span>
+              <span class="timeline-desc">Awaiting mission initialization.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. EXPERT MODE PANELS -->
+      <div class="expert-only">
+        <div class="telemetry-section">
+          <h3>Cognitive Core</h3>
+          <div class="telemetry-grid">
+            <div class="telemetry-item">
+              <span>Planner Brain</span>
+              <span class="telemetry-val" id="cog-planner">IDLE</span>
+            </div>
+            <div class="telemetry-item">
+              <span>Coder Division</span>
+              <span class="telemetry-val" id="cog-coder">IDLE</span>
+            </div>
+            <div class="telemetry-item">
+              <span>Research Division</span>
+              <span class="telemetry-val" id="cog-researcher">IDLE</span>
+            </div>
+            <div class="telemetry-item">
+              <span>Evaluator Guard</span>
+              <span class="telemetry-val active" id="cog-evaluator">ACTIVE</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="telemetry-section" style="margin-top: 24px;">
+          <h3>Substrate Layer</h3>
+          <div class="telemetry-grid">
+            <div class="telemetry-item">
+              <span>OpenHuman Chariot</span>
+              <span class="telemetry-val active" id="sub-openhuman">CONNECTED</span>
+            </div>
+            <div class="telemetry-item">
+              <span>CPU Allocation</span>
+              <span class="telemetry-val" id="sub-cpu">8%</span>
+            </div>
+            <div class="telemetry-progress">
+              <div class="telemetry-bar" id="cpu-bar" style="width: 8%"></div>
+            </div>
+            <div class="telemetry-item" style="margin-top: 10px;">
+              <span>Memory (12GB Max)</span>
+              <span class="telemetry-val" id="sub-ram">42%</span>
+            </div>
+            <div class="telemetry-progress">
+              <div class="telemetry-bar" id="ram-bar" style="width: 42%; background: var(--accent-teal);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SHARED PANELS (MemoryVault) -->
+      <div class="telemetry-section" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+        <h3>Memory Vault Preview</h3>
+        <div class="memory-tags" id="recent-memory-tags">
+          <span class="memory-tag">git-rules</span>
+          <span class="memory-tag">firmware-spec</span>
+          <span class="memory-tag">hardware-balanced</span>
+          <span class="memory-tag">telugu-contract</span>
+        </div>
+      </div>
+    </aside>
+
     <script src="/static/app.js"></script>
   </body>
 </html>

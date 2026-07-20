@@ -4,11 +4,87 @@ from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import threading
+from contextlib import asynccontextmanager
 
 from backend.api.v1.common import *
 from backend.core.workspace import WorkspaceManager
 
-app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup tasks
+    from backend.core.cluster_runtime import internet_hub_worker_poll_loop
+
+    thread = threading.Thread(target=internet_hub_worker_poll_loop, daemon=True)
+    thread.start()
+
+    # Start Step 9.0 Daily Research Loop
+    try:
+        from backend.core.research_scheduler import ResearchScheduler
+
+        ResearchScheduler.start()
+    except Exception:
+        pass
+
+    # Start Phase K13 KG Sync Scheduler
+    try:
+        from backend.core.kg_scheduler import start_kg_scheduler
+
+        start_kg_scheduler()
+    except Exception:
+        pass
+
+    # Run Experiment Sandbox startup orphan cleanup scan
+    try:
+        from backend.core.experiment_sandbox import ExperimentManager
+
+        ExperimentManager.cleanup_orphans()
+    except Exception:
+        pass
+
+    # Start Program 3 Memory Consolidation Engine Scheduler
+    try:
+        from backend.core.mce.scheduler import MCEScheduler
+
+        MCEScheduler.get_instance().start()
+    except Exception:
+        pass
+
+    # Warm up default fast and coder models in the background on startup
+    from backend.core.config import load_config
+    from backend.core.adaptive_runtime import WarmupManager
+
+    try:
+        cfg = load_config()
+        WarmupManager.warm_model_background(cfg.model_map["fast"], cfg.ollama_host)
+    except Exception:
+        pass
+
+    yield
+
+    # Shutdown tasks
+    try:
+        from backend.core.research_scheduler import ResearchScheduler
+
+        ResearchScheduler.stop()
+    except Exception:
+        pass
+
+    try:
+        from backend.core.kg_scheduler import stop_kg_scheduler
+
+        stop_kg_scheduler()
+    except Exception:
+        pass
+
+    try:
+        from backend.core.mce.scheduler import MCEScheduler
+
+        MCEScheduler.get_instance().stop()
+    except Exception:
+        pass
+
+
+app = FastAPI(title="Kattappa AI OS Backend", version="10.0.0", lifespan=lifespan)
 
 from backend.api.v1.chat import chat_router
 from backend.api.v1.voice import voice_router
@@ -34,9 +110,13 @@ from backend.api.v1.inference import router as inference_router
 from backend.api.v1.tool_execution import router as tool_execution_router
 from backend.api.v1.tool_hardening import router as tool_hardening_router
 from backend.api.v1.perception import perception_router
+from backend.api.v1.superbench import superbench_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(chat_router)
+
+app.include_router(superbench_router, prefix="/api/v1")
+app.include_router(superbench_router)
 
 app.include_router(voice_router, prefix="/api/v1")
 app.include_router(voice_router)
@@ -125,79 +205,7 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def start_startup_tasks():
-    from backend.core.cluster_runtime import internet_hub_worker_poll_loop
 
-    thread = threading.Thread(target=internet_hub_worker_poll_loop, daemon=True)
-    thread.start()
-
-    # Start Step 9.0 Daily Research Loop
-    try:
-        from backend.core.research_scheduler import ResearchScheduler
-
-        ResearchScheduler.start()
-    except Exception:
-        pass
-
-    # Start Phase K13 KG Sync Scheduler
-    try:
-        from backend.core.kg_scheduler import start_kg_scheduler
-
-        start_kg_scheduler()
-    except Exception:
-        pass
-
-    # Run Experiment Sandbox startup orphan cleanup scan
-    try:
-        from backend.core.experiment_sandbox import ExperimentManager
-
-        ExperimentManager.cleanup_orphans()
-    except Exception:
-        pass
-
-    # Start Program 3 Memory Consolidation Engine Scheduler
-    try:
-        from backend.core.mce.scheduler import MCEScheduler
-
-        MCEScheduler.get_instance().start()
-    except Exception:
-        pass
-
-    # Warm up default fast and coder models in the background on startup
-    from backend.core.config import load_config
-    from backend.core.adaptive_runtime import WarmupManager
-
-    try:
-        cfg = load_config()
-        WarmupManager.warm_model_background(cfg.model_map["fast"], cfg.ollama_host)
-    except Exception:
-        pass
-
-
-@app.on_event("shutdown")
-def stop_shutdown_tasks():
-    """Stop background scheduler threads on shutdown."""
-    try:
-        from backend.core.research_scheduler import ResearchScheduler
-
-        ResearchScheduler.stop()
-    except Exception:
-        pass
-
-    try:
-        from backend.core.kg_scheduler import stop_kg_scheduler
-
-        stop_kg_scheduler()
-    except Exception:
-        pass
-
-    try:
-        from backend.core.mce.scheduler import MCEScheduler
-
-        MCEScheduler.get_instance().stop()
-    except Exception:
-        pass
 
 
 # ── Workspaces Integration ──────────────────────────────────────────────────

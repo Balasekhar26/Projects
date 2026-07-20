@@ -109,6 +109,14 @@ class ToolReliabilityTracker:
         """Fetch reliability metrics for a tool."""
         clean_name = tool_name.strip().lower()
         
+        security_risks = {
+            "terminal": 1.0, "terminal_agent": 1.0, "shell_executor": 1.0,
+            "desktop": 0.8, "desktop_agent": 0.8,
+            "file": 0.4, "file_agent": 0.4, "file_writer": 0.4,
+            "browser": 0.2, "browser_agent": 0.2,
+        }
+        security_penalty = security_risks.get(clean_name, 0.0)
+
         with cls._lock:
             conn = cls._get_conn()
             try:
@@ -118,11 +126,14 @@ class ToolReliabilityTracker:
                 ).fetchone()
                 
                 if not row:
+                    utility_score = 1.0 * 0.95 - 0.08 * security_penalty
                     return {
                         "tool_name": clean_name,
                         "success_rate": 1.0,
                         "average_latency": 0.0,
                         "confidence": 0.95,
+                        "security_risk": security_penalty,
+                        "utility_score": round(max(0.0, min(1.0, utility_score)), 3),
                         "last_error": None
                     }
 
@@ -132,12 +143,16 @@ class ToolReliabilityTracker:
                 
                 # Confidence falls based on failures
                 confidence = max(0.0, succ_rate - (row["failure_count"] * 0.05))
+                latency_penalty = min(10.0, avg_lat)
+                utility_score = succ_rate * confidence - 0.05 * latency_penalty - 0.08 * security_penalty
 
                 return {
                     "tool_name": clean_name,
                     "success_rate": round(succ_rate, 3),
                     "average_latency": round(avg_lat, 3),
                     "confidence": round(confidence, 3),
+                    "security_risk": security_penalty,
+                    "utility_score": round(max(0.0, min(1.0, utility_score)), 3),
                     "last_error": row["last_error"]
                 }
             finally:

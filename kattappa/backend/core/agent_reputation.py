@@ -121,21 +121,30 @@ class AgentReputationTracker:
                         "success_rate": 1.0,
                         "average_latency": 0.0,
                         "hallucination_count": 0,
+                        "failure_rate": 0.0,
+                        "trust_score": 0.95,
                         "confidence": 0.95
                     }
 
                 total = row["success_count"] + row["failure_count"]
                 succ_rate = row["success_count"] / total if total > 0 else 1.0
                 avg_lat = row["total_latency"] / total if total > 0 else 0.0
+                fail_rate = row["failure_count"] / total if total > 0 else 0.0
+                hal_rate = row["hallucination_count"] / total if total > 0 else 0.0
                 
                 # Confidence degrades with failures and hallucinations
                 confidence = max(0.0, succ_rate - (row["hallucination_count"] * 0.1))
+                
+                # TrustScore = SuccessRate - 0.1 * HallucinationRate - 0.05 * FailureRate
+                trust_score = succ_rate - 0.1 * hal_rate - 0.05 * fail_rate
 
                 return {
                     "agent_name": clean_name,
                     "success_rate": round(succ_rate, 3),
                     "average_latency": round(avg_lat, 3),
                     "hallucination_count": row["hallucination_count"],
+                    "failure_rate": round(fail_rate, 3),
+                    "trust_score": round(max(0.0, min(1.0, trust_score)), 3),
                     "confidence": round(confidence, 3)
                 }
             finally:

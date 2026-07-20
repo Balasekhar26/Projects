@@ -5,6 +5,11 @@ from backend.core.adaptive_runtime import HardwareProfiler, PerformanceProfile, 
 
 class TestAdaptiveRuntime(unittest.TestCase):
 
+    def setUp(self):
+        from backend.core.adaptive_runtime import SemanticResponseCache
+        SemanticResponseCache._collection = None
+        SemanticResponseCache._chroma_client = None
+
     def test_hardware_profiler(self):
         profile = HardwareProfiler.get_profile()
         self.assertIn("os", profile)
@@ -143,7 +148,10 @@ class TestAdaptiveRuntime(unittest.TestCase):
             mock_context.return_value = "prefetched-context"
             
             MemoryPrefetcher.prefetch("msg-123", "hi", "session-123")
-            time.sleep(0.5)
+            
+            future = MemoryPrefetcher._futures.get("msg-123")
+            if future:
+                future.result(timeout=5.0)
             
             result = MemoryPrefetcher.get_result("msg-123")
             self.assertIsNotNone(result)
@@ -163,8 +171,7 @@ class TestAdaptiveRuntime(unittest.TestCase):
     def test_memory_compression_engine(self):
         from backend.core.adaptive_runtime import MemoryCompressionEngine
         with patch("backend.core.memory.memory.list_chat_messages") as mock_list, \
-             patch("backend.core.model_router.ask_model") as mock_ask, \
-             patch("sqlite3.connect") as mock_conn:
+             patch("backend.core.model_router.ask_model") as mock_ask:
             mock_list.return_value = [
                 {"id": "1", "role": "user", "content": "hello", "created_at": "2026"},
                 {"id": "2", "role": "assistant", "content": "hi", "created_at": "2026"},

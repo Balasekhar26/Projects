@@ -1,24 +1,26 @@
 from __future__ import annotations
 
 import csv
+import importlib.util
 import math
 import statistics
-import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = BACKEND_ROOT.parent
 KRONOS_VENDOR = BACKEND_ROOT / "vendor" / "kronos"
-PROJECTS_ROOT = Path(__file__).resolve().parents[2]
 EXTERNAL_PROJECTS_ROOT = (
-    PROJECTS_ROOT / "external-projects"
-    if (PROJECTS_ROOT / "external-projects").exists()
-    else PROJECTS_ROOT / "bin" / "external-projects"
+    PROJECT_ROOT / "external-projects"
+    if (PROJECT_ROOT / "external-projects").exists()
+    else PROJECT_ROOT / "bin" / "external-projects"
 )
 # Use vendored Kronos (built-in to Kattappa) first; fall back to external clone
-KRONOS_ROOT = KRONOS_VENDOR if KRONOS_VENDOR.exists() else EXTERNAL_PROJECTS_ROOT / "Kronos"
+KRONOS_ROOT = (
+    KRONOS_VENDOR if KRONOS_VENDOR.exists() else EXTERNAL_PROJECTS_ROOT / "Kronos"
+)
 DEFAULT_KRONOS_TOKENIZER = "NeoQuasar/Kronos-Tokenizer-base"
 DEFAULT_KRONOS_MODEL = "NeoQuasar/Kronos-small"
 REQUIRED_OHLC_COLUMNS = ("open", "high", "low", "close")
@@ -66,6 +68,11 @@ def kronos_status() -> dict[str, Any]:
         "fallback_available": True,
         "fallback_engine": "kattappa-local-ohlcv-baseline",
         "path": str(KRONOS_ROOT),
+        "source": (
+            "unavailable"
+            if not installed
+            else "vendored" if KRONOS_ROOT == KRONOS_VENDOR else "external"
+        ),
         "license": "MIT" if (KRONOS_ROOT / "LICENSE").exists() else "unknown",
         "imports": imports,
         "ready_for_real_kronos": ready,
@@ -144,9 +151,8 @@ def compare_forecasts(
         if not status["installed"]:
             kronos_error = f"Kronos repository is not installed at {KRONOS_ROOT}"
         else:
-            kronos_error = (
-                "Kronos runtime is not ready. Missing imports: "
-                + (", ".join(missing_imports) if missing_imports else "unknown")
+            kronos_error = "Kronos runtime is not ready. Missing imports: " + (
+                ", ".join(missing_imports) if missing_imports else "unknown"
             )
 
     if kronos_error:
@@ -242,11 +248,24 @@ def _forecast_with_kronos(
 ) -> dict[str, Any]:
     if not KRONOS_ROOT.exists():
         raise RuntimeError(f"Kronos repository is not installed at {KRONOS_ROOT}")
-    if str(KRONOS_ROOT) not in sys.path:
-        sys.path.insert(0, str(KRONOS_ROOT))
-
     import pandas as pd
-    from model import Kronos, KronosPredictor, KronosTokenizer
+
+    if KRONOS_ROOT == KRONOS_VENDOR:
+        from backend.vendor.kronos.model import Kronos, KronosPredictor, KronosTokenizer
+    else:
+        # The compatibility path is deliberately scoped to the external clone.
+        # Importing a top-level package named ``model`` can collide with host
+        # applications, so load it only when the built-in vendor copy is absent.
+        import importlib
+        import sys
+
+        external_root = str(KRONOS_ROOT)
+        if external_root not in sys.path:
+            sys.path.insert(0, external_root)
+        external_model = importlib.import_module("model")
+        Kronos = external_model.Kronos
+        KronosPredictor = external_model.KronosPredictor
+        KronosTokenizer = external_model.KronosTokenizer
 
     rows = [candle.to_dict() for candle in candles]
     df = pd.DataFrame(rows)
@@ -464,8 +483,6 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 
 def _has_module(name: str) -> bool:
-    try:
-        __import__(name)
-        return True
-    except Exception:
-        return False
+    """Check package availability without importing heavyweight ML modules."""
+
+    return importlib.util.find_spec(name) is not None

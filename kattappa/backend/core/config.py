@@ -82,7 +82,8 @@ def legacy_runtime_path(value: str | None, fallback: str) -> Path:
 def _detect_hardware_defaults_profile() -> tuple[str, str, str, str, str, int]:
     from backend.core.adaptive_runtime import HardwareProfiler, PerformanceProfile, AdaptiveContext
     try:
-        hw = HardwareProfiler.get_profile()
+        # Configuration and readiness must not import a full ML framework.
+        hw = HardwareProfiler.get_profile(probe_torch=False)
         profile = PerformanceProfile.resolve_profile(hw)
     except Exception:
         profile = "BALANCED"
@@ -91,8 +92,8 @@ def _detect_hardware_defaults_profile() -> tuple[str, str, str, str, str, int]:
     budget = limits["max_context_tokens"]
     
     if profile == "ECO":
-        # ECO mode: small, fast footprint models
-        return "qwen2.5:0.5b", "qwen2.5-coder:3b", "qwen2.5-coder:3b", "qwen2.5-coder:3b", profile, budget
+        # ECO mode: small, fast footprint models (1.5b parameter maps)
+        return "qwen2.5:1.5b", "qwen2.5:1.5b", "qwen2.5-coder:1.5b", "qwen2.5:1.5b", profile, budget
     elif profile == "BALANCED":
         # BALANCED mode: qwen3 4b + coder 3b
         return "qwen3:4b", "qwen2.5-coder:3b", "qwen2.5-coder:3b", "qwen2.5-coder:3b", profile, budget

@@ -1,0 +1,36 @@
+{
+  "runs": 5,
+  "successful_runs": 0,
+  "samples": [
+    {
+      "run": 1,
+      "cold_import_seconds": 98.93553319999774,
+      "warm_import_seconds": 9.200011845678091e-06,
+      "success": false,
+      "error": "TimeoutError: backend did not become ready within 120.0 seconds"
+    },
+    {
+      "run": 2,
+      "success": false,
+      "error": "TimeoutExpired: Command '['C:\\\\Users\\\\balu\\\\Projects\\\\kattappa\\\\ai_system_env\\\\Scripts\\\\python.exe', '-c', \"\\nimport importlib, json, time\\nstarted = time.perf_counter()\\nimportlib.import_module('backend.main')\\ncold = time.perf_counter() - started\\nstarted = time.perf_counter()\\nimportlib.import_module('backend.main')\\nwarm = time.perf_counter() - started\\nprint(json.dumps({'cold_import_seconds': cold, 'warm_import_seconds': warm}))\\n\"]' timed out after 120.0 seconds"
+    },
+    {
+      "run": 3,
+      "success": false,
+      "error": "TimeoutExpired: Command '['C:\\\\Users\\\\balu\\\\Projects\\\\kattappa\\\\ai_system_env\\\\Scripts\\\\python.exe', '-c', \"\\nimport importlib, json, time\\nstarted = time.perf_counter()\\nimportlib.import_module('backend.main')\\ncold = time.perf_counter() - started\\nstarted = time.perf_counter()\\nimportlib.import_module('backend.main')\\nwarm = time.perf_counter() - started\\nprint(json.dumps({'cold_import_seconds': cold, 'warm_import_seconds': warm}))\\n\"]' timed out after 120.0 seconds"
+    },
+    {
+      "run": 4,
+      "success": false,
+      "error": "TimeoutExpired: Command '['C:\\\\Users\\\\balu\\\\Projects\\\\kattappa\\\\ai_system_env\\\\Scripts\\\\python.exe', '-c', \"\\nimport importlib, json, time\\nstarted = time.perf_counter()\\nimportlib.import_module('backend.main')\\ncold = time.perf_counter() - started\\nstarted = time.perf_counter()\\nimportlib.import_module('backend.main')\\nwarm = time.perf_counter() - started\\nprint(json.dumps({'cold_import_seconds': cold, 'warm_import_seconds': warm}))\\n\"]' timed out after 120.0 seconds"
+    },
+    {
+      "run": 5,
+      "cold_import_seconds": 110.33034589998715,
+      "warm_import_seconds": 8.600007276982069e-06,
+      "success": false,
+      "error": "TimeoutError: backend did not become ready within 120.0 seconds"
+    }
+  ],
+  "summary": {}
+}

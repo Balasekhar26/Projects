@@ -399,4 +399,38 @@ export function fetchRequestTraces(): Promise<RequestTrace[]> {
   return requestJson<{ traces: RequestTrace[] }>("/telemetry/traces").then((data) => data.traces);
 }
 
+export function fetchSelfModelState(): Promise<any> {
+  return requestJson<any>("/self-model/state");
+}
+
+export function fetchToolsReputation(): Promise<any> {
+  return requestJson<any>("/telemetry/tools-reputation");
+}
+
+export function fetchAgentsReputation(): Promise<any> {
+  return requestJson<any>("/telemetry/agents-reputation");
+}
+
+export function generateSuperbenchTasks(): Promise<any> {
+  return postJson("/superbench/generate", {});
+}
+
+export function fetchSuperbenchTasks(): Promise<any> {
+  return requestJson<any>("/superbench/tasks");
+}
+
+export function runSuperbenchTask(taskId: string): Promise<any> {
+  return postJson(`/superbench/run/${taskId}`, {});
+}
+
+export function fetchSuperbenchResults(): Promise<any> {
+  return requestJson<any>("/superbench/results");
+}
+
+export function fetchSuperbenchStats(): Promise<any> {
+  return requestJson<any>("/superbench/stats");
+}
+
+
+
 

@@ -1,113 +1,78 @@
-import unittest
-from backend.planner.gtpyhop_adapter import GTPyhopAdapter
-from backend.planner.task_decomposer import TaskDecomposer, Operator, Method
-from backend.planner.goal_stack import GoalItem
+import pytest
+import os
+import tempfile
+from backend.agents.planner import PlannerAgent
+from backend.core.planner.intent_classifier import IntentClassifier
+from backend.core.planner.constraint_extractor import ConstraintExtractor
+from backend.core.planner.context_builder import ContextBuilder
+from backend.core.planner.dag_builder import DAGBuilder
+from backend.core.planner.risk_engine import RiskEngine
+from backend.core.planner.verification_engine import VerificationEngine
 
-class TestPlanner(unittest.TestCase):
-    """Unit tests for persistent HTN planner: alternative methods, backtracking, utility, confidence, and temporal constraints."""
+@pytest.fixture(autouse=True)
+def test_env_setup(monkeypatch):
+    temp_dir = tempfile.mkdtemp(prefix="kattappa_planner_test_")
+    monkeypatch.setenv("KATTAPPA_ROOT", temp_dir)
+    monkeypatch.setenv("KATTAPPA_TEST_MODE", "true")
+    monkeypatch.setenv("KATTAPPA_ENV", "test")
+    yield temp_dir
 
-    def setUp(self) -> None:
-        self.decomposer = TaskDecomposer()
-        
-        # Operators for travel domain
-        self.decomposer.declare_operator(Operator("book_flight", {}, {"has_ticket": True}, estimated_cost=50.0, estimated_time=2.0))
-        self.decomposer.declare_operator(Operator("board_flight", {"has_ticket": True}, {"at_destination": True}, estimated_cost=5.0, estimated_time=1.0))
-        self.decomposer.declare_operator(Operator("book_bus", {}, {"has_bus_ticket": True}, estimated_cost=20.0, estimated_time=12.0))
-        self.decomposer.declare_operator(Operator("board_bus", {"has_bus_ticket": True}, {"at_destination": True}, estimated_cost=5.0, estimated_time=2.0))
-        self.decomposer.declare_operator(Operator("long_drive", {}, {"at_destination": True}, estimated_cost=10.0, estimated_time=150.0))
-        
-        # Alternative methods for compound task: travel_to_hyderabad
-        # Method A: take_flight (high utility: short time)
-        self.decomposer.declare_method(Method(
-            name="take_flight",
-            task_name="travel_to_hyderabad",
-            preconditions={"has_ticket": True},
-            subtasks=["board_flight"],
-            reward=150.0
-        ))
-        # Method B: buy_ticket_then_flight (medium utility: buys ticket first)
-        self.decomposer.declare_method(Method(
-            name="buy_ticket_then_flight",
-            task_name="travel_to_hyderabad",
-            preconditions={"has_ticket": False},
-            subtasks=["book_flight", "board_flight"],
-            reward=150.0
-        ))
-        # Method C: take_bus (lower utility: takes longer time)
-        self.decomposer.declare_method(Method(
-            name="take_bus",
-            task_name="travel_to_hyderabad",
-            preconditions={},
-            subtasks=["book_bus", "board_bus"],
-            reward=150.0
-        ))
-        # Method D: drive (pruned utility: too slow)
-        self.decomposer.declare_method(Method(
-            name="drive",
-            task_name="travel_to_hyderabad",
-            preconditions={},
-            subtasks=["long_drive"],
-            reward=150.0
-        ))
-        
-        self.adapter = GTPyhopAdapter(decomposer=self.decomposer)
+def test_intent_and_constraint_extraction() -> None:
+    # 1. Intent classifier check
+    intent1 = IntentClassifier.classify_intent("Search the web for CUDA drivers")
+    assert intent1 == "research"
 
-    def test_alternative_methods_and_utility_sorting(self) -> None:
-        initial_state = {"has_ticket": True, "at_destination": False}
-        
-        # With has_ticket = True, "take_flight" method preconditions are met.
-        # Its time (1.0) and cost (5.0) are very low, so it has highest utility.
-        plan = self.adapter.create_plan(
-            goal="travel_to_hyderabad",
-            world_state=initial_state,
-            constraints={"timeout": 10.0}
-        )
-        # Expected optimal plan: ["board_flight"]
-        self.assertEqual(len(plan["steps"]), 1)
-        self.assertEqual(plan["steps"][0]["name"], "board_flight")
+    intent2 = IntentClassifier.classify_intent("Write a python test script")
+    assert intent2 == "coding"
 
-    def test_backtracking_and_precondition_resolution(self) -> None:
-        initial_state = {"has_ticket": False, "at_destination": False}
-        
-        # With has_ticket = False, "take_flight" method preconditions fail.
-        # The planner backtracks and selects the next highest utility method "buy_ticket_then_flight".
-        plan = self.adapter.create_plan(
-            goal="travel_to_hyderabad",
-            world_state=initial_state,
-            constraints={"timeout": 10.0}
-        )
-        # Expected plan: ["book_flight", "board_flight"]
-        self.assertEqual(len(plan["steps"]), 2)
-        self.assertEqual(plan["steps"][0]["name"], "book_flight")
-        self.assertEqual(plan["steps"][1]["name"], "board_flight")
+    # 2. Constraint extraction check
+    c1 = ConstraintExtractor.extract_constraints("Install library offline and local-only on 8GB machine")
+    assert c1["offline"] is True
+    assert c1["local_only"] is True
+    assert c1["ram_limit"] == "8GB"
 
-    def test_probabilistic_preconditions(self) -> None:
-        # Operator that needs high-confidence network alive check
-        self.decomposer.declare_operator(Operator("query_api", {"network_alive": True}, {"data_downloaded": True}))
-        self.decomposer.declare_method(Method("download", "fetch_data", {}, ["query_api"]))
-        
-        # Set low confidence in belief store
-        self.adapter.belief_store.set_belief("network_alive", True, confidence=0.5, source="unreliable_wifi")
-        
-        # Planning should fail or backtrack because confidence (0.5) is below standard threshold (0.85)
-        with self.assertRaises(ValueError):
-            self.adapter.create_plan(
-                goal="fetch_data",
-                world_state={},
-                constraints={"confidence_threshold": 0.85}
-            )
+def test_risk_and_verification_rules() -> None:
+    # 1. Risk checks
+    r1 = RiskEngine.estimate_risk("DELETE_FILE", {"path": "main.py"})
+    assert r1 == "HIGH"
+    
+    r2 = RiskEngine.estimate_risk("READ_FILE", {"path": "main.py"})
+    assert r2 == "LOW"
 
-    def test_temporal_pruning(self) -> None:
-        initial_state = {"at_destination": False}
-        
-        # If we only have drive method, but timeout limit is set to 100 seconds
-        # drive takes 150 seconds. The branch should get pruned immediately.
-        self.decomposer.methods = [m for m in self.decomposer.methods if m.name == "drive"]
-        
-        with self.assertRaises(ValueError):
-            self.adapter.create_plan(
-                goal="travel_to_hyderabad",
-                world_state=initial_state,
-                constraints={"timeout": 100.0}
-            )
+    # 2. Verification checks
+    v1 = VerificationEngine.get_verification_method("WRITE_FILE", {"target": "main.py"})
+    assert v1["type"] == "file_exists"
+    assert v1["target"] == "main.py"
 
+def test_dag_builder_cycle_detection() -> None:
+    # 1. Valid DAG
+    steps = [
+        {"step_id": "s1", "dependencies": []},
+        {"step_id": "s2", "dependencies": ["s1"]}
+    ]
+    ordered = DAGBuilder.validate_and_order(steps)
+    assert [s["step_id"] for s in ordered] == ["s1", "s2"]
+
+    # 2. Circular dependencies DAG
+    cyclic_steps = [
+        {"step_id": "s1", "dependencies": ["s2"]},
+        {"step_id": "s2", "dependencies": ["s1"]}
+    ]
+    with pytest.raises(ValueError, match="Cyclic dependencies detected"):
+        DAGBuilder.validate_and_order(cyclic_steps)
+
+def test_planner_agent_decomposition_integration() -> None:
+    agent = PlannerAgent()
+    
+    # Check "write and test" goal
+    graph = agent.decompose("Write a sample.py file and run the tests")
+    assert "step1" in graph.steps
+    assert "step2" in graph.steps
+    
+    step1 = graph.steps["step1"]
+    assert step1.action == "WRITE_FILE"
+    assert step1.dependencies == []
+    
+    step2 = graph.steps["step2"]
+    assert step2.action == "RUN_TESTS"
+    assert step2.dependencies == ["step1"]

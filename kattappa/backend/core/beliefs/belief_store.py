@@ -254,6 +254,37 @@ class BeliefStore:
             finally:
                 conn.close()
 
+    def get_beliefs_for_claim(self, subject: str, predicate: str) -> List[Belief]:
+        """Finds all active beliefs for a given subject & predicate."""
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT * FROM beliefs WHERE claim_subject = ? AND claim_predicate = ?",
+                    (subject, predicate),
+                ).fetchall()
+                return [
+                    Belief(
+                        belief_id=row["belief_id"],
+                        claim_subject=row["claim_subject"],
+                        claim_predicate=row["claim_predicate"],
+                        claim_value=json.loads(row["claim_value"]),
+                        confidence=row["confidence"],
+                        truth_status=BeliefStatus(row["truth_status"]),
+                        source_ids=json.loads(row["source_ids"]),
+                        evidence_ids=json.loads(row["evidence_ids"]),
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                        valid_from=row["valid_from"],
+                        valid_until=row["valid_until"],
+                        version=row["version"],
+                        metadata=json.loads(row["metadata"]),
+                    )
+                    for row in rows
+                ]
+            finally:
+                conn.close()
+
     def list_beliefs(self) -> List[Belief]:
         with self._lock:
             conn = self._get_conn()

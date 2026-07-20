@@ -52,7 +52,25 @@ def health() -> tuple[bool, str]:
 def ask_model(prompt: str | list[dict[str, str]], role: str = "general", system: str | None = None) -> str:
     import os
     import sys
-    if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
+    
+    # Enable mocks in tests or when explicitly requested via test mode configs
+    use_mock = (
+        "pytest" in sys.modules or 
+        "PYTEST_CURRENT_TEST" in os.environ or 
+        os.getenv("KATTAPPA_TEST_MODE") == "true" or
+        os.getenv("KATTAPPA_MOCK_LLM") == "true"
+    )
+    
+    if not use_mock:
+        # Production Mode: Fail loudly if Ollama model backend is offline
+        ollama_ok, err_msg = health()
+        if not ollama_ok:
+            raise RuntimeError(
+                f"No model backend available: {err_msg}. "
+                "Please start the local Ollama server or configure a valid model provider endpoint."
+            )
+
+    if use_mock:
         if isinstance(prompt, list):
             # Extract last user message for mapping mock responses cleanly
             user_msgs = [m.get("content", "") for m in prompt if m.get("role") == "user"]
@@ -348,7 +366,7 @@ def ask_model(prompt: str | list[dict[str, str]], role: str = "general", system:
         AgentHibernationEngine.touch_model(model)
         try:
             # Enforce 15-second read timeout and 2-second connect timeout for fast escalation
-            timeout_cfg = httpx.Timeout(20.0, connect=2.0, read=15.0)
+            timeout_cfg = httpx.Timeout(90.0, connect=5.0, read=90.0)
             with httpx.stream(
                 "POST",
                 f"{config.ollama_host}/api/chat",
@@ -387,7 +405,7 @@ def ask_model(prompt: str | list[dict[str, str]], role: str = "general", system:
             try:
                 # Try to launch/heal Ollama dynamically if connection failed
                 if SelfHealingRuntime.heal_ollama():
-                    timeout_cfg = httpx.Timeout(20.0, connect=2.0, read=15.0)
+                    timeout_cfg = httpx.Timeout(90.0, connect=5.0, read=90.0)
                     with httpx.stream(
                         "POST",
                         f"{config.ollama_host}/api/chat",

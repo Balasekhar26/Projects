@@ -4,7 +4,7 @@ Kattappa AI OS now has a Finance Brain for OHLCV/K-line market data.
 
 ## What Was Installed
 
-- Kronos source: `<Projects root>\external-projects\Kronos` or `<Projects root>\bin\external-projects\Kronos`
+- Kronos source: `backend\vendor\kronos` (an external clone is supported only as a compatibility fallback)
 - License: MIT
 - Kattappa AI OS adapter: `backend\tools\finance_brain.py`
 - Finance agent: `backend\agents\finance.py`
@@ -70,7 +70,7 @@ Use real Kronos with longer candle history. At least 128 candles is better than 
 
 ## Build-Own Boundary
 
-Kattappa AI OS did not blindly copy Kronos into its core brain. Kronos stays as an external MIT-licensed reference and optional model adapter. The owned Kattappa AI OS layer handles:
+Kattappa AI OS keeps the MIT-licensed Kronos model isolated in `backend\vendor\kronos` and uses it only through an optional model adapter. The owned Kattappa AI OS layer handles:
 
 - OHLCV validation
 - CSV loading

@@ -10,6 +10,8 @@ type AgentsPanelProps = {
   skills: Skill[];
   onRunSelfEvolution: () => void;
   onSetSkillTrust: (skillId: string, trust: "draft" | "approved" | "trusted" | "disabled") => void;
+  selfModel?: any | null;
+  agentsReputation?: Record<string, any>;
 };
 
 function statusTone(status: string) {
@@ -41,6 +43,8 @@ export function AgentsPanel({
   skills,
   onRunSelfEvolution,
   onSetSkillTrust,
+  selfModel,
+  agentsReputation,
 }: AgentsPanelProps) {
   return (
     <section className="panelView">
@@ -48,6 +52,121 @@ export function AgentsPanel({
       <p>Planner, memory, safety, evaluator, coder, browser, desktop, file, terminal, vision, voice, researcher, and self-improver are wired in the backend graph.</p>
       <p>Kattappa now takes one plain order by message or voice, then automatically replies, guides, or asks approval before running a risky action.</p>
       <p>Current route: {agentStatus}</p>
+
+      {selfModel && (
+        <div className="builderPanel">
+          <h3>Self-Model Introspection (Phase K22)</h3>
+          <p>Kattappa's dynamic real-time self-awareness profile showing hardware resources, confidence metrics, limits, and capabilities.</p>
+          
+          <h4 style={{ marginTop: "1rem", color: "var(--accent-color)" }}>Resources & Limits</h4>
+          <div className="capabilityGrid">
+            <article className="capability ready">
+              <strong>CPU Usage</strong>
+              <span>{selfModel.resources.cpu_usage.toFixed(1)}%</span>
+              <div className="maturityBar" style={{ marginTop: "0.5rem", height: "6px" }}>
+                <span style={{ width: `${selfModel.resources.cpu_usage}%`, background: "var(--accent-color)" }} />
+              </div>
+            </article>
+            <article className="capability ready">
+              <strong>RAM Usage</strong>
+              <span>{selfModel.resources.ram_usage.toFixed(1)}%</span>
+              <div className="maturityBar" style={{ marginTop: "0.5rem", height: "6px" }}>
+                <span style={{ width: `${selfModel.resources.ram_usage}%`, background: "var(--accent-color)" }} />
+              </div>
+            </article>
+            <article className="capability ready">
+              <strong>Context Budget</strong>
+              <span>{selfModel.resources.token_budget} tokens</span>
+            </article>
+            <article className="capability ready">
+              <strong>Power State</strong>
+              <span>{selfModel.resources.battery_state}</span>
+            </article>
+          </div>
+
+          <h4 style={{ marginTop: "1.5rem", color: "var(--accent-color)" }}>Self-Confidence Gauges</h4>
+          <div className="capabilityGrid">
+            <article className="capability ready">
+              <strong>Planning Confidence</strong>
+              <span>{(selfModel.confidence.planning_confidence * 100).toFixed(0)}%</span>
+              <div className="maturityBar" style={{ marginTop: "0.5rem", height: "6px" }}>
+                <span style={{ width: `${selfModel.confidence.planning_confidence * 100}%` }} />
+              </div>
+            </article>
+            <article className="capability ready">
+              <strong>Execution Confidence</strong>
+              <span>{(selfModel.confidence.execution_confidence * 100).toFixed(0)}%</span>
+              <div className="maturityBar" style={{ marginTop: "0.5rem", height: "6px" }}>
+                <span style={{ width: `${selfModel.confidence.execution_confidence * 100}%` }} />
+              </div>
+            </article>
+            <article className="capability ready">
+              <strong>Memory Confidence</strong>
+              <span>{(selfModel.confidence.memory_confidence * 100).toFixed(0)}%</span>
+              <div className="maturityBar" style={{ marginTop: "0.5rem", height: "6px" }}>
+                <span style={{ width: `${selfModel.confidence.memory_confidence * 100}%` }} />
+              </div>
+            </article>
+            <article className="capability ready">
+              <strong>World-Model Confidence</strong>
+              <span>{(selfModel.confidence.world_model_confidence * 100).toFixed(0)}%</span>
+              <div className="maturityBar" style={{ marginTop: "0.5rem", height: "6px" }}>
+                <span style={{ width: `${selfModel.confidence.world_model_confidence * 100}%` }} />
+              </div>
+            </article>
+          </div>
+
+          <h4 style={{ marginTop: "1.5rem", color: "var(--accent-color)" }}>Capabilities Checklist</h4>
+          <div className="capabilityGrid">
+            {Object.entries(selfModel.capabilities).map(([key, val]) => (
+              <article key={key} className={`capability ${val ? "ready" : "missing"}`}>
+                <strong>{key.replace(/_/g, " ")}</strong>
+                <span>{val ? "Allowed / Active" : "Blocked / Restricted"}</span>
+              </article>
+            ))}
+          </div>
+
+          <h4 style={{ marginTop: "1.5rem", color: "var(--accent-color)" }}>Limitations & Boundaries</h4>
+          <div className="capabilityGrid">
+            <article className={`capability ${selfModel.limitations.cannot_access_internet ? "missing" : "ready"}`}>
+              <strong>Internet Access</strong>
+              <span>{selfModel.limitations.cannot_access_internet ? "Offline" : "Connected"}</span>
+            </article>
+            <article className={`capability ${selfModel.limitations.insufficient_permissions ? "missing" : "ready"}`}>
+              <strong>Permissions Level</strong>
+              <span>{selfModel.limitations.insufficient_permissions ? "Standard User" : "Administrator / Root"}</span>
+            </article>
+            <article className={`capability ${selfModel.limitations.memory_limit ? "missing" : "ready"}`}>
+              <strong>Memory Load Warning</strong>
+              <span>{selfModel.limitations.memory_limit ? "High Pressure" : "Safe Load"}</span>
+            </article>
+          </div>
+        </div>
+      )}
+
+      {agentsReputation && Object.keys(agentsReputation).length > 0 && (
+        <div className="builderPanel">
+          <h3>Agent Reputation Engine (Phase K24)</h3>
+          <p>Continuous accuracy, failure, latency, and trust scoring across Kattappa's specialized agent society.</p>
+          <div className="ladderList" style={{ marginTop: "1rem" }}>
+            {Object.entries(agentsReputation).map(([agent, rep]: [string, any]) => (
+              <article key={agent} className={`ladderItem ${statusTone(rep.success_rate >= 0.85 ? "ready" : "working")}`} style={{ marginBottom: "1rem" }}>
+                <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{ textTransform: "capitalize" }}>{agent} Agent</strong>
+                  <span style={{ fontWeight: "bold", padding: "2px 8px", borderRadius: "4px", background: "rgba(255,255,255,0.1)" }}>Trust Score: {Math.round(rep.trust_score * 100)}%</span>
+                </header>
+                <div style={{ marginTop: "0.5rem", display: "flex", flexWrap: "wrap", gap: "1rem", fontSize: "0.85rem", opacity: 0.9 }}>
+                  <span>Success Rate: {Math.round(rep.success_rate * 100)}%</span>
+                  <span>Latency: {rep.average_latency.toFixed(2)}s</span>
+                  <span>Hallucinations: {rep.hallucination_count}</span>
+                  <span>Failures: {Math.round(rep.failure_rate * 100)}%</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+
       {codexParity && (
         <div className="builderPanel">
           <h3>{codexParity.name}</h3>

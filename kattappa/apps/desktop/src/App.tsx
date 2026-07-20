@@ -36,6 +36,9 @@ import {
   setSkillTrust as setSkillTrustRequest,
   startToolAdoption as startToolAdoptionRequest,
   updateLongTask as updateLongTaskRequest,
+  fetchSelfModelState,
+  fetchToolsReputation,
+  fetchAgentsReputation,
 } from "./lib/api";
 import { PANELS, initialMessages } from "./state/appState";
 import type {
@@ -152,6 +155,35 @@ function compactVoiceStatus(raw: string) {
 function App() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [activePanel, setActivePanel] = useState("Chat");
+  const [isExpertMode, setIsExpertMode] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsExpertMode((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!isExpertMode && activePanel !== "Chat" && activePanel !== "Diagnostics") {
+      setActivePanel("Chat");
+    }
+  }, [isExpertMode, activePanel]);
+
+  const visiblePanels = useMemo(() => {
+    if (isExpertMode) {
+      return PANELS;
+    }
+    return PANELS.filter((p) => p === "Diagnostics");
+  }, [isExpertMode]);
+
+  const [selfModel, setSelfModel] = useState<any | null>(null);
+  const [toolsReputation, setToolsReputation] = useState<Record<string, any>>({});
+  const [agentsReputation, setAgentsReputation] = useState<Record<string, any>>({});
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
   const [agentStatus, setAgentStatus] = useState("Backend not connected");
@@ -242,6 +274,21 @@ function App() {
     }
   };
 
+  const refreshSelfModelTelemetry = async () => {
+    try {
+      const [smState, toolsRep, agentsRep] = await Promise.all([
+        fetchSelfModelState(),
+        fetchToolsReputation(),
+        fetchAgentsReputation(),
+      ]);
+      setSelfModel(smState);
+      setToolsReputation(toolsRep);
+      setAgentsReputation(agentsRep);
+    } catch (e) {
+      console.error("Failed to load self-model and reputation telemetry", e);
+    }
+  };
+
   const refreshHealth = async (mode: "quiet" | "full" = "full") => {
     try {
       if (mode === "quiet") {
@@ -262,6 +309,9 @@ function App() {
       setProjectIndex(data.projectIndex);
       setToolScout(data.toolScout);
       setToolAdoptions(data.toolAdoptions);
+      
+      // Load self-model & reputation statistics
+      await refreshSelfModelTelemetry();
     } catch {
       setHealth(null);
       setFreeStack(null);
@@ -945,7 +995,7 @@ function App() {
   return (
     <div className={showRightPanel ? "app" : "app chatOnly"}>
       <Sidebar
-        panels={PANELS}
+        panels={visiblePanels}
         activePanel={activePanel}
         connected={connected}
         onOpenChat={openChat}
@@ -977,6 +1027,9 @@ function App() {
             freeStack={freeStack}
             sourcePolicy={sourcePolicy}
             toolScout={toolScout}
+            selfModel={selfModel}
+            toolsReputation={toolsReputation}
+            agentsReputation={agentsReputation}
             toolAdoptions={toolAdoptions}
             clusterStatus={clusterStatus}
             clusterDraft={clusterDraft}

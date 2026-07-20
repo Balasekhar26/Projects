@@ -1,0 +1,14 @@
+[
+  {
+    "platform_key": "windows-amd64-3.13.13",
+    "median_latency_ms": 22.1511,
+    "peak_memory_mb": 23.33984375,
+    "timestamp": "2026-07-15T14:44:52.169013+00:00"
+  },
+  {
+    "platform_key": "windows-amd64-3.13.13",
+    "median_latency_ms": 8.7804,
+    "peak_memory_mb": 23.046875,
+    "timestamp": "2026-07-15T14:44:56.012896+00:00"
+  }
+]

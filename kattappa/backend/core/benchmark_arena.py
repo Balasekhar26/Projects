@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -278,7 +279,7 @@ class BenchmarkArenaRunner:
 
     def run_continuous_evaluation_pipeline(self) -> dict[str, Any]:
         cursor = self.db.cursor()
-        today_date = datetime.utcnow().date().isoformat()
+        today_date = datetime.now(timezone.utc).date().isoformat()
         
         monitor = AntiContaminationMonitor(self.db)
         burned = monitor.audit_memory_fabric()

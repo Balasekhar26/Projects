@@ -1,0 +1,11 @@
+{
+  "default": {
+    "language": "te",
+    "voice": "te_IN-female-medium",
+    "speed": 1.0,
+    "pitch": 1.0,
+    "noise_scale": 0.55,
+    "length_scale": 1.00,
+    "noise_w": 0.75
+  }
+}

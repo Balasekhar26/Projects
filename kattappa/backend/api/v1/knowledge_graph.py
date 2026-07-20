@@ -6,7 +6,7 @@ from backend.core.knowledge_graph import KnowledgeGraph
 knowledge_graph_router = APIRouter(tags=["KnowledgeGraph"])
 
 class ReconcileRequest(BaseModel):
-    node_ids: List[str] = Field(..., min_items=2, description="List of node IDs to merge synonymously")
+    node_ids: List[str] = Field(..., min_length=2, description="List of node IDs to merge synonymously")
 
 class PathQueryResponse(BaseModel):
     source: str

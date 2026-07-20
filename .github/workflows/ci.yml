@@ -7,6 +7,107 @@ on:
     branches: [ main, master ]
 
 jobs:
+  execution-stabilization:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kattappa
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+        cache: pip
+        cache-dependency-path: kattappa/requirements-dev.txt
+    - name: Install stabilization dependencies
+      run: python -m pip install -r requirements-dev.txt
+    - name: Build integrity
+      run: |
+        python -m compileall -q backend/core/action evaluation
+        python -m mypy backend/core/action evaluation/action_runtime_benchmark.py evaluation/ci_health_report.py scripts/collect_pytest_nodeids.py
+        python -m ruff check backend/core/action \
+          backend/tests/test_action_runtime.py \
+          backend/tests/test_action_properties.py \
+          backend/tests/test_action_integration.py \
+          backend/tests/test_action_benchmark.py \
+          backend/tests/test_action_boundaries.py \
+          backend/tests/test_ci_health_report.py \
+          evaluation/action_runtime_benchmark.py \
+          evaluation/ci_health_report.py \
+          scripts/collect_pytest_nodeids.py
+        python -m black --check \
+          backend/core/action/__init__.py \
+          backend/core/action/benchmark.py \
+          backend/core/action/capabilities.py \
+          backend/core/action/file_executor.py \
+          backend/core/action/interfaces.py \
+          backend/core/action/models.py \
+          backend/core/action/recovery.py \
+          backend/core/action/registry.py \
+          backend/core/action/resources.py \
+          backend/core/action/shell_executor.py \
+          backend/core/action/verifier.py \
+          backend/tests/test_action_runtime.py \
+          backend/tests/test_action_properties.py \
+          backend/tests/test_action_integration.py \
+          backend/tests/test_action_benchmark.py \
+          backend/tests/test_action_boundaries.py \
+          backend/tests/test_ci_health_report.py \
+          evaluation/action_runtime_benchmark.py \
+          evaluation/ci_health_report.py \
+          scripts/collect_pytest_nodeids.py
+    - name: Unit, property, and integration tests
+      run: |
+        mkdir -p artifacts/execution-stabilization
+        python -m coverage run --branch -m pytest \
+          backend/tests/test_action.py \
+          backend/tests/test_action_runtime.py \
+          backend/tests/test_action_properties.py \
+          backend/tests/test_action_integration.py \
+          backend/tests/test_action_benchmark.py \
+          backend/tests/test_action_boundaries.py \
+          backend/tests/test_ci_health_report.py \
+          --junitxml=artifacts/execution-stabilization/junit.xml -q
+        python -m coverage json -o artifacts/execution-stabilization/coverage.json
+    - name: Safety mutation tests
+      run: |
+        mutmut run
+        mutmut export-cicd-stats
+        cp mutants/mutmut-cicd-stats.json artifacts/execution-stabilization/mutation.json
+    - name: Restore rolling benchmark history
+      uses: actions/cache@v4
+      with:
+        path: kattappa/artifacts/action-benchmark-history.json
+        key: ${{ runner.os }}-action-benchmark-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-action-benchmark-
+    - name: Action Runtime benchmark
+      run: |
+        python -m evaluation.action_runtime_benchmark \
+          --output artifacts/execution-stabilization/benchmark.json \
+          --history artifacts/action-benchmark-history.json \
+          --tolerance 0.15 \
+          --memory-ceiling-mb 8192 \
+          --record
+    - name: Publish health report
+      run: |
+        python -m evaluation.ci_health_report \
+          --junit artifacts/execution-stabilization/junit.xml \
+          --mutation artifacts/execution-stabilization/mutation.json \
+          --benchmark artifacts/execution-stabilization/benchmark.json \
+          --coverage artifacts/execution-stabilization/coverage.json \
+          --json-output artifacts/execution-stabilization/health.json \
+          --markdown-output artifacts/execution-stabilization/health.md \
+          --strict
+        cat artifacts/execution-stabilization/health.md >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload stabilization evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: execution-stabilization-health
+        path: kattappa/artifacts/execution-stabilization/
+
   lint-and-format:
     runs-on: ubuntu-latest
     steps:

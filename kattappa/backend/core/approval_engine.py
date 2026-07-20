@@ -96,7 +96,7 @@ class ApprovalEngine:
         previous_hash = row[0] if row else "GENESIS"
         
         entry_id = str(uuid.uuid4())
-        timestamp = datetime.datetime.utcnow().isoformat()
+        timestamp = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
         
         hash_payload = {
             "entry_id": entry_id,
@@ -198,7 +198,7 @@ class ApprovalEngine:
             return {"status": "AUTHORIZED", "ticket_id": None, "action_hash": action_hash, "risk_level": risk_level}
 
         # Check if there is an approved (unexpired) ticket for this action hash
-        now_str = datetime.datetime.utcnow().isoformat()
+        now_str = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
         cursor = self.db.cursor()
         cursor.execute(
             "SELECT ticket_id FROM approval_tickets WHERE action_hash = ? AND status = 'APPROVED' AND expires_at > ? LIMIT 1",
@@ -221,7 +221,7 @@ class ApprovalEngine:
 
         # Generate ticket for Level 2, 3, 4
         ticket_id = f"TKT-{action_hash[:8].upper()}-{str(uuid.uuid4())[:4].upper()}"
-        expires_at = (datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).isoformat()
+        expires_at = (datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) + datetime.timedelta(minutes=10)).isoformat()
         
         cursor.execute(
             """
@@ -262,7 +262,7 @@ class ApprovalEngine:
         if status != 'PENDING':
             return False
             
-        now_str = datetime.datetime.utcnow().isoformat()
+        now_str = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
         if now_str > expires_at:
             cursor.execute("UPDATE approval_tickets SET status = 'EXPIRED' WHERE ticket_id = ?", (ticket_id,))
             self.db.commit()

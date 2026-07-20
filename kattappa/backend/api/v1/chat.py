@@ -65,6 +65,8 @@ def execute_chat_pipeline(
                 "related_messages": [],
             }
             tracer.finalize_failure(FailureReason.OK, "fast_path", result=response_text)
+            from backend.core.memory.sft_logger import save_sft_training_pair
+            save_sft_training_pair(state)
             return {"response": response_text, "state": state}
 
         # B. Check RBIL (Level 0)
@@ -94,6 +96,8 @@ def execute_chat_pipeline(
                 "related_messages": related,
             }
             tracer.finalize_failure(FailureReason.OK, "rbil_handler", result=response_text)
+            from backend.core.memory.sft_logger import save_sft_training_pair
+            save_sft_training_pair(state)
             return {"response": response_text, "state": state}
 
         # C. Check Semantic Response Cache (if safe)
@@ -128,6 +132,8 @@ def execute_chat_pipeline(
                 "related_messages": related,
             }
             tracer.finalize_failure(FailureReason.OK, "semantic_cache_hit", result=cached_res)
+            from backend.core.memory.sft_logger import save_sft_training_pair
+            save_sft_training_pair(state)
             return {"response": cached_res, "state": state}
 
         # D. Direct Model Query
@@ -167,6 +173,8 @@ def execute_chat_pipeline(
             f"RBIL Level {escalation_level} -> direct_model (no agent graph)",
             result=result_text,
         )
+        from backend.core.memory.sft_logger import save_sft_training_pair
+        save_sft_training_pair(state)
         return {"response": result_text, "state": state}
 
     else:
@@ -197,6 +205,8 @@ def execute_chat_pipeline(
             )
 
         tracer.finalize(result=state.get("result"))
+        from backend.core.memory.sft_logger import save_sft_training_pair
+        save_sft_training_pair(state)
         return {"response": state.get("result"), "state": state}
 
 
@@ -310,12 +320,15 @@ async def chat_socket(websocket: WebSocket) -> None:
             )
             continue
 
-        session = memory.get_or_create_primary_chat_session()
+        from fastapi.concurrency import run_in_threadpool
+
+        session = await run_in_threadpool(memory.get_or_create_primary_chat_session)
         clean_message = _strip_operator_prefix(user_message)
-        stored_user_message = memory.add_chat_message(session["id"], "user", clean_message)
+        stored_user_message = await run_in_threadpool(memory.add_chat_message, session["id"], "user", clean_message)
 
         # Route execution through unified pipeline
-        res_dict = execute_chat_pipeline(
+        res_dict = await run_in_threadpool(
+            execute_chat_pipeline,
             user_message,
             session_id=session["id"],
             user_message_id=stored_user_message["id"],
@@ -323,7 +336,8 @@ async def chat_socket(websocket: WebSocket) -> None:
         state = res_dict["state"]
         response = res_dict["response"]
 
-        assistant_message = memory.add_chat_message(
+        assistant_message = await run_in_threadpool(
+            memory.add_chat_message,
             session["id"],
             "assistant",
             str(response or ""),
@@ -333,7 +347,7 @@ async def chat_socket(websocket: WebSocket) -> None:
         )
 
         from backend.core.adaptive_runtime import MemoryCompressionEngine
-        MemoryCompressionEngine.compress_history(session["id"])
+        await run_in_threadpool(MemoryCompressionEngine.compress_history, session["id"])
 
         for line in state.get("logs", []):
             await websocket.send_json({"type": "progress", "content": line})

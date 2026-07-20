@@ -42,6 +42,28 @@ workspace/
 __pycache__/
 *.pyc
 .pytest_cache/
+.runtime/
+
+# Stabilization tooling is source code even when a local exclude contains
+# the Windows-style `Scripts/` virtual-environment pattern.
+!scripts/
+scripts/*
+!scripts/collect_pytest_nodeids.py
+!scripts/dev/
+scripts/dev/*
+!scripts/dev/_backend_process.py
+!scripts/dev/start_backend.py
+!scripts/dev/stop_backend.py
+!scripts/diagnostics/
+scripts/diagnostics/*
+!scripts/diagnostics/profile_startup.py
+!scripts/diagnostics/verify_adaptive_runtime_resolution.py
+!scripts/testing/
+scripts/testing/*
+!scripts/testing/generate_test_manifest.py
+.hypothesis/
+mutants/
+artifacts/execution-stabilization/
 *.log
 *.pid
 *.db

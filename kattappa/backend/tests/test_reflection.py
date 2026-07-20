@@ -1,104 +1,98 @@
-"""Unit and integration tests for Program 6: Reflection Engine.
-"""
-from __future__ import annotations
-
 import pytest
-
-from backend.core.reflection.models import ExecutionRecord, ExecutionReview, LearningCandidate
-from backend.core.reflection.analyzer import FailureClassifier, OptimizationAnalyzer
-from backend.core.reflection.recommendations import RecommendationGenerator
+import os
+import tempfile
+from backend.agents.planner import TaskGraph, TaskStep
+from backend.core.memory.memory_store import MemoryStore
 from backend.core.reflection.reflection_engine import ReflectionEngine
 
+@pytest.fixture(autouse=True)
+def test_db_setup(monkeypatch):
+    temp_dir = tempfile.mkdtemp(prefix="kattappa_reflection_test_")
+    monkeypatch.setenv("KATTAPPA_ROOT", temp_dir)
+    monkeypatch.setenv("KATTAPPA_TEST_MODE", "true")
+    monkeypatch.setenv("KATTAPPA_ENV", "test")
+    MemoryStore.clear_database()
+    yield temp_dir
+    MemoryStore.clear_database()
 
-def test_failure_classification():
-    """Verifies that FailureClassifier classifies error string details to target categories."""
-    # 1. Network
-    f_net = [{"error_message": "Network socket timeout connection error"}]
-    assert FailureClassifier.classify(f_net) == "Network"
-
-    # 2. Permission
-    f_perm = [{"error_message": "Permission denied: unauthorized credentials token"}]
-    assert FailureClassifier.classify(f_perm) == "Permission"
-
-    # 3. None/No failure
-    assert FailureClassifier.classify([]) is None
-
-
-def test_optimization_analyzer_bottlenecks_and_parallel():
-    """Verifies that OptimizationAnalyzer identifies slow tasks and parallel scores."""
-    durations = {
-        "node_1": 1.0,
-        "node_2": 8.0,  # Fails threshold / bottleneck
-        "node_3": 1.2,
-    }
-    bottlenecks = OptimizationAnalyzer.find_bottlenecks(durations, threshold=3.0)
-    assert bottlenecks == ["node_2"]
-
-    record = ExecutionRecord(
-        session_id="s1",
-        plan_id="p1",
-        status="Completed",
-        total_duration=10.2,
-        task_durations=durations,
+def test_reflection_table_storage() -> None:
+    MemoryStore.add_reflection(
+        goal="Test manual goals",
+        task_id="g-101",
+        task_type="local_agent",
+        outcome="FAILED",
+        success=0,
+        retries=1,
+        confidence_score=0.85,
+        failure_reason="Step s1 failed",
+        recovery_strategy="FAILSAFE",
+        lesson_learned="Avoid unverified dependency upgrades.",
+        execution_time_ms=500
     )
-    score = OptimizationAnalyzer.analyze_parallelization(record)
-    # max duration (8.0) / total duration (10.2)
-    assert score == pytest.approx(8.0 / 10.2)
+    
+    reflections = MemoryStore.get_all_reflections()
+    assert len(reflections) == 1
+    assert reflections[0]["goal"] == "Test manual goals"
+    assert reflections[0]["outcome"] == "FAILED"
+    assert reflections[0]["success"] == 0
+    assert reflections[0]["confidence_score"] == 0.85
 
-
-def test_recommendation_candidates_generation():
-    """Verifies RecommendationGenerator produces learning candidates based on performance metrics."""
-    review = ExecutionReview(
-        session_id="session_abc",
-        success_rate=80.0,
-        avg_latency=1.5,
-        total_retries=1,
-        failure_category="Network",
-        bottleneck_nodes=["node_2"],
-        parallelization_score=0.2,  # sequentially bound
+def test_reflection_successful_task() -> None:
+    graph = TaskGraph("Clean database workspace")
+    step = TaskStep(
+        step_id="clean_step",
+        description="Run clean script",
+        agent="coder",
+        action="RUN_SHELL",
+        params={"command": "python clean.py"},
+        dependencies=[]
     )
+    graph.add_step(step)
+    
+    result = ReflectionEngine.reflect_on_task(graph)
+    assert result["status"] == "COMPLETED"
+    assert result["confidence_rating"] == 1.0  # Base 1.0 + Ver auto 0.05 = 1.05, clamped to 1.0
+    assert "verified successfully" in result["lessons_learned"]
 
-    candidates = RecommendationGenerator.generate(review)
-    assert len(candidates) > 0
-
-    # Verify that a RetryLimit candidate for Network is generated
-    net_cand = next(c for c in candidates if c.target_type == "RetryLimit")
-    assert "network-related failures" in net_cand.explanation
-    assert net_cand.proposed_update["max_retries"] == 5
-
-    # Verify that a ToolPolicy candidate for node_2 bottleneck is generated
-    tool_cand = next(c for c in candidates if c.target_type == "ToolPolicy")
-    assert tool_cand.proposed_update["target_node"] == "node_2"
-
-
-def test_reflection_engine_end_to_end():
-    """Integration test: submits finished ExecutionRecord, triggers reflection, and retrieves candidates."""
-    engine = ReflectionEngine()
-
-    durations = {"Step1": 1.0, "Step2": 1.5}
-    failures = [{"error_message": "Rate limits exceeded on API query"}]
-    retries = {"Step2": 2}
-
-    record = ExecutionRecord(
-        session_id="session_xyz",
-        plan_id="plan_xyz",
-        status="Failed",
-        total_duration=5.0,
-        task_durations=durations,
-        retries=retries,
-        failures=failures,
+def test_reflection_failed_task_and_score() -> None:
+    graph = TaskGraph("Upgrade virtual env dependencies")
+    step = TaskStep(
+        step_id="pip_step",
+        description="Run pip upgrade",
+        agent="coder",
+        action="RUN_SHELL",
+        params={"command": "pip install --upgrade scipy", "simulated_failure": True},
+        dependencies=[]
     )
+    graph.add_step(step)
+    
+    result = ReflectionEngine.reflect_on_task(graph)
+    assert result["status"] == "FAILED"
+    # Base 0.10 + Risk Low 0.00 + Ver auto 0.05 = 0.15
+    assert result["confidence_rating"] == 0.15
+    assert len(result["failures_observed"]) == 1
 
-    review = engine.process_execution(record)
-
-    # Verifications
-    assert review.session_id == "session_xyz"
-    assert review.success_rate == pytest.approx(2.0 / 3.0 * 100.0)
-    assert review.failure_category == "API"
-    assert review.total_retries == 2
-
-    # Retrieve learning candidates
-    candidates = engine.get_candidates("session_xyz")
-    assert len(candidates) > 0
-    # Average latency is (1.0+1.5)/2 = 1.25. Threshold is 3.0, so no bottlenecks expected.
-    assert len(review.bottleneck_nodes) == 0
+def test_procedural_memory_promotion_threshold() -> None:
+    goal = "Deploy FastAPI web app"
+    
+    # Execution 1
+    g1 = TaskGraph(goal)
+    g1.add_step(TaskStep("s1", "Init server", "coder", "RUN_SHELL", {}, []))
+    res1 = ReflectionEngine.reflect_on_task(g1)
+    assert res1["confidence_rating"] == 1.0
+    
+    # Execution 2
+    g2 = TaskGraph(goal)
+    g2.add_step(TaskStep("s1", "Init server", "coder", "RUN_SHELL", {}, []))
+    ReflectionEngine.reflect_on_task(g2)
+    
+    # Execution 3 (This third execution hits success_count >= 3 threshold)
+    g3 = TaskGraph(goal)
+    g3.add_step(TaskStep("s1", "Init server", "coder", "RUN_SHELL", {}, []))
+    res3 = ReflectionEngine.reflect_on_task(g3)
+    
+    # Verify procedural memory is promoted
+    memories = MemoryStore.get_all_memories()
+    procedural = [m for m in memories if m["type"] == "procedural"]
+    assert len(procedural) == 1
+    assert "Procedural Lesson (Verified Habit):" in procedural[0]["content"]

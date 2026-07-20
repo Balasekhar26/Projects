@@ -1,68 +1,40 @@
-"""Unit tests for Program 43.0: Meta-Cognition Engine.
-
-Verifies self-awareness states, confidence manager calibration, escalation gates,
-introspection loops, and dynamic planner selectors.
-"""
-from __future__ import annotations
-
 import pytest
+from backend.core.meta.assumption_tracker import AssumptionTracker
+from backend.core.meta.strategy_evaluator import StrategyEvaluator
+from backend.core.meta.meta_reasoner import MetaReasoner
 
-from backend.core.planning import (
-    SelfAwarenessState,
-    ConfidenceManager,
-    ComputeAllocator,
-    IntrospectionEngine,
-    MetaReasoner,
-)
+def test_assumption_tracking() -> None:
+    tracker = AssumptionTracker()
+    tracker.register_assumption("plan_1", "network_connected", "yes")
+    tracker.register_assumption("plan_1", "disk_space_free_gb", "20")
+    
+    # State matches assumptions
+    states_ok = {"network_connected": "yes", "disk_space_free_gb": "20"}
+    assert tracker.verify_assumptions("plan_1", states_ok)
+    
+    # Assumption broken
+    states_bad = {"network_connected": "no", "disk_space_free_gb": "20"}
+    assert not tracker.verify_assumptions("plan_1", states_bad)
 
+def test_strategy_evaluation() -> None:
+    candidates = [
+        {"name": "SimpleLookup", "success_rate": 0.85, "est_execution_time": 2.0},
+        {"name": "DeepGraphRAG", "success_rate": 0.98, "est_execution_time": 8.0}
+    ]
+    
+    best = StrategyEvaluator.select_best_strategy(candidates)
+    
+    # SimpleLookup score: 0.7 * 0.85 + 0.3 * (1/3) = 0.595 + 0.10 = 0.695
+    # DeepGraphRAG score: 0.7 * 0.98 + 0.3 * (1/9) = 0.686 + 0.03 = 0.719
+    # DeepGraphRAG should win due to high success rate
+    assert best == "DeepGraphRAG"
 
-class TestMetaCognition:
-    def test_confidence_calibration(self):
-        state = SelfAwarenessState(
-            confidence=1.0,
-            uncertainty=0.2,
-            fatigue_metric=1.0,
-            failure_count=1,
-        )
-        
-        # 1.0 - 0.2 (uncertainty) - (0.05 * 4.0 complexity) - 0.1 (failures) - 0.05 (fatigue)
-        # = 0.8 - 0.2 - 0.1 - 0.05 = 0.45
-        calibrated = ConfidenceManager.calibrate_confidence(state, complexity=4.0)
-        assert calibrated == 0.45
-
-    def test_escalation_action_gates(self):
-        assert ConfidenceManager.get_escalation_action(0.30) == "ASK_HUMAN"
-        assert ConfidenceManager.get_escalation_action(0.55) == "EXECUTE_CONSERVATIVE"
-        assert ConfidenceManager.get_escalation_action(0.85) == "AUTONOMOUS"
-
-    def test_compute_allocator_scaling(self):
-        critical_compute = ComputeAllocator.allocate_compute("CRITICAL", complexity=5.0)
-        assert critical_compute["token_budget"] == 45000  # 30000 * 1.5
-        assert critical_compute["simulation_iterations"] == 75  # 50 * 1.5
-        assert critical_compute["planning_timeout"] == 45.0  # 30 * 1.5
-
-        normal_compute = ComputeAllocator.allocate_compute("LOW", complexity=0.0)
-        assert normal_compute["token_budget"] == 4000
-        assert normal_compute["simulation_iterations"] == 5
-        assert normal_compute["planning_timeout"] == 5.0
-
-    def test_introspection_loops(self):
-        state_clear = SelfAwarenessState(uncertainty=0.1, failure_count=0)
-        assert IntrospectionEngine.introspect(state_clear, current_plan_success_prob=0.95) == "PROCEED"
-
-        # Low success probability should prompt thinking longer
-        assert IntrospectionEngine.introspect(state_clear, current_plan_success_prob=0.50) == "THINK_LONGER"
-
-        # High failure rates should prompt requesting help
-        state_stuck = SelfAwarenessState(uncertainty=0.1, failure_count=3)
-        assert IntrospectionEngine.introspect(state_stuck, current_plan_success_prob=0.95) == "NEED_HELP"
-
-    def test_meta_reasoner_planner_routing(self):
-        # Low complexity task -> simple rule planner
-        assert MetaReasoner.select_planner_strategy(complexity=2.0, uncertainty=0.1) == "RULE_PLANNER"
-        
-        # High complexity, low uncertainty -> HTN planner
-        assert MetaReasoner.select_planner_strategy(complexity=5.0, uncertainty=0.2) == "HTN_PLANNER"
-        
-        # High complexity, high uncertainty -> hybrid decision network search
-        assert MetaReasoner.select_planner_strategy(complexity=5.0, uncertainty=0.7) == "HYBRID_DECISION_NETWORK"
+def test_loop_detection() -> None:
+    reasoner = MetaReasoner()
+    
+    reasoner.log_action("click save")
+    reasoner.log_action("click save")
+    assert not reasoner.detect_logical_loops()
+    
+    reasoner.log_action("click save") # 3rd identical action in a row
+    assert reasoner.detect_logical_loops()

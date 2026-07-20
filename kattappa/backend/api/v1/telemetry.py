@@ -700,3 +700,29 @@ def post_reject_contract(contract_id: str) -> Dict[str, Any]:
     return CapabilityNegotiator.reject_request(contract_id)
 
 
+@telemetry_router.get("/self-model/state")
+def get_self_model_state_api() -> Dict[str, Any]:
+    """Exposes real-time self-model introspection state (Capabilities, Limitations, Resources, Confidence, Performance)."""
+    from backend.core.self_model import SelfModel
+    return SelfModel.get_self_model_state()
+
+
+@telemetry_router.get("/telemetry/tools-reputation")
+def get_tools_reputation_api() -> Dict[str, Any]:
+    """Retrieves all active tool reliability and utility scores."""
+    from backend.core.tool_reliability import ToolReliabilityTracker
+    return ToolReliabilityTracker.get_all_reliability()
+
+
+@telemetry_router.get("/telemetry/agents-reputation")
+def get_agents_reputation_api() -> Dict[str, Any]:
+    """Retrieves all agent trust scores and execution telemetry logs."""
+    from backend.core.agent_reputation import AgentReputationTracker
+    agents = ["planner", "coder", "browser", "desktop", "researcher", "voice", "vision"]
+    reputations = {}
+    for agent in agents:
+        reputations[agent] = AgentReputationTracker.get_reputation(agent)
+    return reputations
+
+
+

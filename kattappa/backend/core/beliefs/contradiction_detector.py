@@ -57,7 +57,23 @@ class ContradictionDetector:
 
     def check_conflict(self, incoming: Belief) -> Optional[BeliefConflict]:
         """Compares incoming belief with active stored belief. Registers conflict if values differ."""
-        prior = self._store.get_belief_by_claim(incoming.claim_subject, incoming.claim_predicate)
+        priors = self._store.get_beliefs_for_claim(incoming.claim_subject, incoming.claim_predicate)
+        if not priors:
+            return None
+
+        incoming_temp = incoming.metadata.get("temporal_scope")
+        
+        prior = None
+        for p in priors:
+            prior_temp = p.metadata.get("temporal_scope")
+            if incoming_temp is not None or prior_temp is not None:
+                if prior_temp == incoming_temp:
+                    prior = p
+                    break
+            else:
+                prior = p
+                break
+
         if not prior:
             return None
 

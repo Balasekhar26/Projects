@@ -1,0 +1,597 @@
+{
+  "stable": true,
+  "repetitions": 10,
+  "unique_signatures": 1,
+  "runs": [
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 54.93s\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 1
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 70.87s (0:01:10)\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 2
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 59.53s\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 3
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 69.81s (0:01:09)\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 4
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 62.08s (0:01:02)\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 5
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 65.82s (0:01:05)\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 6
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 70.56s (0:01:10)\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 7
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 73.59s (0:01:13)\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 8
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 66.43s (0:01:06)\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 9
+    },
+    {
+      "snapshot": {
+        "backend_package_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\__init__.py",
+        "adaptive_runtime_module_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\adaptive_runtime.py",
+        "adaptive_runtime_source_sha256": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_compiled_path": "C:\\Users\\balu\\Projects\\kattappa\\backend\\core\\__pycache__\\adaptive_runtime.cpython-313.pyc",
+        "resolve_profile_source": "    @classmethod\n    def resolve_profile(cls, hw: Dict[str, Any]) -> str:\n        ram = hw[\"ram_total_gb\"]\n        has_gpu = hw[\"has_gpu_acceleration\"]\n        on_ac = hw[\"on_ac_power\"]\n        \n        # ECO mode triggers:\n        # - Low RAM (< 8GB)\n        # - Or CPU-only machine running on battery power\n        if ram < 8.0 or (not has_gpu and not on_ac):\n            return \"ECO\"\n            \n        # BEAST mode triggers:\n        # - 32GB+ RAM & strong GPU with >= 8GB VRAM\n        if ram >= 32.0 and has_gpu and hw[\"gpu_vram_gb\"] >= 8.0:\n            return \"BEAST\"\n            \n        # PERFORMANCE mode triggers:\n        # - 16GB+ RAM and dedicated GPU or high core count on AC power\n        if ram >= 16.0 and has_gpu and on_ac:\n            return \"PERFORMANCE\"\n            \n        # Fallback to BALANCED\n        return \"BALANCED\"\n",
+        "sys_path": [
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\Projects\\kattappa\\scripts\\diagnostics",
+          "C:\\Users\\balu\\Projects\\kattappa",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\DLLs",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313\\Lib",
+          "C:\\Users\\balu\\AppData\\Local\\Programs\\Python\\Python313",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\win32\\lib",
+          "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Lib\\site-packages\\pythonwin"
+        ],
+        "kattappa_test_mode": "true",
+        "profile_results": {
+          "ECO_LOW_RAM": "ECO",
+          "ECO_BATTERY_CPU": "ECO",
+          "BALANCED_AC_GPU": "BALANCED"
+        }
+      },
+      "collection": {
+        "returncode": 0,
+        "count": 12,
+        "node_ids": [
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_adaptive_context_limits",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_agent_hibernation",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_gpu_task_scheduler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_hardware_profiler",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_compression_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_memory_prefetcher",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_performance_profile_resolution",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_predictive_model_loading",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_healing_runtime",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_self_learning_engine",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_semantic_response_cache",
+          "backend/tests/test_adaptive_runtime.py::TestAdaptiveRuntime::test_vram_occupancy_and_lru_eviction"
+        ],
+        "stdout": ".                                                                        [100%]\n1 passed, 11 deselected in 67.29s (0:01:07)\n",
+        "stderr": ""
+      },
+      "performance_profile_test": {
+        "returncode": 0,
+        "passed": true,
+        "outcome": "passed"
+      },
+      "source_hashes": {
+        "adaptive_runtime": "e01ea65edf7d5f69ec318b02350d586e08d035a3b60585dc5310dd99806de026",
+        "adaptive_runtime_test": "7c9db1721f36874d19ed2b0ef636d3c60c9652bf37ffe8fb14fc8a1bacb4dbc6"
+      },
+      "run": 10
+    }
+  ]
+}

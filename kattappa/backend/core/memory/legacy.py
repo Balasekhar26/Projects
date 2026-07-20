@@ -97,10 +97,14 @@ class MemorySystem:
             with sqlite3.connect(self.config.sqlite_path) as conn:
                 rows = conn.execute("SELECT id, session_id, role, content, agent, risk, created_at FROM chat_messages").fetchall()
             if len(rows) > count:
+                existing_ids = set(col.get(include=[], limit=max(100000, len(rows)))["ids"])
+                rows_to_sync = [r for r in rows if r[0] not in existing_ids]
+                if not rows_to_sync:
+                    return
                 ids = []
                 docs = []
                 metadatas = []
-                for row in rows:
+                for row in rows_to_sync:
                     ids.append(row[0])
                     docs.append(row[3])
                     metadatas.append({

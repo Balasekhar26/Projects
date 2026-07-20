@@ -534,6 +534,9 @@ def reasoning_node(state: AgentState) -> AgentState:
 
     state["reasoning_hypothesis"] = hypothesis.strip()
     
+    from backend.agents.planner import route_task
+    state["selected_agent"] = route_task(clean_message)["agent"]
+    
     # Process gaps for Bounded Recursion
     depth = state.get("reasoning_recursion_depth", 0)
     if gap and query_gap and depth < 3:
@@ -573,7 +576,11 @@ def council_debate_node(state: AgentState) -> AgentState:
         board = state["blackboard"]
         reasoning_entries = [e for e in board.entries() if e.source == "reasoning"]
         if reasoning_entries:
-            reasoning_hyp = reasoning_entries[-1].content.get("hypothesis") or reasoning_hyp
+            last_entry = reasoning_entries[-1].content
+            if isinstance(last_entry, dict):
+                reasoning_hyp = last_entry.get("hypothesis") or reasoning_hyp
+            elif isinstance(last_entry, str):
+                reasoning_hyp = last_entry or reasoning_hyp
 
     res = CouncilDebate.debate(
         state["attention_frame"],

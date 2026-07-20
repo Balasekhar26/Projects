@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import time
 import urllib.parse
+import uuid
 from typing import Any
 
 from backend.core.capability_registry import CapabilityRegistry
@@ -48,6 +49,17 @@ class ActionBroker:
         return "LOW"
 
     @classmethod
+    def _quarantine_file(cls, target_file: str) -> str:
+        """Moves target_file to the trash quarantine directory instead of permanent removal."""
+        from backend.core.config import runtime_data_root
+        trash_dir = runtime_data_root() / "backend" / "data" / "trash"
+        trash_dir.mkdir(parents=True, exist_ok=True)
+        unique_name = f"{int(time.time())}_{uuid.uuid4().hex[:8]}_{os.path.basename(target_file)}"
+        dest_path = trash_dir / unique_name
+        shutil.move(target_file, dest_path)
+        return str(dest_path)
+
+    @classmethod
     def intake_request(
         cls,
         agent_name: str,
@@ -55,6 +67,10 @@ class ActionBroker:
         params: dict[str, Any],
         state: dict[str, Any]
     ) -> dict[str, Any]:
+        is_windows = platform.system().lower() == "windows"
+        pytest_cmd = "ai_system_env\\Scripts\\pytest.exe" if is_windows else "ai_system_env/bin/pytest"
+        flake8_cmd = "ai_system_env\\Scripts\\flake8.exe" if is_windows else "ai_system_env/bin/flake8"
+
         session_id = state.get("chat_session_id") or state.get("workflow_id") or "default_session"
 
         # 0. Emergency Halt Check
@@ -335,37 +351,12 @@ class ActionBroker:
             elif action == "AGING_MEMORY":
                 from backend.core.memory_service import MemoryService
                 execution_result = MemoryService._execute_aging(agent_name, params, state)
-            elif action in ("CREATE_FILE", "WRITE_FILE"):
-                target_file = params.get("target") or params.get("path")
-                code_content = params.get("code") or params.get("content", "")
-                os.makedirs(os.path.dirname(target_file), exist_ok=True)
-                with open(target_file, "w", encoding="utf-8") as f:
-                    f.write(code_content)
-                execution_result = {"success": True, "message": f"Wrote file '{target_file}'"}
-            elif action == "READ_FILE":
-                target_file = params.get("target") or params.get("path")
-                with open(target_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-                execution_result = {"success": True, "content": content}
-            elif action == "LIST_DIR":
-                target_dir = params.get("target") or params.get("path") or "."
-                items = os.listdir(target_dir)
-                execution_result = {"success": True, "items": items}
-            elif action == "DELETE_FILE":
-                target_file = params.get("target") or params.get("path")
-                if os.path.exists(target_file):
-                    os.remove(target_file)
-                    execution_result = {"success": True, "message": f"Deleted file '{target_file}'"}
-                else:
-                    execution_result = {"success": False, "error": "File not found"}
-            elif action == "MOVE_FILE":
-                source = params.get("source")
-                destination = params.get("destination")
-                shutil.move(source, destination)
-                execution_result = {"success": True, "message": f"Moved '{source}' to '{destination}'"}
+            elif action in ("CREATE_FILE", "WRITE_FILE", "READ_FILE", "LIST_DIR", "DELETE_FILE", "MOVE_FILE"):
+                from backend.core.openhuman_adapter import OpenHumanAdapter
+                execution_result = OpenHumanAdapter.execute_action(agent_name, action, params, state)
             elif action == "RUN_TESTS":
                 target_test = params.get("target", "")
-                cmd = ["ai_system_env/bin/pytest", target_test] if target_test else ["ai_system_env/bin/pytest"]
+                cmd = [pytest_cmd, target_test] if target_test else [pytest_cmd]
                 res = cls.run_sandboxed_validation(cmd)
                 execution_result = {
                     "success": res.returncode == 0,
@@ -389,7 +380,7 @@ class ActionBroker:
                     )
                     execution_result = {"success": True, "report": res}
                 else:
-                    cmd = ["ai_system_env/bin/pytest", "backend/tests/test_assembler_recall_quality.py"]
+                    cmd = [pytest_cmd, "backend/tests/test_assembler_recall_quality.py"]
                     res = cls.run_sandboxed_validation(cmd)
                     execution_result = {
                         "success": res.returncode == 0,
@@ -404,8 +395,8 @@ class ActionBroker:
                         with open(target_file, "r", encoding="utf-8") as f:
                             content = f.read()
                         ast.parse(content)
-                        lint_cmd = ["ai_system_env/bin/flake8", target_file]
-                        if os.path.exists("ai_system_env/bin/flake8"):
+                        lint_cmd = [flake8_cmd, target_file]
+                        if os.path.exists(flake8_cmd):
                             res = cls.run_sandboxed_validation(lint_cmd)
                             if res.returncode == 0:
                                 execution_result = {"success": True, "message": "AST check & Flake8 lint: PASSED"}
@@ -422,18 +413,8 @@ class ActionBroker:
             elif action == "INSTALL_PACKAGE":
                 execution_result = {"success": True, "message": f"Package installation completed successfully: {params.get('command')}"}
             elif action == "RUN_SHELL":
-                command = params.get("command") or params.get("cmd") or ""
-                if not command:
-                    execution_result = {"success": False, "error": "No command provided"}
-                else:
-                    from backend.core.sandbox_runtime import SandboxRuntime
-                    res = SandboxRuntime.run_command(["/bin/sh", "-c", command])
-                    execution_result = {
-                        "success": res.returncode == 0,
-                        "stdout": res.stdout,
-                        "stderr": res.stderr,
-                        "exit_code": res.returncode
-                    }
+                from backend.core.openhuman_adapter import OpenHumanAdapter
+                execution_result = OpenHumanAdapter.execute_action(agent_name, action, params, state)
             elif action == "COLLECT_METRICS":
                 from backend.agents.monitoring import MonitoringAgent
                 execution_result = MonitoringAgent.collect_metrics(agent_name)
@@ -457,163 +438,34 @@ class ActionBroker:
                 elif action == "BROWSER_DOWNLOAD_FILE" and downloads_count >= 5:
                     execution_result = {"success": False, "error": "Error: Download budget exceeded. Max of 5 downloads reached."}
                 else:
-                    # Executions
-                    if action in ("BROWSER_NAVIGATE", "BROWSER_READ"):
+                    from backend.core.openhuman_adapter import OpenHumanAdapter
+                    execution_result = OpenHumanAdapter.execute_action(agent_name, action, params, state)
+                    # Update metrics post-execution
+                    if action in ("BROWSER_NAVIGATE", "BROWSER_READ", "BROWSER_SEARCH", "BROWSER_MAP_LINKS", "BROWSER_EXTRACT_INFO", "BROWSER_FILL_FORM", "BROWSER_CLICK_SUBMIT", "BROWSER_LOGIN"):
                         if url and url not in visited:
                             visited.append(url)
-                        res = read_url(url)
-                        execution_result = {
-                            "content": res.get("text", "")[:4000],
-                            "source": url,
-                            "source_url": url,
-                            "timestamp": time.time(),
-                            "trust": domain_trust,
-                            "trust_score": domain_trust,
-                            "provenance": "UNTRUSTED"
-                        }
-                    elif action == "BROWSER_SEARCH":
-                        query = params.get("query")
-                        res = search_web_basic(query)
-                        prov_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}"
-                        if prov_url not in visited:
-                            visited.append(prov_url)
-                        execution_result = {
-                            "content": res.get("text", "")[:4000],
-                            "source": prov_url,
-                            "source_url": prov_url,
-                            "timestamp": time.time(),
-                            "trust": 95,
-                            "trust_score": 95,
-                            "provenance": "UNTRUSTED"
-                        }
-                    elif action == "BROWSER_SPEEDTEST":
-                        from backend.core.macros.browser_macros import execute_speedtest
-                        res = execute_speedtest()
-                        execution_result = {
-                            "content": res,
-                            "source": "https://fast.com",
-                            "source_url": "https://fast.com",
-                            "timestamp": time.time(),
-                            "trust": 95,
-                            "trust_score": 95,
-                            "provenance": "SYSTEM_TRUST"
-                        }
-                    elif action == "BROWSER_MAP_LINKS":
-                        links = map_links(url)
-                        parent_depth = tabs_depth.get(url, 0)
-                        for link in links:
-                            if link not in tabs_depth:
-                                tabs_depth[link] = parent_depth + 1
-                        if url and url not in visited:
-                            visited.append(url)
-                        execution_result = f"Browser mapped links:\n" + "\n".join(links[:50])
-                    elif action == "BROWSER_EXTRACT_INFO":
-                        if url and url not in visited:
-                            visited.append(url)
-                        res = read_url(url)
-                        execution_result = {
-                            "content": res.get("text", "")[:4000],
-                            "source": url,
-                            "source_url": url,
-                            "timestamp": time.time(),
-                            "trust": domain_trust,
-                            "trust_score": domain_trust,
-                            "provenance": "UNTRUSTED"
-                        }
-                    elif action in ("BROWSER_FILL_FORM", "BROWSER_CLICK_SUBMIT", "BROWSER_LOGIN"):
-                        form_data = params.get("form_data", {})
-                        sub_sel = params.get("submit_selector")
-                        if url and url not in visited:
-                            visited.append(url)
-                        res = fill_form(url, form_data, sub_sel)
-                        execution_result = {
-                            "content": res.get("text", "")[:4000],
-                            "source": url,
-                            "source_url": url,
-                            "timestamp": time.time(),
-                            "trust": domain_trust,
-                            "trust_score": domain_trust,
-                            "provenance": "UNTRUSTED"
-                        }
+                        if action == "BROWSER_SEARCH":
+                            query = params.get("query")
+                            prov_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}" if url is None else url
+                            if prov_url not in visited:
+                                visited.append(prov_url)
                     elif action == "BROWSER_DOWNLOAD_FILE":
-                        click_sel = params.get("click_selector")
-                        res = download_file(url, click_sel)
-                        if res.get("success"):
+                        if "success" in str(execution_result).lower() and "fail" not in str(execution_result).lower():
                             state["browser_downloads_count"] = downloads_count + 1
-                            execution_result = (
-                                f"Browser download success:\n"
-                                f"Filename: {res.get('filename')}\n"
-                                f"Path: {res.get('path')}\n"
-                                f"Size: {res.get('size_bytes')} bytes\n"
-                                f"SHA256: {res.get('sha256')}"
-                            )
-                        else:
-                            execution_result = f"Browser download failed: {res.get('error')}"
 
             # Desktop Tool Routing
             elif action.startswith("DESKTOP_"):
-                from backend.tools.desktop_tools import (
-                    open_application, move_mouse, click_element, type_text, press_key, take_screenshot, read_screen
-                )
-                if action == "DESKTOP_SHUTDOWN":
-                    execution_result = "Shutdown request completed (simulated)"
-                elif action == "DESKTOP_DELETE_FILE":
-                    path = params.get("path")
-                    execution_result = f"Deleted file '{path}' (simulated)"
-                elif action == "DESKTOP_OPEN_APP":
-                    app_name = params.get("app_name", "VS Code")
-                    execution_result = open_application(app_name)
-                elif action == "DESKTOP_MOUSE_MOVE":
-                    x_norm = params.get("x_norm", 500.0)
-                    y_norm = params.get("y_norm", 500.0)
-                    execution_result = move_mouse(x_norm, y_norm)
-                elif action == "DESKTOP_MOUSE_CLICK":
-                    x_norm = params.get("x_norm", 500.0)
-                    y_norm = params.get("y_norm", 500.0)
-                    button = params.get("button", "left")
-                    click_type = params.get("click_type", "single")
-                    execution_result = click_element(x_norm, y_norm, button, click_type)
-                elif action == "DESKTOP_KEYBOARD_TYPING":
-                    text = params.get("text", "")
-                    execution_result = type_text(text)
-                elif action == "DESKTOP_SCREENSHOT":
-                    meta = take_screenshot()
-                    execution_result = {
-                        "window": meta["window"],
-                        "elements": [],
-                        "timestamp": meta["timestamp"],
-                        "sha256": meta["sha256"],
-                        "provenance": "UNTRUSTED_UI_DATA"
-                    }
-                elif action == "DESKTOP_READ_SCREEN":
-                    res_screen = read_screen()
-                    execution_result = {
-                        "window": res_screen["window"],
-                        "elements": res_screen["elements"],
-                        "text": res_screen["text"],
-                        "timestamp": res_screen["timestamp"],
-                        "provenance": "UNTRUSTED_UI_DATA"
-                    }
-                else:
-                    execution_result = f"Desktop action '{action}' executed."
+                from backend.core.openhuman_adapter import OpenHumanAdapter
+                execution_result = OpenHumanAdapter.execute_action(agent_name, action, params, state)
 
             # File Agent Tool Routing
             elif action.startswith("FILE_"):
                 from backend.tools.file_parsers import parse_pdf, parse_docx, parse_csv, parse_xlsx, parse_image_ocr, parse_text
                 from backend.core.config import load_config
                 target_file = params.get("target") or params.get("path")
-                if action == "FILE_DELETE":
-                    if os.path.exists(target_file):
-                        os.remove(target_file)
-                        execution_result = f"Deleted file '{target_file}'"
-                    else:
-                        execution_result = "File not found"
-                elif action in ("FILE_WRITE", "FILE_MODIFY"):
-                    content = params.get("content") or params.get("code") or ""
-                    os.makedirs(os.path.dirname(target_file), exist_ok=True)
-                    with open(target_file, "w", encoding="utf-8") as f:
-                        f.write(content)
-                    execution_result = f"Successfully wrote to file '{target_file}'"
+                if action == "FILE_DELETE" or action in ("FILE_WRITE", "FILE_MODIFY"):
+                    from backend.core.openhuman_adapter import OpenHumanAdapter
+                    execution_result = OpenHumanAdapter.execute_action(agent_name, action, params, state)
                 elif action == "FILE_PARSE":
                     from pathlib import Path
                     config = load_config()
@@ -967,6 +819,9 @@ class ActionBroker:
         approval_state: str = "double_approved"
     ) -> dict[str, Any]:
         """Broker-side patch application, testing, test-weakening prevention, and rollback loop."""
+        is_windows = platform.system().lower() == "windows"
+        pytest_cmd = "ai_system_env\\Scripts\\pytest.exe" if is_windows else "ai_system_env/bin/pytest"
+
         target_file = params.get("target")
         code_content = params.get("code")
         test_code = params.get("test_code")
@@ -1027,7 +882,7 @@ class ActionBroker:
                 cls.execute_rollback(target_file, file_existed_before, test_file_path, test_existed_before)
                 return {"success": False, "error": "Test cycle budget exceeded. Escalated."}
 
-            res = cls.run_sandboxed_validation(["ai_system_env/bin/pytest", test_file_path])
+            res = cls.run_sandboxed_validation([pytest_cmd, test_file_path])
             if res.returncode == 0:
                 success = True
                 break

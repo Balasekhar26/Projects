@@ -9,6 +9,7 @@ type ToolsPanelProps = {
   onRequestMissingInstalls: () => void;
   onRunManualToolScout: () => void;
   onStartToolAdoption: (reportId: string) => void;
+  toolsReputation?: Record<string, any>;
 };
 
 function statusTone(status: string) {
@@ -40,10 +41,37 @@ export function ToolsPanel({
   onRequestMissingInstalls,
   onRunManualToolScout,
   onStartToolAdoption,
+  toolsReputation,
 }: ToolsPanelProps) {
   return (
     <section className="panelView">
       <h2>Tools</h2>
+
+      {toolsReputation && Object.keys(toolsReputation).length > 0 && (
+        <div className="builderPanel">
+          <h3>Tool Reputation Leaderboard (Phase K23)</h3>
+          <p>Utility scoring based on real-time success rate, reliability confidence, latency overhead, and capability safety risks.</p>
+          <div className="scoutList" style={{ marginTop: "1rem" }}>
+            {Object.entries(toolsReputation).map(([toolName, rel]: [string, any]) => (
+              <article key={toolName} className={`scoutItem ${statusTone(rel.utility_score >= 0.75 ? "ready" : "working")}`} style={{ marginBottom: "1rem" }}>
+                <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{ textTransform: "capitalize" }}>{toolName.replace(/_/g, " ")}</strong>
+                  <span style={{ fontWeight: "bold", padding: "2px 8px", borderRadius: "4px", background: "rgba(255,255,255,0.1)" }}>Utility Score: {Math.round(rel.utility_score * 100)}%</span>
+                </header>
+                <div className="maturityBar" style={{ marginTop: "0.5rem", marginBottom: "0.5rem", height: "6px" }}>
+                  <span style={{ width: `${rel.utility_score * 100}%`, background: "var(--accent-color)" }} />
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", fontSize: "0.85rem", opacity: 0.9 }}>
+                  <span>Success Rate: {Math.round(rel.success_rate * 100)}%</span>
+                  <span>Avg Latency: {rel.average_latency.toFixed(2)}s</span>
+                  <span>Confidence: {Math.round(rel.confidence * 100)}%</span>
+                  <span>Security Penalty: {Math.round(rel.security_risk * 100)}%</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
       {freeStack && (
         <p>
           {freeStack.installed_count ?? freeStack.ready_count}/{freeStack.total_count} adapters installed.

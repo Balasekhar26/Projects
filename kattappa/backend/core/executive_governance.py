@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from backend.core.config import load_config
@@ -202,7 +202,7 @@ class ExecutiveCortex:
         conn = cls.get_db_conn()
         cursor = conn.cursor()
         
-        today_start = datetime.utcnow().date().isoformat() + " 00:00:00"
+        today_start = datetime.now(timezone.utc).date().isoformat() + " 00:00:00"
         cursor.execute("""
             SELECT SUM(amount_consumed) FROM resource_ledger
             WHERE resource_type = ? AND created_at >= ?

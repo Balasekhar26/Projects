@@ -13,6 +13,7 @@ export const PANELS = [
   "Tools",
   "Cluster",
   "Agents",
+  "Superbench",
   "Settings",
 ];
 
