@@ -36,10 +36,8 @@ class MemorySystem:
         ):
             self.config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(legacy_sqlite, self.config.sqlite_path)
-            try:
-                legacy_sqlite.unlink()
-            except Exception:
-                pass
+            # Preserve the authoritative legacy source until a separately
+            # verified migration explicitly archives it.
 
         legacy_chroma = legacy_runtime_path(
             "backend/memory/chroma", "backend/memory/chroma"
@@ -51,10 +49,7 @@ class MemorySystem:
         ):
             self.config.chroma_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(legacy_chroma, self.config.chroma_path)
-            try:
-                shutil.rmtree(legacy_chroma)
-            except Exception:
-                pass
+            # Never delete shared vector state during implicit startup migration.
 
     def _collection(self) -> Any:
         if self.collection is None:

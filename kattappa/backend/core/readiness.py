@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+import sys
 
 from pydantic import BaseModel
 
@@ -30,6 +31,7 @@ class RuntimeReadiness(BaseModel):
     ready: bool
     finance_brain: FinanceReadiness
     semantic_cache: SemanticCacheReadiness
+    heavy_modules_loaded: list[str]
 
 
 def runtime_readiness() -> RuntimeReadiness:
@@ -51,4 +53,9 @@ def runtime_readiness() -> RuntimeReadiness:
             mode=cache_status["mode"],
             reason=cache_status["reason"],
         ),
+        heavy_modules_loaded=[
+            name
+            for name in ("torch", "chromadb", "transformers", "onnxruntime")
+            if name in sys.modules
+        ],
     )

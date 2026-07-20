@@ -419,8 +419,11 @@ export function fetchSuperbenchTasks(): Promise<any> {
   return requestJson<any>("/superbench/tasks");
 }
 
-export function runSuperbenchTask(taskId: string): Promise<any> {
-  return postJson(`/superbench/run/${taskId}`, {});
+export function runSuperbenchTask(
+  taskId: string,
+  options: { memory_mode?: "isolated" | "read_only" | "production"; vector_enabled?: boolean } = {}
+): Promise<any> {
+  return postJson(`/superbench/run/${taskId}`, { memory_mode: "isolated", ...options });
 }
 
 export function fetchSuperbenchResults(): Promise<any> {

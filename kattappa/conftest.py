@@ -9,6 +9,16 @@ by monkey-patching importlib.metadata so that the langsmith entry point is
 never returned to pluggy's plugin loader.
 """
 import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent
+_DEV_SCRIPTS = _ROOT / "scripts" / "dev"
+if str(_DEV_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_DEV_SCRIPTS))
+
+from environment_guard import require_verified_environment
+
+require_verified_environment()
 
 # ── Suppress the broken langsmith pytest11 entry-point ──────────────────────
 # The entry-point is registered in the system Python 3.13 dist-info directory

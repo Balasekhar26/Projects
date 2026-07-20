@@ -27,6 +27,29 @@ class TaskExecutionResponse(BaseModel):
     root_cause: Optional[str] = None
     proposed_fix: Optional[str] = None
     lessons_learned: Optional[str] = None
+    run_id: str
+    trace_id: str
+    workspace_id: str
+    memory_mode: str
+    memory_backend: str
+    started_at: float
+    completed_at: Optional[float] = None
+    status: str
+    failure_category: Optional[str] = None
+    exception_fingerprint: Optional[str] = None
+    resource_snapshot: Dict[str, Any]
+    warnings: List[str]
+    retry_eligible: bool
+    recovery_action: Optional[str] = None
+    duration: float
+    response: Optional[str] = None
+
+
+class TaskExecutionRequest(BaseModel):
+    memory_mode: str = "isolated"
+    production_authorized: bool = False
+    vector_enabled: bool = True
+    simulate_vector_failure: bool = False
 
 
 @superbench_router.post("/generate")
@@ -50,15 +73,26 @@ def list_tasks_api(category: Optional[str] = Query(None)) -> Dict[str, Any]:
 
 
 @superbench_router.post("/run/{task_id}", response_model=TaskExecutionResponse)
-def run_task_api(task_id: str) -> Dict[str, Any]:
+def run_task_api(task_id: str, request: TaskExecutionRequest | None = None) -> Dict[str, Any]:
     """Runs a single benchmark task and logs the results in telemetry database."""
     try:
-        result = SuperbenchEngine.execute_task(task_id)
+        options = request or TaskExecutionRequest()
+        result = SuperbenchEngine.execute_task(task_id, **options.model_dump())
         return result
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@superbench_router.get("/runs/{run_id}", response_model=TaskExecutionResponse)
+def get_run_api(run_id: str) -> Dict[str, Any]:
+    result = SuperbenchEngine.get_run(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Superbench run not found")
+    return result
 
 
 @superbench_router.get("/results")

@@ -461,6 +461,12 @@ class ActionBroker:
                 else:
                     from backend.core.openhuman_adapter import OpenHumanAdapter
                     execution_result = OpenHumanAdapter.execute_action(agent_name, action, params, state)
+                    if isinstance(execution_result, dict):
+                        # Browser provenance must reflect the domain that was
+                        # classified above. The generic OpenHuman adapter uses
+                        # a trusted default which is incorrect for unknown
+                        # domains and can overstate untrusted web evidence.
+                        execution_result["trust_score"] = domain_trust
                     # Update metrics post-execution
                     if action in ("BROWSER_NAVIGATE", "BROWSER_READ", "BROWSER_SEARCH", "BROWSER_MAP_LINKS", "BROWSER_EXTRACT_INFO", "BROWSER_FILL_FORM", "BROWSER_CLICK_SUBMIT", "BROWSER_LOGIN"):
                         if url and url not in visited:

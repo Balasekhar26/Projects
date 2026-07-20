@@ -143,6 +143,7 @@ def test_backend_subprocess_reaches_readiness_within_30_seconds() -> None:
                 "mode": "exact_match_with_lazy_semantic",
                 "reason": "semantic provider has not been initialized",
             },
+            "heavy_modules_loaded": [],
         }
     finally:
         stop_process_tree(process)

@@ -207,20 +207,43 @@ def _fetch_json(url: str) -> dict[str, Any]:
 def wait_for_ready(
     port: int, timeout: float, process: subprocess.Popen[str] | None = None
 ) -> dict[str, Any]:
-    deadline = time.perf_counter() + timeout
+    measurement_started = time.perf_counter()
+    deadline = measurement_started + timeout
     delay = 0.1
     last_error: BaseException | None = None
+    first_health_seconds: float | None = None
+    peak_rss_bytes = 0
     while time.perf_counter() < deadline:
         if process is not None and process.poll() is not None:
             raise RuntimeError(f"backend exited during startup with code {process.returncode}")
         try:
+            if process is not None:
+                try:
+                    root_process = psutil.Process(process.pid)
+                    family = [root_process, *root_process.children(recursive=True)]
+                    peak_rss_bytes = max(
+                        peak_rss_bytes,
+                        sum(item.memory_info().rss for item in family if item.is_running()),
+                    )
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
             health = _fetch_json(f"http://127.0.0.1:{port}/health")
+            if first_health_seconds is None:
+                first_health_seconds = time.perf_counter() - measurement_started
             readiness = _fetch_json(f"http://127.0.0.1:{port}/ready")
             if not health.get("status"):
                 raise RuntimeError(f"health endpoint is not healthy: {health}")
             if readiness.get("ready") is not True:
                 raise RuntimeError(f"readiness endpoint is not ready: {readiness}")
-            return readiness
+            return {
+                **readiness,
+                "_startup_metrics": {
+                    "health_seconds": round(first_health_seconds, 6),
+                    "ready_seconds": round(time.perf_counter() - measurement_started, 6),
+                    "peak_rss_bytes": peak_rss_bytes,
+                    "heavy_modules_loaded": readiness.get("heavy_modules_loaded", []),
+                },
+            }
         except (OSError, RuntimeError, json.JSONDecodeError) as exc:
             last_error = exc
             time.sleep(delay)

@@ -1689,7 +1689,8 @@ def health_check() -> dict[str, object]:
         "ollama_ok": None,
         "ollama_message": "not probed by liveness endpoint",
         "models": [],
-        "memory_count": memory.count(),
+        "memory_count": None,
+        "memory_message": "not probed by liveness endpoint",
         "workspace": str(config.workspace_dir),
     }
 

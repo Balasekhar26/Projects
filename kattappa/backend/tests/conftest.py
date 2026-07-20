@@ -136,3 +136,15 @@ def reset_all_schemas():
                             setattr(obj, "_calibration_modifier", 1.0)
                 except Exception:
                     pass
+
+
+@pytest.fixture
+def superbench_storage(tmp_path, monkeypatch):
+    """Redirect the benchmark catalog, records, and run workspaces together."""
+    import backend.core.superbench_engine as engine_module
+    from backend.core.superbench_engine import SuperbenchEngine
+
+    monkeypatch.setattr(engine_module, "runtime_data_root", lambda: tmp_path)
+    SuperbenchEngine._schema_path = None
+    yield tmp_path
+    SuperbenchEngine._schema_path = None

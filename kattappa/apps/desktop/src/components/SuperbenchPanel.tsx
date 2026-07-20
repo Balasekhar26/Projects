@@ -25,6 +25,7 @@ export function SuperbenchPanel() {
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("All");
+  const [activeRun, setActiveRun] = useState<any | null>(null);
 
   const loadData = async () => {
     try {
@@ -70,7 +71,8 @@ export function SuperbenchPanel() {
     setStatusMessage(`Executing validation task ${taskId}...`);
     try {
       const res = await runSuperbenchTask(taskId);
-      setStatusMessage(`Task completed with status: ${res.result}`);
+      setActiveRun(res);
+      setStatusMessage(`Task ${res.status}. Run ${res.run_id}; trace ${res.trace_id}`);
       await loadData();
       
       // Update selected task view
@@ -114,6 +116,7 @@ export function SuperbenchPanel() {
   const getTaskStatusColor = (taskId: string) => {
     const taskResult = results.find(r => r.task_id === taskId);
     if (!taskResult) return "rgba(255, 255, 255, 0.15)"; // grey/unexecuted
+    if (taskResult.status === "degraded") return "var(--warning-color, #f59e0b)";
     if (taskResult.result === "SUCCESS") return "var(--success-color, #10b981)"; // green
     if (taskResult.result === "REJECTED") return "var(--warning-color, #f59e0b)"; // yellow/constitutional gate
     return "var(--danger-color, #ef4444)"; // red/failure
@@ -125,6 +128,13 @@ export function SuperbenchPanel() {
       <p style={{ opacity: 0.9, marginBottom: "1.5rem" }}>
         Pressure testing Kattappa's cognitive framework against 1000 autogenous tasks across 20 distinct intelligence domains.
       </p>
+      <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "1rem", fontSize: "0.78rem" }}>
+        {(["queued", "running", "verifying", "succeeded", "degraded", "failed"] as const).map((phase) => (
+          <span key={phase} style={{ padding: "0.2rem 0.45rem", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "4px" }}>
+            {phase}
+          </span>
+        ))}
+      </div>
 
       {/* Stats Row */}
       <div className="capabilityGrid" style={{ marginBottom: "2rem" }}>
@@ -189,6 +199,15 @@ export function SuperbenchPanel() {
           <span style={{ fontSize: "0.9rem", opacity: 0.9, color: "var(--accent-color)" }}>
             {statusMessage}
           </span>
+        )}
+        {activeRun && (
+          <div style={{ width: "100%", fontSize: "0.82rem", opacity: 0.9 }} data-testid="superbench-run-identity">
+            <strong>{activeRun.status}</strong> · Run {activeRun.run_id} · Trace {activeRun.trace_id}
+            {activeRun.memory_backend && <> · Memory {activeRun.memory_backend}</>}
+            {activeRun.failure_category && <> · Failure {activeRun.failure_category}</>}
+            {activeRun.recovery_action && <> · Recovery {activeRun.recovery_action}</>}
+            {activeRun.retry_eligible && <> · Retry eligible</>}
+          </div>
         )}
       </div>
 
@@ -307,7 +326,10 @@ export function SuperbenchPanel() {
                     const runLog = results.find(r => r.task_id === selectedTask.id);
                     return (
                       <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.5rem" }}>
-                        <div><strong>Result Status:</strong> <span style={{ color: runLog.result === "SUCCESS" ? "var(--success-color)" : "var(--danger-color)" }}>{runLog.result}</span></div>
+                        <div><strong>Result Status:</strong> <span style={{ color: runLog.status === "succeeded" ? "var(--success-color)" : runLog.status === "degraded" ? "var(--warning-color)" : "var(--danger-color)" }}>{runLog.status}</span></div>
+                        <div><strong>Run ID:</strong> {runLog.run_id}</div>
+                        <div><strong>Trace ID:</strong> {runLog.trace_id}</div>
+                        <div><strong>Memory:</strong> {runLog.memory_mode} / {runLog.memory_backend}</div>
                         <div><strong>Latency:</strong> {runLog.latency}s</div>
                         <div><strong>Confidence Indicator:</strong> {Math.round(runLog.confidence * 100)}%</div>
                         <div><strong>Planning Strategy:</strong> {runLog.planning_strategy}</div>

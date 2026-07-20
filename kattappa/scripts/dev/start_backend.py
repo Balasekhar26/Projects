@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from _backend_process import DEFAULT_METADATA, start_backend
+from environment_guard import require_verified_environment
 
 
 def parser() -> argparse.ArgumentParser:
@@ -19,6 +20,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = parser().parse_args()
+    require_verified_environment()
     metadata, readiness = start_backend(
         port=args.port,
         metadata_path=args.metadata,

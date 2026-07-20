@@ -55,6 +55,19 @@ scripts/dev/*
 !scripts/dev/_backend_process.py
 !scripts/dev/start_backend.py
 !scripts/dev/stop_backend.py
+!scripts/dev/environment_guard.py
+!scripts/dev/verify_environment.py
+!scripts/dev/run_tests.py
+!scripts/dev/bootstrap_environment.ps1
+!scripts/validation/
+scripts/validation/*
+!scripts/validation/run_backend_foreground.py
+!scripts/validation/measure_backend_startup.py
+
+# K-R0.4 isolated runtime worker (the generic runtime/ rule is for artifacts).
+!backend/runtime/
+backend/runtime/*
+!backend/runtime/superbench_worker.py
 !scripts/diagnostics/
 scripts/diagnostics/*
 !scripts/diagnostics/profile_startup.py

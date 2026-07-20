@@ -6,29 +6,38 @@ profiles self-model telemetry, and logs success/failure outputs.
 from __future__ import annotations
 
 import json
+import hashlib
+from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
+import uuid
 from typing import Any, Dict, List, Optional
-from backend.core.config import load_config
-from backend.core.logger import log_event
+import psutil
+
+from backend.core.config import runtime_data_root
+from backend.core.superbench_memory import MemoryMode, SuperbenchMemorySession
 
 
 class SuperbenchEngine:
     _lock = threading.RLock()
-    _schema_ensured = False
+    _schema_path: Path | None = None
 
     @classmethod
     def _get_conn(cls) -> sqlite3.Connection:
-        config = load_config()
-        conn = sqlite3.connect(str(config.sqlite_path))
+        path = runtime_data_root() / "superbench" / "superbench.sqlite3"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(path), timeout=30.0)
         conn.row_factory = sqlite3.Row
         return conn
 
     @classmethod
     def ensure_schema(cls) -> None:
         with cls._lock:
-            if cls._schema_ensured:
+            schema_path = runtime_data_root() / "superbench" / "superbench.sqlite3"
+            if cls._schema_path == schema_path:
                 return
             conn = cls._get_conn()
             try:
@@ -61,10 +70,35 @@ class SuperbenchEngine:
                         lessons_learned TEXT,
                         FOREIGN KEY (task_id) REFERENCES hm_superbench_tasks(id)
                     );
+
+                    CREATE TABLE IF NOT EXISTS hm_superbench_runs (
+                        run_id TEXT PRIMARY KEY,
+                        task_id TEXT NOT NULL,
+                        trace_id TEXT NOT NULL,
+                        workspace_id TEXT NOT NULL,
+                        memory_mode TEXT NOT NULL,
+                        started_at REAL NOT NULL,
+                        completed_at REAL,
+                        status TEXT NOT NULL,
+                        failure_category TEXT,
+                        exception_fingerprint TEXT,
+                        resource_snapshot TEXT NOT NULL,
+                        memory_backend TEXT NOT NULL,
+                        warnings TEXT NOT NULL,
+                        retry_eligible INTEGER NOT NULL DEFAULT 0,
+                        recovery_action TEXT,
+                        duration REAL NOT NULL DEFAULT 0,
+                        prompt TEXT NOT NULL,
+                        response TEXT,
+                        legacy_result TEXT NOT NULL,
+                        FOREIGN KEY (task_id) REFERENCES hm_superbench_tasks(id)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_superbench_runs_task
+                    ON hm_superbench_runs(task_id, started_at DESC);
                     """
                 )
                 conn.commit()
-                cls._schema_ensured = True
+                cls._schema_path = schema_path
             finally:
                 conn.close()
 
@@ -263,17 +297,164 @@ class SuperbenchEngine:
             conn.close()
 
     @classmethod
-    def execute_task(cls, task_id: str) -> Dict[str, Any]:
-        """Runs a single Superbench task, captures metrics, and saves the result."""
+    def _task(cls, task_id: str) -> dict[str, Any] | None:
         cls.ensure_schema()
         conn = cls._get_conn()
-        task = None
         try:
             row = conn.execute("SELECT * FROM hm_superbench_tasks WHERE id = ?", (task_id,)).fetchone()
-            if row:
-                task = dict(row)
+            return dict(row) if row else None
         finally:
             conn.close()
+
+    @staticmethod
+    def _resource_snapshot(workspace: Path) -> dict[str, Any]:
+        process = psutil.Process()
+        workspace_bytes = sum(
+            item.stat().st_size for item in workspace.rglob("*") if item.is_file()
+        ) if workspace.exists() else 0
+        return {
+            "process_rss_bytes": process.memory_info().rss,
+            "available_ram_bytes": psutil.virtual_memory().available,
+            "workspace_bytes": workspace_bytes,
+            "heavy_modules_loaded": sorted(
+                name for name in ("torch", "chromadb", "transformers", "onnxruntime")
+                if name in __import__("sys").modules
+            ),
+        }
+
+    @classmethod
+    def _persist_run(cls, run: dict[str, Any]) -> None:
+        payload = dict(run)
+        payload["resource_snapshot"] = json.dumps(payload["resource_snapshot"], sort_keys=True)
+        payload["warnings"] = json.dumps(payload["warnings"])
+        payload["retry_eligible"] = int(bool(payload["retry_eligible"]))
+        conn = cls._get_conn()
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO hm_superbench_runs (
+                    run_id, task_id, trace_id, workspace_id, memory_mode,
+                    started_at, completed_at, status, failure_category,
+                    exception_fingerprint, resource_snapshot, memory_backend,
+                    warnings, retry_eligible, recovery_action, duration,
+                    prompt, response, legacy_result
+                ) VALUES (
+                    :run_id, :task_id, :trace_id, :workspace_id, :memory_mode,
+                    :started_at, :completed_at, :status, :failure_category,
+                    :exception_fingerprint, :resource_snapshot, :memory_backend,
+                    :warnings, :retry_eligible, :recovery_action, :duration,
+                    :prompt, :response, :legacy_result
+                )
+                """,
+                payload,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+        try:
+            root = psutil.Process(process.pid)
+            family = root.children(recursive=True)
+        except psutil.NoSuchProcess:
+            return
+        for child in reversed(family):
+            try:
+                child.terminate()
+            except psutil.NoSuchProcess:
+                pass
+        try:
+            root.terminate()
+        except psutil.NoSuchProcess:
+            pass
+        _, alive = psutil.wait_procs([*family, root], timeout=5.0)
+        for remaining in alive:
+            try:
+                remaining.kill()
+            except psutil.NoSuchProcess:
+                pass
+        psutil.wait_procs(alive, timeout=5.0)
+
+    @classmethod
+    def _execute_runtime(
+        cls, prompt: str, workspace: Path, *, timeout_seconds: float = 30.0
+    ) -> dict[str, Any]:
+        """Run cognition in a process boundary so timeout cleanup is enforceable."""
+
+        environment = dict(__import__("os").environ)
+        environment["KATTAPPA_DATA_DIR"] = str(workspace / "runtime_data")
+        environment["KATTAPPA_TEST_MODE"] = "true"
+        process = subprocess.Popen(
+            [sys.executable, "-m", "backend.runtime.superbench_worker"],
+            cwd=Path(__file__).resolve().parents[2],
+            env=environment,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            stdout, stderr = process.communicate(
+                json.dumps({"prompt": prompt}), timeout=timeout_seconds
+            )
+        except subprocess.TimeoutExpired as exc:
+            cls._terminate_process_tree(process)
+            raise TimeoutError(
+                f"Superbench runtime exceeded {timeout_seconds:g} seconds"
+            ) from exc
+        if process.returncode != 0:
+            raise RuntimeError(
+                "Superbench runtime worker failed: " + stderr[-2000:]
+            )
+        result = json.loads(stdout)
+        if not isinstance(result, dict):
+            raise RuntimeError("Superbench runtime worker returned non-object JSON")
+        return result
+
+    @staticmethod
+    def _public_run(run: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **run,
+            "id": run["run_id"],
+            "timestamp": run["started_at"],
+            "result": run["legacy_result"],
+            "latency": run["duration"],
+            "intent": "Superbench reliability evaluation",
+            "activated_components": json.dumps(["runtime_engine", "superbench_memory"]),
+            "tool_usage": json.dumps([]),
+            "memory_usage": json.dumps([run["memory_backend"]]),
+            "planning_strategy": "DIRECT",
+            "confidence": 1.0 if run["status"] == "succeeded" else 0.5,
+            "failure_mode": run["failure_category"],
+            "root_cause": None,
+            "proposed_fix": run["recovery_action"],
+            "lessons_learned": "Run completed with explicit memory provenance.",
+        }
+
+    @classmethod
+    def execute_task(
+        cls,
+        task_id: str,
+        *,
+        memory_mode: str = "isolated",
+        production_authorized: bool = False,
+        vector_enabled: bool = True,
+        simulate_vector_failure: bool = False,
+    ) -> Dict[str, Any]:
+        """Execute one task with run-scoped state and a persisted failure contract."""
+
+        try:
+            mode = MemoryMode(memory_mode)
+        except ValueError as exc:
+            raise ValueError(f"unsupported memory mode: {memory_mode}") from exc
+        if mode is MemoryMode.PRODUCTION and not production_authorized:
+            raise PermissionError("production memory requires explicit authorization")
+
+        task = cls._task(task_id)
+        if not task and not cls.list_tasks():
+            cls.generate_benchmark_tasks()
+            task = cls._task(task_id)
 
         if not task:
             raise ValueError(f"Task {task_id} not found")
@@ -283,10 +464,47 @@ class SuperbenchEngine:
         difficulty = task["difficulty"]
 
         start_time = time.time()
-        
-        # Simulate / execute backend loop query
-        from backend.runtime.runtime_engine import RuntimeEngine
-        engine = RuntimeEngine()
+        run_id = f"sb_run_{uuid.uuid4().hex}"
+        trace_id = f"sb_trace_{uuid.uuid4().hex}"
+        workspace_id = f"sb_workspace_{uuid.uuid4().hex}"
+        workspace = runtime_data_root() / "superbench" / "runs" / run_id
+        workspace.mkdir(parents=True, exist_ok=False)
+        run: dict[str, Any] = {
+            "run_id": run_id,
+            "task_id": task_id,
+            "trace_id": trace_id,
+            "workspace_id": workspace_id,
+            "memory_mode": mode.value,
+            "started_at": start_time,
+            "completed_at": None,
+            "status": "queued",
+            "failure_category": None,
+            "exception_fingerprint": None,
+            "resource_snapshot": cls._resource_snapshot(workspace),
+            "memory_backend": "pending",
+            "warnings": [],
+            "retry_eligible": False,
+            "recovery_action": None,
+            "duration": 0.0,
+            "prompt": prompt,
+            "response": None,
+            "legacy_result": "FAILURE",
+        }
+        cls._persist_run(run)
+        run["status"] = "running"
+        cls._persist_run(run)
+
+        memory = SuperbenchMemorySession(workspace, mode)
+        prepared = memory.prepare(
+            prompt,
+            vector_enabled=vector_enabled,
+            simulate_vector_failure=simulate_vector_failure,
+        )
+        run["memory_backend"] = prepared.backend
+        run["warnings"] = list(prepared.warnings)
+        run["failure_category"] = prepared.failure_category
+        run["exception_fingerprint"] = prepared.exception_fingerprint
+        run["recovery_action"] = prepared.recovery_action
         
         result_status = "SUCCESS"
         failure_mode = None
@@ -306,24 +524,48 @@ class SuperbenchEngine:
             lessons_learned = "System correctly identified capability boundaries."
 
         try:
-            boot_result = engine.boot(prompt)
-            latency = time.time() - start_time
+            if result_status == "REJECTED":
+                boot_result = {
+                    "response": "Benchmark request rejected by the constitutional preflight gate.",
+                    "trace": ["Security preflight rejected unsafe benchmark input."],
+                }
+            else:
+                boot_result = cls._execute_runtime(prompt, workspace)
             response = boot_result.get("response", "")
-            trace = boot_result.get("trace", [])
+            run["status"] = "verifying"
+            run["response"] = response
+            cls._persist_run(run)
         except Exception as e:
-            latency = time.time() - start_time
             result_status = "FAILURE"
             failure_mode = "RUNTIME_EXCEPTION"
             root_cause = str(e)
             proposed_fix = "Verify runtime workspace dependency resolution."
-            trace = []
+            run["failure_category"] = (
+                "RUNTIME_TIMEOUT" if isinstance(e, TimeoutError) else "RUNTIME_EXCEPTION"
+            )
+            run["exception_fingerprint"] = hashlib.sha256(
+                f"{type(e).__module__}.{type(e).__name__}:{e}".encode("utf-8")
+            ).hexdigest()[:24]
+            run["retry_eligible"] = True
 
-        # Fetch telemetry metrics from dynamic modules
-        from backend.core.self_model import SelfModel
-        sm_state = SelfModel.get_self_model_state()
-        confidence = sm_state.get("confidence", {}).get("planning_confidence", 0.95)
+        # Confidence belongs to this verified benchmark outcome. Querying the
+        # global SelfModel here couples an isolated benchmark to shared state
+        # and can initialize heavyweight telemetry stores.
+        confidence = 1.0 if result_status in {"SUCCESS", "REJECTED"} else 0.0
 
-        # Assemble result
+        if result_status == "FAILURE":
+            run["status"] = "failed"
+        elif prepared.failure_category or prepared.warnings:
+            run["status"] = "degraded"
+        else:
+            run["status"] = "succeeded"
+        run["legacy_result"] = result_status
+        run["completed_at"] = time.time()
+        run["duration"] = round(run["completed_at"] - start_time, 3)
+        run["resource_snapshot"] = cls._resource_snapshot(workspace)
+        cls._persist_run(run)
+
+        # Assemble compatibility result
         result_id = f"SB_RES_{int(time.time()*1000)}"
         result_data = {
             "id": result_id,
@@ -336,7 +578,7 @@ class SuperbenchEngine:
             "memory_usage": json.dumps(["working", "episodic"]),
             "planning_strategy": "HTN_PLANNER" if difficulty in ["Advanced", "Expert"] else "DIRECT",
             "confidence": confidence,
-            "latency": round(latency, 3),
+            "latency": run["duration"],
             "result": result_status,
             "failure_mode": failure_mode,
             "root_cause": root_cause,
@@ -362,15 +604,40 @@ class SuperbenchEngine:
         finally:
             conn.close()
 
-        return result_data
+        return cls._public_run(run)
 
     @classmethod
     def get_results(cls) -> List[Dict[str, Any]]:
         cls.ensure_schema()
         conn = cls._get_conn()
         try:
-            rows = conn.execute("SELECT * FROM hm_superbench_results ORDER BY timestamp DESC").fetchall()
-            return [dict(r) for r in rows]
+            rows = conn.execute("SELECT * FROM hm_superbench_runs ORDER BY started_at DESC").fetchall()
+            results = []
+            for row in rows:
+                item = dict(row)
+                item["resource_snapshot"] = json.loads(item["resource_snapshot"])
+                item["warnings"] = json.loads(item["warnings"])
+                item["retry_eligible"] = bool(item["retry_eligible"])
+                results.append(cls._public_run(item))
+            return results
+        finally:
+            conn.close()
+
+    @classmethod
+    def get_run(cls, run_id: str) -> Dict[str, Any] | None:
+        cls.ensure_schema()
+        conn = cls._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM hm_superbench_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if not row:
+                return None
+            item = dict(row)
+            item["resource_snapshot"] = json.loads(item["resource_snapshot"])
+            item["warnings"] = json.loads(item["warnings"])
+            item["retry_eligible"] = bool(item["retry_eligible"])
+            return cls._public_run(item)
         finally:
             conn.close()
 
@@ -380,17 +647,17 @@ class SuperbenchEngine:
         conn = cls._get_conn()
         try:
             total_tasks = conn.execute("SELECT COUNT(*) FROM hm_superbench_tasks").fetchone()[0]
-            results = conn.execute("SELECT * FROM hm_superbench_results").fetchall()
+            results = conn.execute("SELECT * FROM hm_superbench_runs").fetchall()
             
             result_list = [dict(r) for r in results]
             total_executed = len(result_list)
             
-            success_count = sum(1 for r in result_list if r["result"] == "SUCCESS")
-            rejected_count = sum(1 for r in result_list if r["result"] == "REJECTED")
-            failure_count = sum(1 for r in result_list if r["result"] == "FAILURE")
+            success_count = sum(1 for r in result_list if r["legacy_result"] == "SUCCESS")
+            rejected_count = sum(1 for r in result_list if r["legacy_result"] == "REJECTED")
+            failure_count = sum(1 for r in result_list if r["legacy_result"] == "FAILURE")
             
             success_rate = success_count / total_executed if total_executed > 0 else 0.0
-            avg_latency = sum(r["latency"] for r in result_list) / total_executed if total_executed > 0 else 0.0
+            avg_latency = sum(r["duration"] for r in result_list) / total_executed if total_executed > 0 else 0.0
             
             # Group by category success
             category_stats = {}
@@ -401,7 +668,7 @@ class SuperbenchEngine:
                 
                 cat_data = category_stats.setdefault(cat, {"executed": 0, "success": 0})
                 cat_data["executed"] += 1
-                if r["result"] in ["SUCCESS", "REJECTED"]:
+                if r["legacy_result"] in ["SUCCESS", "REJECTED"]:
                     cat_data["success"] += 1
 
             return {
