@@ -62,7 +62,7 @@ def run_full_sharded_suite(shard_size: int = 250):
     print(f"Commit SHA: {start_sha[:12]}")
     
     if not valid_start:
-        print("\n❌ PROVENANCE PREFLIGHT FAILED. ABORTING RELEASE RUN.")
+        print("\n[FAILED] PROVENANCE PREFLIGHT FAILED. ABORTING RELEASE RUN.")
         for err in errors:
             print(f"  - {err}")
             
@@ -77,7 +77,7 @@ def run_full_sharded_suite(shard_size: int = 250):
             json.dump(verdict_payload, f, indent=2)
         return 3
 
-    print("✅ Provenance Preflight Passed: All runner files tracked in HEAD, 0 untracked source files.")
+    print("[PASSED] Provenance Preflight Passed: All runner files tracked in HEAD, 0 untracked source files.")
 
     print("\n--- 1. Collecting Test Inventory ---")
     n_collected, c_hash, p_hash = collect_inventory(evidence_dir)
@@ -98,7 +98,7 @@ def run_full_sharded_suite(shard_size: int = 250):
     print("\n--- 4. Post-Execution Worktree Integrity Check ---")
     valid_end, end_sha, post_errors = verify_source_provenance()
     if start_sha != end_sha or not valid_end:
-        print("\n❌ POST-EXECUTION WORKTREE INTEGRITY FAILED.")
+        print("\n[FAILED] POST-EXECUTION WORKTREE INTEGRITY FAILED.")
         for err in post_errors:
             print(f"  - {err}")
 

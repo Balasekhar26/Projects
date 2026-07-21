@@ -12,6 +12,8 @@ runs/
 **/runs/
 tensorboard/
 **/tensorboard/
+!scripts/validation/*.py
+!scripts/validation/*.yaml
 *.log
 **/logs/
 
