@@ -24,6 +24,8 @@ def _get_metrics_path() -> pathlib.Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
+METRICS_PATH = _get_metrics_path()
+
 class MetricsTracker:
     _lock = threading.Lock()
     _defaults = {
