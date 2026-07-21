@@ -1079,7 +1079,7 @@ class SQLiteLedgerStore(LedgerStore):
             conn = self._get_connection()
             cursor = conn.cursor()
             query = (
-                "SELECT goal_id, title, description, status, priority, owner, "
+                "SELECT goal_id, title, description, status, priority, owner, owner_id, "
                 "deadline_utc, confidence, retry_count, max_retries, "
                 "parent_goal_id, created_at, updated_at, metadata "
                 "FROM goals WHERE 1=1"
@@ -1103,7 +1103,7 @@ class SQLiteLedgerStore(LedgerStore):
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT goal_id, title, description, status, priority, owner, "
+                "SELECT goal_id, title, description, status, priority, owner, owner_id, "
                 "deadline_utc, confidence, retry_count, max_retries, "
                 "parent_goal_id, created_at, updated_at, metadata "
                 "FROM goals WHERE parent_goal_id = ? ORDER BY priority DESC",

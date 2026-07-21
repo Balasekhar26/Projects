@@ -1,0 +1,51 @@
+schema_version: 1
+policy_name: kattappa_k_r0_5_isolation_policy
+default_isolation_class: isolated_stateful
+
+isolation_classes:
+  parallel_safe:
+    concurrency_limit: 2
+    requires_isolated_storage: false
+    exclusive_execution: false
+  isolated_stateful:
+    concurrency_limit: 2
+    requires_isolated_storage: true
+    exclusive_execution: false
+  exclusive_process:
+    concurrency_limit: 1
+    requires_isolated_storage: true
+    exclusive_execution: true
+  browser_ui:
+    concurrency_limit: 1
+    requires_isolated_storage: true
+    exclusive_execution: true
+  resource_heavy:
+    concurrency_limit: 1
+    requires_isolated_storage: true
+    exclusive_execution: true
+
+path_rules:
+  browser_ui:
+    - ".*browser.*"
+    - ".*playwright.*"
+    - ".*gui.*"
+  exclusive_process:
+    - ".*dev_backend_process.*"
+    - ".*runtime_readiness.*"
+    - ".*start_backend.*"
+    - ".*stop_backend.*"
+    - ".*lifecycle.*"
+  resource_heavy:
+    - ".*benchmark.*"
+    - ".*superbench.*"
+    - ".*stress.*"
+    - ".*hypothesis.*"
+  isolated_stateful:
+    - ".*sqlite.*"
+    - ".*chroma.*"
+    - ".*vector.*"
+    - ".*memory.*"
+    - ".*storage.*"
+    - ".*db.*"
+    - ".*persistence.*"
+    - ".*file.*"

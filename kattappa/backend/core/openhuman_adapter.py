@@ -110,6 +110,9 @@ class OpenHumanAdapter:
                     f"Size: 100 bytes\n"
                     f"SHA256: mock_sha"
                 )
+            elif action == "BROWSER_SPEEDTEST":
+                from backend.core.macros.browser_macros import execute_speedtest
+                return execute_speedtest()
             return {"success": True, "message": f"Browser action '{action}' executed (mocked)"}
 
         # Desktop

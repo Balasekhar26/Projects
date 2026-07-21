@@ -61,13 +61,20 @@ scripts/dev/*
 !scripts/dev/bootstrap_environment.ps1
 !scripts/validation/
 scripts/validation/*
-!scripts/validation/run_backend_foreground.py
-!scripts/validation/measure_backend_startup.py
+!scripts/validation/*.py
+!scripts/validation/*.yaml
+!scripts/validation/*.yml
 
 # K-R0.4 isolated runtime worker (the generic runtime/ rule is for artifacts).
 !backend/runtime/
 backend/runtime/*
 !backend/runtime/superbench_worker.py
+!backend/core/voice/runtime/
+backend/core/voice/runtime/*
+!backend/core/voice/runtime/*.py
+!backend/core/orchestrator/runtime/
+backend/core/orchestrator/runtime/*
+!backend/core/orchestrator/runtime/*.py
 !scripts/diagnostics/
 scripts/diagnostics/*
 !scripts/diagnostics/profile_startup.py
