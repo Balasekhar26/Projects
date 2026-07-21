@@ -1,0 +1,30 @@
+{
+  "a2_count": 3187,
+  "canonical_count": 3200,
+  "added_count": 15,
+  "removed_count": 2,
+  "unchanged_count": 3185,
+  "added_node_ids": [
+    "backend/tests/test_rbil.py::test_archetype_engine_general",
+    "backend/tests/test_rbil.py::test_archetype_engine_profile",
+    "backend/tests/test_rbil.py::test_escalation_classification",
+    "backend/tests/test_rbil.py::test_intent_calculator",
+    "backend/tests/test_rbil.py::test_intent_faqs_and_projects",
+    "backend/tests/test_rbil.py::test_intent_greeting_and_farewell",
+    "backend/tests/test_rbil.py::test_intent_time_and_date",
+    "backend/tests/test_rbil.py::test_intent_unit_conversion",
+    "backend/tests/test_rbil.py::test_metrics_tracker",
+    "backend/tests/test_sharded_validation.py::test_aggregator_writes_only_test_verdict_json",
+    "backend/tests/test_sharded_validation.py::test_canonical_testpaths_loader",
+    "backend/tests/test_sharded_validation.py::test_policy_hash_changes_with_content",
+    "backend/tests/test_sharded_validation.py::test_policy_yaml_controls_classification",
+    "backend/tests/test_sharded_validation.py::test_scope_policy_allowlist_matching",
+    "backend/tests/test_sharded_validation.py::test_unknown_test_defaults_to_isolated_stateful"
+  ],
+  "removed_node_ids": [
+    "backend/tests/test_sharded_validation.py::test_inventory_node_classification",
+    "backend/tests/test_sharded_validation.py::test_policy_hash_computation"
+  ],
+  "a2_collection_hash": "cf40147b6649480c04383b56ebf68edb5df5f2ab303b8be45065f56f3fb15790",
+  "canonical_collection_hash": "cf40147b6649480c04383b56ebf68edb5df5f2ab303b8be45065f56f3fb15790"
+}

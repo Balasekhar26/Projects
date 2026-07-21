@@ -71,7 +71,7 @@ Voice, desktop, browser, chat               Architecture, science, research
                                              system retains control)
 ```
 
-- **Fast Interactive Task**: Small resident model (< 2.0 GiB RAM) for instant interactive tasks.
+- **Fast Interactive Task**: Small resident model (< 2.0 GiB RAM) for low-latency interactive tasks, subject to measured model, CPU and hardware performance.
 - **Deep Reasoning Task**: SSD-streamed MoE model for complex reasoning. The deep reasoning model produces structured plans and analysis; Kattappa's security, permission, and execution systems maintain absolute control.
 
 ---
