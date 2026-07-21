@@ -1,11 +1,23 @@
 {
-  "count": 3115,
-  "raw_collected_count": 3115,
-  "unique_collected_count": 3115,
+  "count": 3200,
+  "raw_collected_count": 3200,
+  "unique_collected_count": 3200,
+  "per_root_counts": {
+    "backend/tests": 3115,
+    "kattappa_native/tests": 11,
+    "kattappa_data_engine/tests": 21,
+    "kattappa_runtime/resource_governor": 53
+  },
+  "canonical_testpaths": [
+    "backend/tests",
+    "kattappa_native/tests",
+    "kattappa_data_engine/tests",
+    "kattappa_runtime/resource_governor"
+  ],
   "duplicate_node_ids": [],
   "policy_hash": "cf40147b6649480c04383b56ebf68edb5df5f2ab303b8be45065f56f3fb15790",
   "environment_fingerprint": {
-    "commit_sha": "478b27148f5020f300f31ee9cd4a101032633cd7",
+    "commit_sha": "57013779f1e44ed11790a0085d5ded9a20a90f51",
     "python_executable": "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Scripts\\python.exe",
     "python_version": "3.13.13",
     "pytest_version": "pytest 9.0.3",
@@ -11518,7 +11530,7 @@
       "isolation_class": "isolated_stateful"
     },
     {
-      "node_id": "backend/tests/test_sharded_validation.py::test_exit_code_breakdown_in_aggregator",
+      "node_id": "backend/tests/test_sharded_validation.py::test_canonical_testpaths_loader",
       "source_file": "backend/tests/test_sharded_validation.py",
       "isolation_class": "isolated_stateful"
     },
@@ -15585,6 +15597,431 @@
     {
       "node_id": "backend/tests/test_wse_pipeline.py::test_world_diff_generation",
       "source_file": "backend/tests/test_wse_pipeline.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_dataset_builder.py::test_dataset_builder_pipeline",
+      "source_file": "kattappa_data_engine/tests/test_dataset_builder.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_dedup.py::test_code_normalization",
+      "source_file": "kattappa_data_engine/tests/test_dedup.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_dedup.py::test_exact_dedup",
+      "source_file": "kattappa_data_engine/tests/test_dedup.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_dedup.py::test_minhash_lsh_clustering",
+      "source_file": "kattappa_data_engine/tests/test_dedup.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_dedup.py::test_paragraph_frequency_filter",
+      "source_file": "kattappa_data_engine/tests/test_dedup.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_distill.py::test_compiler_pipeline",
+      "source_file": "kattappa_data_engine/tests/test_distill.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_distill.py::test_distillation_judge",
+      "source_file": "kattappa_data_engine/tests/test_distill.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_distill.py::test_distillation_orchestrator",
+      "source_file": "kattappa_data_engine/tests/test_distill.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_distill.py::test_novelty_and_hard_filters",
+      "source_file": "kattappa_data_engine/tests/test_distill.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_distill.py::test_telugu_generator",
+      "source_file": "kattappa_data_engine/tests/test_distill.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_evaluation_engine.py::test_evaluation_engine_orchestration",
+      "source_file": "kattappa_data_engine/tests/test_evaluation_engine.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_lang_detector.py::test_code_switched_detection",
+      "source_file": "kattappa_data_engine/tests/test_lang_detector.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_lang_detector.py::test_english_detection",
+      "source_file": "kattappa_data_engine/tests/test_lang_detector.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_lang_detector.py::test_roman_telugu_detection",
+      "source_file": "kattappa_data_engine/tests/test_lang_detector.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_lang_detector.py::test_telugu_script_detection",
+      "source_file": "kattappa_data_engine/tests/test_lang_detector.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_memory_benchmark.py::test_memory_benchmark_probes_and_scores",
+      "source_file": "kattappa_data_engine/tests/test_memory_benchmark.py",
+      "isolation_class": "resource_heavy"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_pipeline_integration.py::test_pipeline_integration",
+      "source_file": "kattappa_data_engine/tests/test_pipeline_integration.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_safety.py::test_license_quarantine",
+      "source_file": "kattappa_data_engine/tests/test_safety.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_safety.py::test_pii_redaction",
+      "source_file": "kattappa_data_engine/tests/test_safety.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_synthetic_factory.py::test_synthetic_generation_and_schema",
+      "source_file": "kattappa_data_engine/tests/test_synthetic_factory.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_data_engine/tests/test_train_lora.py::test_lora_training_dry_run",
+      "source_file": "kattappa_data_engine/tests/test_train_lora.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_evaluation_infrastructure.py::test_experiment_registry_logging",
+      "source_file": "kattappa_native/tests/test_evaluation_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_evaluation_infrastructure.py::test_health_check_validates_weights",
+      "source_file": "kattappa_native/tests/test_evaluation_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_evaluation_infrastructure.py::test_model_card_generation",
+      "source_file": "kattappa_native/tests/test_evaluation_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_training_infrastructure.py::test_checkpoint_rollback",
+      "source_file": "kattappa_native/tests/test_training_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_training_infrastructure.py::test_checkpoint_save_and_resume",
+      "source_file": "kattappa_native/tests/test_training_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_training_infrastructure.py::test_dataset_integrity",
+      "source_file": "kattappa_native/tests/test_training_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_training_infrastructure.py::test_deterministic_seed",
+      "source_file": "kattappa_native/tests/test_training_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_training_infrastructure.py::test_gradient_accumulation",
+      "source_file": "kattappa_native/tests/test_training_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_training_infrastructure.py::test_gradient_checkpointing",
+      "source_file": "kattappa_native/tests/test_training_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_training_infrastructure.py::test_learning_rate_scheduler",
+      "source_file": "kattappa_native/tests/test_training_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_native/tests/test_training_infrastructure.py::test_mixed_precision",
+      "source_file": "kattappa_native/tests/test_training_infrastructure.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_agent_lifecycle_inactivity",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "exclusive_process"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_agent_lifecycle_multiple_agents",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "exclusive_process"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_agent_lifecycle_sleep_wake",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "exclusive_process"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_context_optimizer_document_cropping",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_context_optimizer_empty_history",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_context_optimizer_large_history_pruning",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_context_optimizer_ram_pressure",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_context_optimizer_simple_pruning",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_context_optimizer_token_estimation",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_difficulty_estimator_coding",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_difficulty_estimator_complex",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_difficulty_estimator_edge_case_whitespace",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_difficulty_estimator_empty_query",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_difficulty_estimator_simple",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_dynamic_router_complex_load",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_dynamic_router_extreme_ram_overload",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_dynamic_router_medium_load",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_dynamic_router_simple",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_engine_facade_delegation",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_engine_facade_lazy_load_denied_exception",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_engine_facade_start_stop",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_budget_denied",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_budget_permitted",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_disk_io_limit",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_global_cpu_exceeded",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_global_gpu_exceeded",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_global_ram_exceeded",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_net_io_limit",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_network_receive_limit_edge",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_governor_subsystem_specific_allocation",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_hierarchical_memory_eviction",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_hierarchical_memory_retrieve_nonexistent",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_hierarchical_memory_warm_to_cold_compression",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_lazy_loader_denied_on_ram",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_lazy_loader_load",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_lazy_loader_nonexistent_subsystem",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_monitor_initialization",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_monitor_subsystem_stats",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_safety_controller_approval",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_safety_controller_assess_gating",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_safety_controller_memory_estimation",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_schema_initialization",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_storage_manager_cleanup_checkpoint_pruning",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_storage_manager_cleanup_tmp",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_storage_manager_disk_space_healthy",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_storage_manager_disk_space_unhealthy",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_storage_manager_no_checkpoints_to_prune",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_storage_manager_rotate_logs",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_system_resource_metrics_fields",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_thermal_governor_worker_scaling",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_training_governor_critical_state",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_training_governor_healthy_state",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
+      "isolation_class": "isolated_stateful"
+    },
+    {
+      "node_id": "kattappa_runtime/resource_governor/test_resource_governor.py::test_training_governor_pressure_state",
+      "source_file": "kattappa_runtime/resource_governor/test_resource_governor.py",
       "isolation_class": "isolated_stateful"
     }
   ]

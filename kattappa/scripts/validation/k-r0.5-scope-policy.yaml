@@ -3,6 +3,7 @@ baseline_commit: "97d4bd9a5507479b5b5b903a9e09abf4bcc7b709"
 
 allowed_paths:
   - ".gitignore"
+  - "pytest.ini"
   - "backend/core/ledger/stores/sqlite_store.py"
   - "backend/core/openhuman_adapter.py"
   - "backend/core/rbil.py"
