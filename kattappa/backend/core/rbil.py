@@ -8,9 +8,18 @@ import pathlib
 import threading
 from typing import Any
 
+import os
+
 # Registry file location
 REGISTRY_PATH = pathlib.Path(__file__).parent / "local_registry.json"
-METRICS_PATH = pathlib.Path(__file__).parent.parent / "data" / "rbil_metrics.json"
+
+def _get_metrics_path() -> pathlib.Path:
+    data_dir = os.getenv("KATTAPPA_DATA_DIR")
+    if data_dir:
+        p = pathlib.Path(data_dir) / "metrics" / "rbil_metrics.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+    return pathlib.Path(__file__).parent.parent / "data" / "rbil_metrics.json"
 
 class MetricsTracker:
     _lock = threading.Lock()
@@ -28,8 +37,9 @@ class MetricsTracker:
     def load(cls) -> dict[str, Any]:
         with cls._lock:
             try:
-                if METRICS_PATH.exists():
-                    with open(METRICS_PATH, "r", encoding="utf-8") as f:
+                metrics_path = _get_metrics_path()
+                if metrics_path.exists():
+                    with open(metrics_path, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         # Ensure all default keys exist
                         for k, v in cls._defaults.items():
@@ -44,8 +54,9 @@ class MetricsTracker:
     def save(cls, data: dict[str, Any]) -> None:
         with cls._lock:
             try:
-                METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
-                with open(METRICS_PATH, "w", encoding="utf-8") as f:
+                metrics_path = _get_metrics_path()
+                metrics_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(metrics_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
             except Exception:
                 pass

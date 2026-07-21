@@ -1,0 +1,11 @@
+{
+  "valid_for_release": false,
+  "verdict": "invalid",
+  "reason_codes": [
+    "COMMIT_CONTENT_MISMATCH",
+    "RUNNER_SOURCE_NOT_PROVEN_IN_COMMIT",
+    "TRACKED_DATA_MUTATED",
+    "WORKTREE_PROVENANCE_UNKNOWN"
+  ],
+  "notes": "Task 5804 was terminated. Run was invalidated due to commit content mismatch and worktree provenance audit requirements."
+}
