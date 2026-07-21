@@ -154,7 +154,8 @@ class ConsolidationEngine:
             clusters = self._cluster_records(candidates, jaccard_threshold)
 
             for cluster in clusters:
-                # Calculate aggregated metrics for the cluster
+                # Select lead record as the one with highest importance_score and confidence
+                cluster.sort(key=lambda r: (r.importance_score, r.confidence), reverse=True)
                 lead = cluster[0]
                 merged_count = len(cluster)
                 if merged_count > 1:

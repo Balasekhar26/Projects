@@ -1227,7 +1227,7 @@ def handle_fast_path(message: str) -> dict[str, Any] | None:
     elif any(q in clean_text for q in ["test internet speed", "speed test", "test speed", "internet speed test"]):
         from backend.core.macros.browser_macros import execute_speedtest
         response = execute_speedtest()
-        agent = "browser"
+        agent = "macro_browser_speedtest"
 
     if response is None:
         return None

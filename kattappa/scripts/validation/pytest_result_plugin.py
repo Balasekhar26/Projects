@@ -145,6 +145,13 @@ class KattappaResultPlugin:
                 and len(self.unexpected_collected_node_ids) == 0
             )
 
+            # Fail-closed enforcement: throw UsageError if collection set does not match expected node set
+            if not self.collection_set_match:
+                raise pytest.UsageError(
+                    f"SHARD_COLLECTION_SET_MISMATCH: Expected node set does not match collected node set! "
+                    f"Missing expected: {self.missing_expected_node_ids[:5]} | Unexpected collected: {self.unexpected_collected_node_ids[:5]}"
+                )
+
     def pytest_collectreport(self, report):
         if report.failed:
             self.collection_errors.append({

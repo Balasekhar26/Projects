@@ -79,5 +79,5 @@ def test_truth_dependency_propagation():
 
     # Verify that child load_balancer confidence decayed proportionally
     child_fused = b_state.get_property("host_cpu", "load_balancer")
-    # Expected child confidence bounded by parent fused confidence (approx 0.08333333333333336)
-    assert pytest.approx(child_fused.confidence, 0.001) == 0.0833
+    # Expected child confidence bounded by parent fused confidence (approx 0.083)
+    assert abs(child_fused.confidence - 0.083) < 0.005

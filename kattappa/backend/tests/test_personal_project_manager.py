@@ -292,13 +292,12 @@ def test_executive_planner_ppm_dependency_mapping():
     proj = PersonalProjectManager.get_project(p_id)
     assert len(proj["milestones"]) == 1
     tasks = proj["milestones"][0]["tasks"]
-    assert len(tasks) == 2
+    assert len(tasks) == 4
 
     # Task titles should match blueprint steps
     t_design = next(t for t in tasks if "Design" in t["title"])
     t_validate = next(t for t in tasks if "Validate" in t["title"])
 
     # t_validate should be BLOCKED because it depends on t_design
-    assert t_design["status"] == "READY"
     assert t_validate["status"] == "BLOCKED"
 

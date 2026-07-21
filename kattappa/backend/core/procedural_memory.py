@@ -396,12 +396,12 @@ class ProceduralMemory:
         try:
             if procedure_id:
                 rows = conn.execute(
-                    "SELECT * FROM hm_procedure_audit WHERE procedure_id = ? ORDER BY timestamp DESC",
+                    "SELECT * FROM hm_procedure_audit WHERE procedure_id = ? ORDER BY timestamp DESC, id DESC",
                     (procedure_id,)
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM hm_procedure_audit ORDER BY timestamp DESC"
+                    "SELECT * FROM hm_procedure_audit ORDER BY timestamp DESC, id DESC"
                 ).fetchall()
             return [dict(r) for r in rows]
         finally:

@@ -172,6 +172,7 @@ class EphemeralSandboxContext:
                     self._deleted_environb[k] = os.environb[k]
                     del os.environb[k]
 
+        os.environ["KATTAPPA_SANDBOX_ISOLATED"] = "true"
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):

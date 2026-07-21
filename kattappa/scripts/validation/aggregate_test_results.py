@@ -152,6 +152,24 @@ def aggregate_results(evidence_dir: Path) -> dict:
             if sres.get("manifest_file_hash") != manifest_file_hash:
                 raise ValueError(f"Shard {s_id} has mismatching manifest_file_hash: {sres.get('manifest_file_hash')} != {manifest_file_hash}")
 
+            # Independently recompute and verify shard artifact hashes
+            shard_def_file = sdir / "shard_definition.json"
+            expected_nodes_file = sdir / "expected-node-ids.json"
+
+            if not shard_def_file.exists() or not expected_nodes_file.exists():
+                raise FileNotFoundError(f"Missing shard_definition.json or expected-node-ids.json in shard dir {sdir}")
+
+            recomputed_def_hash = hashlib.sha256(shard_def_file.read_bytes()).hexdigest()
+            recomputed_nodes_hash = hashlib.sha256(expected_nodes_file.read_bytes()).hexdigest()
+
+            if sres.get("shard_definition_sha256") != recomputed_def_hash:
+                raise ValueError(f"Shard {s_id} shard_definition_sha256 mismatch: {sres.get('shard_definition_sha256')} != {recomputed_def_hash}")
+            if sres.get("expected_node_ids_sha256") != recomputed_nodes_hash:
+                raise ValueError(f"Shard {s_id} expected_node_ids_sha256 mismatch: {sres.get('expected_node_ids_sha256')} != {recomputed_nodes_hash}")
+
+            if not sres.get("shard_definition_hash_verified") or not sres.get("expected_node_ids_hash_verified"):
+                raise ValueError(f"Shard {s_id} reports unverified shard artifact hashes")
+
             if s_id not in manifest_shard_ids:
                 raise ValueError(f"Shard ID {s_id} is not defined in the current manifest")
 
@@ -253,6 +271,8 @@ def aggregate_results(evidence_dir: Path) -> dict:
         "collection_hash": collection.get("collection_hash", manifest.get("collection_hash")),
         "manifest_core_hash": manifest_core_hash,
         "manifest_file_hash": manifest_file_hash,
+        "shard_definition_hash_verified": True,
+        "expected_node_ids_hash_verified": True,
         "total_nodes_collected": len(collected_node_ids),
         "total_nodes_assigned": len(assigned_node_ids),
         "total_nodes_attempted": len(attempted_node_ids),

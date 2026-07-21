@@ -15,6 +15,9 @@ from backend.core.planning.meta_cognition import SelfAwarenessState, ConfidenceM
 
 logger = logging.getLogger(__name__)
 
+def log_event(event_type: str, message: str) -> None:
+    logger.info("[%s] %s", event_type, message)
+
 
 class MetaExecutiveMode:
     TEACHER = "TEACHER"

@@ -28,13 +28,14 @@ class PlannerEngine:
         
         import sys
         use_mock = (
-            "pytest" in sys.modules or 
+            ("pytest" in sys.modules or 
             os.getenv("KATTAPPA_TEST_MODE") == "true" or
-            os.getenv("KATTAPPA_MOCK_LLM") == "true"
+            os.getenv("KATTAPPA_MOCK_LLM") == "true")
+            and os.getenv("KATTAPPA_FORCE_REAL_PLANNING") != "true"
         )
-        
+
         raw_steps = []
-        
+
         if use_mock:
             lower_goal = goal.lower()
             if "write" in lower_goal and "test" in lower_goal:
@@ -103,29 +104,26 @@ class PlannerEngine:
                 f"- params (dict)\n"
                 f"- dependencies (list of strings, step_ids this step depends on)\n"
                 f"Example: "
-                f'[{"step_id": "s1", "description": "init venv", "agent": "coder", "action": "RUN_SHELL", "params": {"command": "python -m venv venv"}, "dependencies": []}]'
+                f'[{{"step_id": "s1", "description": "init venv", "agent": "coder", "action": "RUN_SHELL", "params": {{"command": "python -m venv venv"}}, "dependencies": []}}]'
             )
             try:
-                res = ask_model(prompt, role="planning")
-                clean_res = res.strip()
-                if clean_res.startswith("```json"):
-                    clean_res = clean_res[7:]
-                if clean_res.endswith("```"):
-                    clean_res = clean_res[:-3]
-                clean_res = clean_res.strip()
-                raw_steps = json.loads(clean_res)
+                import backend.core.model_router as model_router
+                res = model_router.ask_model(prompt, role="planning")
+                if res is not None:
+                    clean_res = res.strip()
+                    if clean_res.startswith("```json"):
+                        clean_res = clean_res[7:]
+                    if clean_res.endswith("```"):
+                        clean_res = clean_res[:-3]
+                    clean_res = clean_res.strip()
+                    parsed = json.loads(clean_res)
+                    if isinstance(parsed, list):
+                        raw_steps = parsed
             except Exception:
-                # Fallback step
-                raw_steps = [
-                    {
-                        "step_id": "step_fallback",
-                        "description": f"Fallback action for {intent}",
-                        "agent": "coder",
-                        "action": "RUN_SHELL",
-                        "params": {"command": f"echo Running {intent}"},
-                        "dependencies": []
-                    }
-                ]
+                raw_steps = []
+
+        if not isinstance(raw_steps, list):
+            raw_steps = []
                 
         # Enrich generated steps with Risk, Verification, and Approval values
         enriched_steps = []

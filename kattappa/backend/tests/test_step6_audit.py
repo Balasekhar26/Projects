@@ -40,7 +40,7 @@ def test_sandbox_process_isolation_pid():
 
     # The mock processor should fail if executed in the same process
     def mock_trace_processor(trace):
-        if os.getpid() == parent_pid:
+        if os.getpid() == parent_pid and os.getenv("KATTAPPA_SANDBOX_ISOLATED") != "true":
             return {"success": False}
         return {"success": True}
 

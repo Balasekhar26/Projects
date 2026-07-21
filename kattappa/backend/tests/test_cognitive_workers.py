@@ -35,13 +35,14 @@ class TestCognitiveWorkers(unittest.TestCase):
     def test_planner_routing(self, mock_ask_model):
         """Verifies planner CoT and decomposition route requests to the planning model."""
         mock_ask_model.return_value = '[]'
-        
-        # Test Decomposition
-        try:
-            PlannerAgent().decompose("test goal", context={})
-        except Exception:
-            pass
-        
+
+        with patch.dict("os.environ", {"KATTAPPA_FORCE_REAL_PLANNING": "true"}), \
+             patch("backend.core.skills.skill_selector.SkillSelector.select_skill", return_value=None):
+            try:
+                PlannerAgent().decompose("test goal", context={})
+            except Exception:
+                pass
+
         # Verify ask_model was called with role="planning"
         called_roles = [kwargs.get("role") for _, kwargs in mock_ask_model.call_args_list]
         self.assertIn("planning", called_roles)

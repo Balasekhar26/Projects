@@ -87,7 +87,10 @@ def route_metacognition(state: AgentState) -> str:
     if action == "RE_RETRIEVE" and re_retrieve_count < 2:
         return "memory"
 
-    if action in ("ANSWER", "ASK_CLARIFICATION", "ABSTAIN"):
+    if action in ("ASK_CLARIFICATION", "ABSTAIN"):
+        return "evaluator"
+
+    if action == "ANSWER":
         return "safety"
 
     return "council_debate"
@@ -768,34 +771,34 @@ def metacognition_node(state: AgentState) -> AgentState:
     else:
         # Generate result if direct output action and no result exists yet
         if state["metacognitive_action"] == "ANSWER" and not state.get("result"):
-            from backend.core.model_router import ask_model
+            import backend.core.model_router as model_router
             prompt = (
                 "You are Kattappa. Answer the user request directly and concisely based on the retrieved memory context.\n\n"
                 f"User Request: {state['user_input']}\n\n"
                 f"Memory Context:\n{state.get('memory_context') or 'None'}\n"
             )
             try:
-                state["result"] = ask_model(prompt, role="general")
+                state["result"] = model_router.ask_model(prompt, role="general")
             except Exception as e:
                 state["result"] = f"Error generating answer: {e}"
         elif state["metacognitive_action"] == "ASK_CLARIFICATION" and not state.get("result"):
-            from backend.core.model_router import ask_model
+            import backend.core.model_router as model_router
             prompt = (
                 "You are Kattappa. Ask the user for clarification about their request.\n\n"
                 f"User Request: {state['user_input']}\n"
             )
             try:
-                state["result"] = ask_model(prompt, role="general")
+                state["result"] = model_router.ask_model(prompt, role="general")
             except Exception as e:
                 state["result"] = f"Clarification request: {e}"
         elif state["metacognitive_action"] == "ABSTAIN" and not state.get("result"):
-            from backend.core.model_router import ask_model
+            import backend.core.model_router as model_router
             prompt = (
                 "You are Kattappa. Politely explain that you cannot perform or answer this request safely.\n\n"
                 f"User Request: {state['user_input']}\n"
             )
             try:
-                state["result"] = ask_model(prompt, role="general")
+                state["result"] = model_router.ask_model(prompt, role="general")
             except Exception as e:
                 state["result"] = f"I cannot fulfill this request safely. Error: {e}"
                 
@@ -976,6 +979,7 @@ def build_graph():
             "memory": "memory",
             "safety": "safety",
             "council_debate": "council_debate",
+            "evaluator": "evaluator",
         }
     )
     

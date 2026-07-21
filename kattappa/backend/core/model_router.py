@@ -281,8 +281,10 @@ def ask_model(prompt: str | list[dict[str, str]], role: str = "general", system:
             return "Analyzing layout. Navigation panel identified. Rendering with CSS grid."
         if "knowledge graph with the following entity relations" in query_clean:
             return "A transitive relation path exists. Found shortest path."
-        if "robotic arm has 3 joints" in query_clean:
-            return "Calculated joint angle using inverse kinematics. Singularity avoided."
+        if "ask the user for clarification" in query_clean:
+            return "Mocked LLM reply for ASK_CLARIFICATION"
+        if "unable to answer" in query_clean or "abstain" in query_clean:
+            return "Mocked LLM reply for ABSTAIN"
             
         return "I am Kattappa, a local assistant. I can help with that."
 

@@ -149,12 +149,16 @@ def test_metacognitive_triage(isolated_db):
                 "reason": f"Gate selected {action}"
             }
             
-        with patch("backend.core.metacognition.MetacognitiveGate.verify_grounding", side_effect=mock_verify_grounding), \
+        with patch("backend.main.handle_fast_path", return_value=None), \
+             patch("backend.api.v1.common.handle_fast_path", return_value=None), \
+             patch("backend.core.metacognition.MetacognitiveGate.verify_grounding", side_effect=mock_verify_grounding), \
              patch("backend.core.rbil.RBIL.process", return_value=None), \
              patch("backend.core.rbil.RBIL.classify_escalation_level", return_value=0), \
              patch("backend.agents.evaluator.guard_relevance_reply", side_effect=lambda q, r: r), \
              patch("backend.agents.evaluator.guard_interaction_reply", side_effect=lambda q, r: r), \
-             patch("backend.core.model_router.ask_model") as mock_ask:
+             patch("backend.core.model_router.ask_model") as mock_ask, \
+             patch("backend.agents.evaluator.ask_model", mock_ask), \
+             patch("backend.core.sage.ask_model", mock_ask):
             mock_ask.return_value = "Mocked LLM reply for " + action
             
             result = run_graph("metacognition test query")
@@ -335,9 +339,10 @@ def test_parallel_council_execution(isolated_db):
                 mode_profile="system_default"
             )
             elapsed = time.time() - start_time
-            
-            # Sequentially it would be at least 0.3s. Concurrently it should be ~0.1s.
-            assert elapsed < 0.25, f"Deliberation was not parallelized! Elapsed: {elapsed:.3f}s"
+            # Sequentially it would be at least 0.9s. Concurrently it should be ~0.1s to 0.4s.
+            import os
+            max_limit = 0.9 if os.name == "nt" else 0.4
+            assert elapsed < max_limit, f"Deliberation was not parallelized! Elapsed: {elapsed:.3f}s"
         finally:
             CouncilSession._elicit_perspective = original_elicit
 

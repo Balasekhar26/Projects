@@ -157,8 +157,21 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
     assert reopened == node_ids, "expected-node-ids.json content mismatch"
     expected_node_ids_sha256 = hashlib.sha256(expected_node_ids_path.read_bytes()).hexdigest()
 
-    # Build launcher command with --run-identity if available
+    # Mandatory run-identity check
     run_identity_path = evidence_dir / "run-identity.json"
+    diagnostic_mode = (os.environ.get("KATTAPPA_DIAGNOSTIC_MODE") == "1")
+
+    if not run_identity_path.exists() and not diagnostic_mode:
+        raise RuntimeError(f"RUN_IDENTITY_REQUIRED: Missing mandatory run-identity.json in {evidence_dir}")
+
+    run_identity = {}
+    if run_identity_path.exists():
+        try:
+            run_identity = json.loads(run_identity_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise RuntimeError(f"RUN_IDENTITY_REQUIRED: Cannot read run-identity.json: {exc}")
+
+    # Build launcher command — mandatory --run-identity
     cmd = [
         get_python_executable(),
         str(PROJECT_ROOT / "scripts" / "validation" / "execute_pytest_shard.py"),
@@ -167,6 +180,8 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
     ]
     if run_identity_path.exists():
         cmd.append(f"--run-identity={run_identity_path}")
+    elif diagnostic_mode:
+        cmd.append("--diagnostic-mode")
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
@@ -275,21 +290,51 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
     xpassed_cnt = 0
     internal_errors = []
 
-    if result_json_path.exists():
-        try:
-            res_data = json.loads(result_json_path.read_text(encoding="utf-8"))
-            attempted_nodes = res_data.get("attempted_node_ids", [])
-            executed_nodes = res_data.get("executed_node_ids", [])
-            completed_nodes = res_data.get("completed_node_ids", [])
-            passed_cnt = res_data.get("passed", 0)
-            failed_cnt = res_data.get("failed", 0)
-            errors_cnt = res_data.get("errors", 0)
-            skipped_cnt = res_data.get("skipped", 0)
-            xfailed_cnt = res_data.get("xfailed", 0)
-            xpassed_cnt = res_data.get("xpassed", 0)
-            internal_errors = res_data.get("internal_errors", [])
-        except Exception as e:
-            internal_errors.append({"type": "ResultPluginParseError", "message": str(e)})
+    if not result_json_path.exists():
+        raise RuntimeError(f"PYTEST_RESULT_IDENTITY_MISMATCH: Result file {result_json_path} does not exist after launcher run")
+
+    try:
+        res_data = json.loads(result_json_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise RuntimeError(f"PYTEST_RESULT_IDENTITY_MISMATCH: Failed to parse pytest result JSON: {e}")
+
+    # Validate launcher result identity fields against expectations
+    required_res_identity_fields = [
+        "run_id", "run_label", "candidate_commit", "collection_hash",
+        "policy_hash", "manifest_core_hash", "manifest_file_hash",
+        "environment_hash", "shard_id", "shard_definition_sha256",
+        "expected_node_ids_sha256"
+    ]
+    for field in required_res_identity_fields:
+        if field not in res_data or res_data[field] is None:
+            raise RuntimeError(f"PYTEST_RESULT_IDENTITY_MISMATCH: Missing required field '{field}' in pytest_results.json")
+
+    if res_data["shard_id"] != shard_id:
+        raise RuntimeError(f"PYTEST_RESULT_IDENTITY_MISMATCH: shard_id mismatch: {res_data['shard_id']} != {shard_id}")
+    if res_data["run_id"] != run_id:
+        raise RuntimeError(f"PYTEST_RESULT_IDENTITY_MISMATCH: run_id mismatch: {res_data['run_id']} != {run_id}")
+    if res_data["candidate_commit"] != candidate_commit:
+        raise RuntimeError(f"PYTEST_RESULT_IDENTITY_MISMATCH: candidate_commit mismatch: {res_data['candidate_commit']} != {candidate_commit}")
+
+    # Recompute artifact hashes independently and verify
+    recomputed_shard_def_hash = hashlib.sha256(shard_def_json.read_bytes()).hexdigest()
+    recomputed_expected_nodes_hash = hashlib.sha256(expected_node_ids_path.read_bytes()).hexdigest()
+
+    if recomputed_shard_def_hash != res_data["shard_definition_sha256"]:
+        raise RuntimeError(f"PYTEST_RESULT_IDENTITY_MISMATCH: Recomputed shard_definition_sha256 mismatch: {recomputed_shard_def_hash} != {res_data['shard_definition_sha256']}")
+    if recomputed_expected_nodes_hash != res_data["expected_node_ids_sha256"]:
+        raise RuntimeError(f"PYTEST_RESULT_IDENTITY_MISMATCH: Recomputed expected_node_ids_sha256 mismatch: {recomputed_expected_nodes_hash} != {res_data['expected_node_ids_sha256']}")
+
+    attempted_nodes = res_data.get("attempted_node_ids", [])
+    executed_nodes = res_data.get("executed_node_ids", [])
+    completed_nodes = res_data.get("completed_node_ids", [])
+    passed_cnt = res_data.get("passed", 0)
+    failed_cnt = res_data.get("failed", 0)
+    errors_cnt = res_data.get("errors", 0)
+    skipped_cnt = res_data.get("skipped", 0)
+    xfailed_cnt = res_data.get("xfailed", 0)
+    xpassed_cnt = res_data.get("xpassed", 0)
+    internal_errors = res_data.get("internal_errors", [])
 
     # Fail shard closed if surviving processes or newly leaked ports are detected
     if surviving_pids or newly_leaked_ports:
@@ -304,8 +349,10 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
         "manifest_core_hash": manifest_core_hash,
         "manifest_file_hash": manifest_file_hash,
         "environment_hash": environment_hash,
-        "shard_definition_sha256": shard_definition_sha256,
-        "expected_node_ids_sha256": expected_node_ids_sha256,
+        "shard_definition_sha256": recomputed_shard_def_hash,
+        "expected_node_ids_sha256": recomputed_expected_nodes_hash,
+        "shard_definition_hash_verified": True,
+        "expected_node_ids_hash_verified": True,
         "shard_id": shard_id,
         "isolation_class": iso_cls,
         "total_nodes_assigned": len(node_ids),

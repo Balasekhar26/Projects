@@ -75,24 +75,29 @@ class FailureRecoveryEngine:
                 f"2. 'recovery_path': a specific, actionable instruction or sequence of steps to recover or bypass this failure.\n"
                 f"Do not return any markdown wrappers, just the raw JSON object."
             )
+            def _get_fallback_recovery(r_text: str) -> str:
+                r_lower = r_text.lower()
+                if "compile" in r_lower or "syntax" in r_lower or "react" in r_lower:
+                    return "Scan target files for syntax issues, apply corrective patches, and retry tests."
+                elif "timeout" in r_lower or "network" in r_lower or "port" in r_lower:
+                    return "Re-check connection stability, expand timeout parameters to 15s, and run request again."
+                return "Fallback to generic validation checks, retrieve last safe checkpoint, and ask human clearance."
+
             try:
                 response = ask_model(prompt, role="recovery")
                 json_match = re.search(r"\{.*\}", response, re.DOTALL)
                 if json_match:
                     data = json.loads(json_match.group(0))
                     rca_reason = data.get("rca", f"RCA Analysis: {agent} agent failed due to: {reason}")
-                    recovery_path = data.get("recovery_path", "Fallback to generic validation checks and human clearance.")
+                    recovery_path = data.get("recovery_path")
+                    if not recovery_path or "fallback to generic" in recovery_path.lower():
+                        recovery_path = _get_fallback_recovery(reason)
                 else:
                     rca_reason = f"RCA Analysis: {agent} agent failed due to: {reason}"
-                    recovery_path = "Fallback to generic validation checks and human clearance."
+                    recovery_path = _get_fallback_recovery(reason)
             except Exception:
                 rca_reason = f"RCA Analysis: {agent} agent failed due to: {reason}"
-                if "compile" in reason.lower() or "syntax" in reason.lower():
-                    recovery_path = "Scan target files for syntax issues, apply corrective patches, and retry tests."
-                elif "timeout" in reason.lower() or "network" in reason.lower():
-                    recovery_path = "Re-check connection stability, expand timeout parameters to 15s, and run request again."
-                else:
-                    recovery_path = "Fallback to generic validation checks, retrieve last safe checkpoint, and ask human clearance."
+                recovery_path = _get_fallback_recovery(reason)
                 
             fail_id = f"fail_{int(time.time())}_{len(failures)}"
             failure_report = {
