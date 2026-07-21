@@ -1,0 +1,107 @@
+{
+  "audit": {
+    "S0": {
+      "snapshot": "S0",
+      "collection_artifact_commit": "d315ec1daece26a9389ad6fdcdedfcc02ade730f",
+      "collection_environment_commit": "unknown",
+      "status": "VALID",
+      "collector_blob_sha": "",
+      "pytest_ini_blob_sha": "",
+      "collection_hash": "e9d08ba6be50e9539aa2e800e12e140e7b114618f768ab9ff96ba08078814cfc",
+      "count": 3187,
+      "node_counts_by_prefix": {
+        "backend/tests": 3102,
+        "kattappa_native/tests": 11,
+        "kattappa_data_engine/tests": 21,
+        "kattappa_runtime/resource_governor": 53,
+        "other": 0
+      }
+    },
+    "S1": {
+      "snapshot": "S1",
+      "collection_artifact_commit": "478b27148f5020f300f31ee9cd4a101032633cd7",
+      "collection_environment_commit": "unknown",
+      "status": "VALID",
+      "collector_blob_sha": "",
+      "pytest_ini_blob_sha": "",
+      "collection_hash": "e9d08ba6be50e9539aa2e800e12e140e7b114618f768ab9ff96ba08078814cfc",
+      "count": 3187,
+      "node_counts_by_prefix": {
+        "backend/tests": 3102,
+        "kattappa_native/tests": 11,
+        "kattappa_data_engine/tests": 21,
+        "kattappa_runtime/resource_governor": 53,
+        "other": 0
+      }
+    },
+    "S2": {
+      "snapshot": "S2",
+      "collection_artifact_commit": "1ee6bdb25ba0475a2122afdacec0497f29272b06",
+      "collection_environment_commit": "b4b33f0e009d12117019e45336f9cb9839a2520d",
+      "status": "STALE_COLLECTION_ARTIFACT",
+      "collector_blob_sha": "",
+      "pytest_ini_blob_sha": "",
+      "collection_hash": "4ab6edaf3763a3aa7009f786a07e2db117e27448981aa37b661d17af9e85b61a",
+      "count": 3200,
+      "node_counts_by_prefix": {
+        "backend/tests": 3115,
+        "kattappa_native/tests": 11,
+        "kattappa_data_engine/tests": 21,
+        "kattappa_runtime/resource_governor": 53,
+        "other": 0
+      }
+    }
+  },
+  "transitions": {
+    "S0_to_S1": {
+      "added": [],
+      "removed": []
+    },
+    "S1_to_S2": {
+      "added": [
+        "backend/tests/test_rbil.py::test_archetype_engine_general",
+        "backend/tests/test_rbil.py::test_archetype_engine_profile",
+        "backend/tests/test_rbil.py::test_escalation_classification",
+        "backend/tests/test_rbil.py::test_intent_calculator",
+        "backend/tests/test_rbil.py::test_intent_faqs_and_projects",
+        "backend/tests/test_rbil.py::test_intent_greeting_and_farewell",
+        "backend/tests/test_rbil.py::test_intent_time_and_date",
+        "backend/tests/test_rbil.py::test_intent_unit_conversion",
+        "backend/tests/test_rbil.py::test_metrics_tracker",
+        "backend/tests/test_sharded_validation.py::test_aggregator_writes_only_test_verdict_json",
+        "backend/tests/test_sharded_validation.py::test_canonical_testpaths_loader",
+        "backend/tests/test_sharded_validation.py::test_policy_hash_changes_with_content",
+        "backend/tests/test_sharded_validation.py::test_policy_yaml_controls_classification",
+        "backend/tests/test_sharded_validation.py::test_scope_policy_allowlist_matching",
+        "backend/tests/test_sharded_validation.py::test_unknown_test_defaults_to_isolated_stateful"
+      ],
+      "removed": [
+        "backend/tests/test_sharded_validation.py::test_inventory_node_classification",
+        "backend/tests/test_sharded_validation.py::test_policy_hash_computation"
+      ]
+    },
+    "S0_to_S2": {
+      "added": [
+        "backend/tests/test_rbil.py::test_archetype_engine_general",
+        "backend/tests/test_rbil.py::test_archetype_engine_profile",
+        "backend/tests/test_rbil.py::test_escalation_classification",
+        "backend/tests/test_rbil.py::test_intent_calculator",
+        "backend/tests/test_rbil.py::test_intent_faqs_and_projects",
+        "backend/tests/test_rbil.py::test_intent_greeting_and_farewell",
+        "backend/tests/test_rbil.py::test_intent_time_and_date",
+        "backend/tests/test_rbil.py::test_intent_unit_conversion",
+        "backend/tests/test_rbil.py::test_metrics_tracker",
+        "backend/tests/test_sharded_validation.py::test_aggregator_writes_only_test_verdict_json",
+        "backend/tests/test_sharded_validation.py::test_canonical_testpaths_loader",
+        "backend/tests/test_sharded_validation.py::test_policy_hash_changes_with_content",
+        "backend/tests/test_sharded_validation.py::test_policy_yaml_controls_classification",
+        "backend/tests/test_sharded_validation.py::test_scope_policy_allowlist_matching",
+        "backend/tests/test_sharded_validation.py::test_unknown_test_defaults_to_isolated_stateful"
+      ],
+      "removed": [
+        "backend/tests/test_sharded_validation.py::test_inventory_node_classification",
+        "backend/tests/test_sharded_validation.py::test_policy_hash_computation"
+      ]
+    }
+  }
+}

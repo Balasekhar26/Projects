@@ -82,11 +82,11 @@ class KattappaResultPlugin:
                 if nodeid not in self.outcomes["errors"]:
                     self.outcomes["errors"].append(nodeid)
 
-    def pytest_internalerror(self, excreport, excinfo):
+    def pytest_internalerror(self, excrepr, excinfo):
         self.internal_errors.append({
-            "type": excinfo.typename,
-            "message": str(excinfo.value),
-            "repr": str(excreport)
+            "type": "pytest_internalerror",
+            "representation": str(excrepr),
+            "exception": str(excinfo.value) if excinfo else None,
         })
 
     def pytest_sessionfinish(self, session, exitstatus):

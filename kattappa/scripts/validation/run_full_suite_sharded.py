@@ -107,7 +107,7 @@ def verify_source_provenance() -> tuple[bool, str, list[str]]:
         return False, "unknown", [f"Git provenance command failed: {e}"]
 
 
-def run_full_sharded_suite(shard_size: int = 250):
+def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule_order: str = "canonical"):
     # --- Generate immutable run identity ---
     start_sha_pre = "unknown"
     try:
@@ -118,7 +118,7 @@ def run_full_sharded_suite(shard_size: int = 250):
         pass
 
     run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"k-r0.5-A-{start_sha_pre[:8]}-{run_timestamp}"
+    run_id = f"k-r0.5-{run_label}-{start_sha_pre[:8]}-{run_timestamp}"
     run_dir = _get_external_run_dir(run_id)
 
     print(f"=== K-R0.5 Official Release Run ===")
@@ -130,7 +130,7 @@ def run_full_sharded_suite(shard_size: int = 250):
     # Write initial run metadata
     run_metadata = {
         "run_id": run_id,
-        "run_label": "A",
+        "run_label": run_label,
         "candidate_commit": start_sha_pre,
         "branch": "codex/k-r0.5-clean",
         "python_executable": sys.executable,
@@ -156,6 +156,7 @@ def run_full_sharded_suite(shard_size: int = 250):
             "run_id": run_id,
             "verdict": "INVALID",
             "valid_for_release": False,
+            "status": "invalid_provenance",
             "start_commit": start_sha,
             "end_commit": start_sha,
             "reason": "SOURCE_PROVENANCE_PREFLIGHT_FAILED",
@@ -164,7 +165,7 @@ def run_full_sharded_suite(shard_size: int = 250):
         (run_dir / "release-verdict.json").write_text(
             json.dumps(release_verdict, indent=2), encoding="utf-8"
         )
-        run_metadata["status"] = "failed_preflight"
+        run_metadata["status"] = "invalid_provenance"
         run_metadata["completed_at"] = datetime.now(timezone.utc).isoformat()
         (run_dir / "run-metadata.json").write_text(
             json.dumps(run_metadata, indent=2), encoding="utf-8"
@@ -180,7 +181,15 @@ def run_full_sharded_suite(shard_size: int = 250):
     run_metadata["policy_hash"] = p_hash
 
     print("\n--- 2. Building Shard Manifest ---")
-    n_shards, m_hash = build_manifest(run_dir, shard_size=shard_size)
+    n_shards, m_hash = build_manifest(
+        run_dir,
+        shard_size=shard_size,
+        run_id=run_id,
+        run_label=run_label,
+        candidate_commit=start_sha_pre,
+        environment_fingerprint=run_metadata,
+        schedule_order=schedule_order
+    )
 
     run_metadata["manifest_hash"] = m_hash
     (run_dir / "run-metadata.json").write_text(
@@ -218,16 +227,42 @@ def run_full_sharded_suite(shard_size: int = 250):
             print(f"  - Data mutation detected in paths: {changed_data_paths}")
 
     print("\n--- 5. Aggregating Test Results ---")
-    test_verdict_data = aggregate_results(run_dir)
+    invalid_artifacts = False
+    artifact_errors = []
+    try:
+        test_verdict_data = aggregate_results(run_dir)
+    except Exception as e:
+        print(f"\n[FAILED] ARTIFACT AGGREGATION OR IDENTITY MISMATCH: {e}")
+        test_verdict_data = {
+            "test_verdict": "FAIL",
+            "error": str(e)
+        }
+        invalid_artifacts = True
+        artifact_errors = [str(e)]
 
     provenance_passed = valid_start and valid_end and start_sha == end_sha and not data_changed
-    final_is_pass = provenance_passed and test_verdict_data["test_verdict"] == "PASS"
+    final_is_pass = provenance_passed and not invalid_artifacts and test_verdict_data.get("test_verdict") == "PASS"
+
+    # Define explicit terminal status
+    if not valid_start or not valid_end or start_sha != end_sha:
+        status = "invalid_provenance"
+    elif data_changed:
+        status = "invalid_provenance"
+    elif invalid_artifacts:
+        status = "invalid_artifacts"
+    elif test_verdict_data.get("test_verdict") == "TIMEOUT" or test_verdict_data.get("shard_outcomes", {}).get("timed_out_shards", 0) > 0:
+        status = "timed_out"
+    elif test_verdict_data.get("test_verdict") == "PASS":
+        status = "passed"
+    else:
+        status = "failed_tests"
 
     release_verdict = {
         "run_id": run_id,
-        "verdict": "PASS" if final_is_pass else "FAIL",
+        "verdict": "PASS" if final_is_pass else ("INVALID" if (not provenance_passed or invalid_artifacts) else "FAIL"),
         "valid_for_release": final_is_pass,
         "run_class": "release_candidate",
+        "status": status,
         "start_commit": start_sha,
         "end_commit": end_sha,
         "policy_hash": p_hash,
@@ -247,12 +282,15 @@ def run_full_sharded_suite(shard_size: int = 250):
         "test_verdict": test_verdict_data,
     }
 
+    if invalid_artifacts:
+        release_verdict["artifact_errors"] = artifact_errors
+
     # SOLE author of release-verdict.json — written to EXTERNAL run directory
     (run_dir / "release-verdict.json").write_text(
         json.dumps(release_verdict, indent=2), encoding="utf-8"
     )
 
-    run_metadata["status"] = "completed"
+    run_metadata["status"] = status
     run_metadata["completed_at"] = datetime.now(timezone.utc).isoformat()
     (run_dir / "run-metadata.json").write_text(
         json.dumps(run_metadata, indent=2), encoding="utf-8"
@@ -262,6 +300,7 @@ def run_full_sharded_suite(shard_size: int = 250):
     print(f"RUN ID: {run_id}")
     print(f"RUN DIRECTORY: {run_dir}")
     print(f"RELEASE VERDICT: {release_verdict['verdict']}")
+    print(f"STATUS: {release_verdict['status']}")
     print(f"VALID FOR RELEASE: {release_verdict['valid_for_release']}")
     print(f"Start Commit: {start_sha[:12]} | End Commit: {end_sha[:12]}")
     print("=============================================================\n")
@@ -279,5 +318,23 @@ if __name__ == "__main__":
         default=250,
         help="Target number of test nodes per shard",
     )
+    parser.add_argument(
+        "--run-label",
+        type=str,
+        default="A",
+        choices=["A", "B", "C", "D"],
+        help="Label for the run (A, B, C, or D)"
+    )
+    parser.add_argument(
+        "--schedule-order",
+        type=str,
+        default="canonical",
+        choices=["canonical", "repeat", "alternate"],
+        help="Scheduling order for shard assignment"
+    )
     args = parser.parse_args()
-    sys.exit(run_full_sharded_suite(shard_size=args.target_tests_per_shard))
+    sys.exit(run_full_sharded_suite(
+        shard_size=args.target_tests_per_shard,
+        run_label=args.run_label,
+        schedule_order=args.schedule_order
+    ))

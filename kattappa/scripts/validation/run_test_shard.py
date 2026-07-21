@@ -9,18 +9,31 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-def check_known_ports_free(ports: list[int] = None) -> list[int]:
+def get_busy_ports(ports: list[int] = None) -> set[int]:
     if ports is None:
         ports = [8000, 8080, 8443, 9090]
-    leaked_ports = []
+    busy = set()
     for port in ports:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.settimeout(0.5)
+            probe.settimeout(0.1)
             try:
+                # If we cannot bind, the port is busy
                 probe.bind(("127.0.0.1", port))
             except OSError:
-                leaked_ports.append(port)
-    return leaked_ports
+                busy.add(port)
+    return busy
+
+def get_python_processes() -> set[int]:
+    py_procs = set()
+    for p in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            cmd = p.info.get("cmdline") or []
+            cmd_str = " ".join(cmd).lower()
+            if "python" in cmd_str or "pytest" in cmd_str:
+                py_procs.add(p.pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return py_procs
 
 def kill_process_tree(pid: int, timeout: float = 10.0) -> tuple[int, list[int], str]:
     surviving_pids = []
@@ -44,7 +57,6 @@ def kill_process_tree(pid: int, timeout: float = 10.0) -> tuple[int, list[int], 
                 except psutil.NoSuchProcess:
                     pass
 
-        # Wait up to 10 seconds for process tree termination
         gone, alive = psutil.wait_procs(all_procs, timeout=timeout)
         if alive:
             for p in alive:
@@ -74,11 +86,18 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
     node_ids = shard_data["node_ids"]
     timeout_seconds = shard_data.get("timeout_seconds", 300)
 
+    # Bind identity fields from shard_data
+    run_id = shard_data.get("run_id")
+    candidate_commit = shard_data.get("candidate_commit")
+    collection_hash = shard_data.get("collection_hash")
+    policy_hash = shard_data.get("policy_hash")
+    manifest_hash = shard_data.get("manifest_hash")
+
     shard_dir = evidence_dir / "shards" / shard_id
     shard_dir.mkdir(parents=True, exist_ok=True)
 
     result_json_path = shard_dir / "pytest_results.json"
-    
+
     cmd = [
         get_python_executable(),
         "-m", "pytest",
@@ -92,6 +111,10 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
 
     stdout_path = shard_dir / "stdout.log"
     stderr_path = shard_dir / "stderr.log"
+
+    # Pre-execution supervision snapshots
+    ports_before = get_busy_ports()
+    py_procs_before = get_python_processes()
 
     t0 = time.time()
     timed_out = False
@@ -113,16 +136,40 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
             exit_code = proc.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
             timed_out = True
-            tk_rc, surviving_pids, cleanup_msg = kill_process_tree(proc.pid, timeout=10.0)
+            kill_process_tree(proc.pid, timeout=10.0)
             exit_code = -9
 
     duration = time.time() - t0
 
-    # Post-execution supervision check
-    tk_rc, surviving_pids, cleanup_msg = kill_process_tree(proc.pid, timeout=2.0)
-    leaked_ports = check_known_ports_free()
+    # Post-execution supervision cleanup
+    kill_process_tree(proc.pid, timeout=2.0)
 
-    # Parse KattappaResultPlugin output
+    # Check newly leaked ports and python processes
+    ports_after = get_busy_ports()
+    py_procs_after = get_python_processes()
+
+    newly_leaked_ports = sorted(list(ports_after - ports_before))
+
+    # Detached descendant tracking
+    newly_spawned_py = py_procs_after - py_procs_before
+    surviving_pids = []
+    cleanup_log = []
+
+    for sp_pid in newly_spawned_py:
+        # Avoid checking current/parent process group
+        if sp_pid != os.getpid() and sp_pid != proc.pid:
+            try:
+                p = psutil.Process(sp_pid)
+                # Check if it was started in PROJECT_ROOT
+                if p.cwd() == str(PROJECT_ROOT) or any(str(PROJECT_ROOT) in arg for arg in p.cmdline()):
+                    # Terminate the orphan
+                    p.kill()
+                    surviving_pids.append(sp_pid)
+                    cleanup_log.append(f"Killed orphaned python descendant process: {sp_pid}")
+            except Exception as e:
+                pass
+
+    # Parse pytest plugin results
     executed_nodes = []
     attempted_nodes = []
     completed_nodes = []
@@ -150,11 +197,16 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
         except Exception as e:
             internal_errors.append({"type": "ResultPluginParseError", "message": str(e)})
 
-    # Fail shard if surviving process or port leak detected
-    if surviving_pids or leaked_ports:
+    # Fail shard closed if surviving processes or newly leaked ports are detected
+    if surviving_pids or newly_leaked_ports:
         exit_code = -15 if exit_code == 0 else exit_code
 
     shard_result = {
+        "run_id": run_id,
+        "candidate_commit": candidate_commit,
+        "collection_hash": collection_hash,
+        "policy_hash": policy_hash,
+        "manifest_hash": manifest_hash,
         "shard_id": shard_id,
         "isolation_class": iso_cls,
         "total_nodes_assigned": len(node_ids),
@@ -176,8 +228,8 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
         "duration_seconds": round(duration, 2),
         "supervision": {
             "surviving_pids": surviving_pids,
-            "leaked_ports": leaked_ports,
-            "cleanup_log": cleanup_msg
+            "leaked_ports": newly_leaked_ports,
+            "cleanup_log": "\n".join(cleanup_log)
         },
         "internal_errors": internal_errors
     }

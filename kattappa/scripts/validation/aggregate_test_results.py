@@ -15,12 +15,21 @@ def aggregate_results(evidence_dir: Path) -> dict:
     collection = json.loads(coll_file.read_text(encoding="utf-8"))
     manifest = json.loads(man_file.read_text(encoding="utf-8"))
 
+    # Canonical identity values from manifest
+    run_id = manifest.get("run_id")
+    candidate_commit = manifest.get("candidate_commit")
+    collection_hash = manifest.get("collection_hash")
+    policy_hash = manifest.get("policy_hash")
+    manifest_hash = manifest.get("manifest_hash")
+
+    manifest_shard_ids = {s["shard_id"] for s in manifest["shards"]}
+
     collected_node_ids = set(item["node_id"] for item in collection["items"])
-    
+
     assigned_node_ids_list = []
     for s in manifest["shards"]:
         assigned_node_ids_list.extend(s["node_ids"])
-    
+
     assigned_node_ids = set(assigned_node_ids_list)
 
     executed_node_ids = set()
@@ -44,6 +53,7 @@ def aggregate_results(evidence_dir: Path) -> dict:
     process_crash_shards = 0
 
     total_duration = 0.0
+    processed_shard_ids = set()
 
     if shards_dir.exists():
         for sdir in shards_dir.iterdir():
@@ -54,13 +64,37 @@ def aggregate_results(evidence_dir: Path) -> dict:
                 crashed_shards += 1
                 process_crash_shards += 1
                 continue
-            
+
             try:
                 sres = json.loads(res_file.read_text(encoding="utf-8"))
             except Exception:
                 crashed_shards += 1
                 process_crash_shards += 1
                 continue
+
+            # Strict cross-run and stale result validations
+            s_id = sres.get("shard_id")
+            if not s_id:
+                raise ValueError("Shard result is missing shard_id field")
+
+            # Rejection of duplicate shard result processing
+            if s_id in processed_shard_ids:
+                raise ValueError(f"Duplicate shard result processed for shard_id: {s_id}")
+            processed_shard_ids.add(s_id)
+
+            if sres.get("run_id") != run_id:
+                raise ValueError(f"Shard {s_id} has mismatching run_id: {sres.get('run_id')} != {run_id}")
+            if sres.get("candidate_commit") != candidate_commit:
+                raise ValueError(f"Shard {s_id} has mismatching candidate_commit: {sres.get('candidate_commit')} != {candidate_commit}")
+            if sres.get("collection_hash") != collection_hash:
+                raise ValueError(f"Shard {s_id} has mismatching collection_hash: {sres.get('collection_hash')} != {collection_hash}")
+            if sres.get("policy_hash") != policy_hash:
+                raise ValueError(f"Shard {s_id} has mismatching policy_hash: {sres.get('policy_hash')} != {policy_hash}")
+            if sres.get("manifest_hash") != manifest_hash:
+                raise ValueError(f"Shard {s_id} has mismatching manifest_hash: {sres.get('manifest_hash')} != {manifest_hash}")
+
+            if s_id not in manifest_shard_ids:
+                raise ValueError(f"Shard ID {s_id} is not defined in the current manifest")
 
             total_duration += sres.get("duration_seconds", 0.0)
 

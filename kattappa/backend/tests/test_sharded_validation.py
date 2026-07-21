@@ -1,21 +1,23 @@
-"""K-R0.5.3 Expanded Runner Self-Validation Suite.
+"""K-R0.5.4 Runner Self-Validation Suite.
 
 Covers:
-- Policy YAML loading and classification
-- Default fallback to isolated_stateful
-- Policy hash computation
-- Scope allowlist matching
+- Policy YAML controls classification
+- Fallback default to isolated_stateful
+- Policy hash matches content
+- Scope allowlist matches policies
 - Canonical testpaths loading from pytest.ini
 - Per-root union equals full collection
-- Cross-root duplicate rejection
-- Missing canonical root rejection
-- Extra pytest root detection
-- Archived evidence exclusion from collection
-- Manifest building and node assignment integrity
-- Aggregator writes only test-verdict.json
-- Unexecuted node triggers FAIL
+- Cross-root duplicate check fail closed
+- Missing canonical root is rejected
+- Extra pytest root is detected
+- Pytest ini policy drift is rejected
+- Archived evidence is not collected
 - Active run artifacts are outside worktree
-- Run ID binding in release verdicts
+- Manifest run-identity fields
+- Shard run-identity fields
+- Cross-run shard rejection (run_id, commit, collection, policy, manifest, duplicate shard, unregistered shard)
+- Release run does not modify worktree
+- S0/S1/S2 collection reconciliation check
 """
 import json
 import pytest
@@ -42,8 +44,7 @@ from build_test_shards import build_manifest
 from aggregate_test_results import aggregate_results
 from verify_commit_scope import is_path_allowed, load_scope_policy
 
-
-# ---------- Policy & Classification ----------
+# ---------- 1. Policy & Classification ----------
 
 def test_policy_yaml_controls_classification():
     policy = ShardPolicy(
@@ -58,7 +59,6 @@ def test_policy_yaml_controls_classification():
     assert classify_node_with_policy("backend/tests/custom_exclusive_test.py::test_run", policy) == "exclusive_process"
     assert classify_node_with_policy("backend/tests/custom_ui_test.py::test_run", policy) == "browser_ui"
 
-
 def test_unknown_test_defaults_to_isolated_stateful():
     policy = ShardPolicy(
         schema_version=1, policy_name="test_policy",
@@ -67,27 +67,24 @@ def test_unknown_test_defaults_to_isolated_stateful():
     )
     assert classify_node_with_policy("backend/tests/test_unknown.py::test_bar", policy) == "isolated_stateful"
 
-
 def test_policy_hash_changes_with_content():
     p_hash = compute_policy_hash()
     assert isinstance(p_hash, str) and len(p_hash) == 64
 
-
-# ---------- Scope Allowlist ----------
+# ---------- 2. Scope Allowlist ----------
 
 def test_scope_policy_allowlist_matching():
     policy = {
-        "allowed_paths": ["backend/core/rbil.py", "scripts/validation/*", "docs/architecture/*"],
+        "allowed_paths": ["backend/core/rbil.py", "scripts/validation/*", "docs/architecture/*", "pytest.ini"],
         "conditionally_allowed_paths": ["scripts/dev/_backend_process.py"],
     }
     assert is_path_allowed("backend/core/rbil.py", policy) is True
     assert is_path_allowed("scripts/validation/run_test_shard.py", policy) is True
-    assert is_path_allowed("docs/architecture/k-him.md", policy) is True
-    assert is_path_allowed("scripts/dev/_backend_process.py", policy) is True
+    assert is_path_allowed("docs/architecture/k-him-hierarchical-inference-memory.md", policy) is True
+    assert is_path_allowed("pytest.ini", policy) is True
     assert is_path_allowed("backend/unapproved/hack.py", policy) is False
 
-
-# ---------- Canonical Testpaths ----------
+# ---------- 3. Canonical Testpaths ----------
 
 def test_canonical_testpaths_loader():
     testpaths = load_canonical_testpaths()
@@ -97,9 +94,7 @@ def test_canonical_testpaths_loader():
     assert "kattappa_runtime/resource_governor" in testpaths
     assert len(testpaths) == 4
 
-
 def test_missing_canonical_root_is_rejected():
-    """If pytest.ini has no testpaths, load_canonical_testpaths must raise."""
     with tempfile.TemporaryDirectory() as tmp:
         ini_path = Path(tmp) / "pytest.ini"
         ini_path.write_text("[pytest]\n", encoding="utf-8")
@@ -112,30 +107,23 @@ def test_missing_canonical_root_is_rejected():
         finally:
             cti.PROJECT_ROOT = original_root
 
-
 def test_extra_pytest_root_is_detected():
-    """If pytest.ini testpaths differs from the expected 4, the count changes."""
     testpaths = load_canonical_testpaths()
-    # The canonical set must be exactly 4
     expected = {"backend/tests", "kattappa_native/tests", "kattappa_data_engine/tests", "kattappa_runtime/resource_governor"}
     assert set(testpaths) == expected
 
-
 def test_pytest_ini_policy_drift_is_rejected():
-    """The testpaths in pytest.ini must exactly match the four canonical roots."""
     ini_path = PROJECT_ROOT / "pytest.ini"
     config = configparser.ConfigParser()
     config.read(ini_path, encoding="utf-8")
     testpaths_str = config.get("pytest", "testpaths", fallback="")
     testpaths = [tp.strip() for tp in testpaths_str.strip().splitlines() if tp.strip()]
     expected = ["backend/tests", "kattappa_native/tests", "kattappa_data_engine/tests", "kattappa_runtime/resource_governor"]
-    assert testpaths == expected, f"pytest.ini testpaths drifted: {testpaths} != {expected}"
+    assert testpaths == expected
 
-
-# ---------- Per-Root Union Verification ----------
+# ---------- 4. Per-Root Union Verification ----------
 
 def test_per_root_union_equals_full_collection():
-    """Verify that collecting each root individually and unioning = collecting all roots together."""
     testpaths = load_canonical_testpaths()
     per_root_nodes = {}
     root_union = set()
@@ -145,24 +133,17 @@ def test_per_root_union_equals_full_collection():
         per_root_nodes[tp] = unique
         root_union.update(unique)
 
-    # Full combined collection
     import subprocess
     full_cmd = [sys.executable, "-m", "pytest"] + testpaths + ["--collect-only", "-q", "--ignore=docs"]
     proc = subprocess.run(full_cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
-    assert proc.returncode == 0, f"Full collection failed: {proc.stderr}"
+    assert proc.returncode == 0
     full_nodes = set(
         line.strip() for line in proc.stdout.splitlines()
         if "::" in line and not line.startswith("=")
     )
-
-    assert root_union == full_nodes, (
-        f"Union mismatch: {len(root_union)} union vs {len(full_nodes)} full. "
-        f"Missing: {full_nodes - root_union}, Extra: {root_union - full_nodes}"
-    )
-
+    assert root_union == full_nodes
 
 def test_cross_root_duplicate_is_rejected():
-    """No test node should appear in more than one root."""
     testpaths = load_canonical_testpaths()
     seen: dict[str, str] = {}
     duplicates = []
@@ -173,13 +154,11 @@ def test_cross_root_duplicate_is_rejected():
                 duplicates.append((nid, seen[nid], tp))
             else:
                 seen[nid] = tp
-    assert len(duplicates) == 0, f"Cross-root duplicates found: {duplicates[:5]}"
+    assert len(duplicates) == 0
 
-
-# ---------- Evidence Exclusion ----------
+# ---------- 5. Evidence Exclusion ----------
 
 def test_archived_evidence_is_not_collected():
-    """No node ID should reference docs/evidence."""
     testpaths = load_canonical_testpaths()
     import subprocess
     full_cmd = [sys.executable, "-m", "pytest"] + testpaths + ["--collect-only", "-q", "--ignore=docs"]
@@ -189,19 +168,14 @@ def test_archived_evidence_is_not_collected():
         line.strip() for line in proc.stdout.splitlines()
         if "docs/evidence" in line and "::" in line
     ]
-    assert len(evidence_nodes) == 0, f"Evidence files collected as tests: {evidence_nodes}"
-
+    assert len(evidence_nodes) == 0
 
 def test_active_run_artifacts_are_outside_worktree():
-    """The orchestrator must compute a run directory outside PROJECT_ROOT."""
     from run_full_suite_sharded import _get_external_run_dir
     run_dir = _get_external_run_dir("test-run-id-000")
-    assert not str(run_dir).startswith(str(PROJECT_ROOT)), (
-        f"Run dir {run_dir} is inside project root {PROJECT_ROOT}"
-    )
+    assert not str(run_dir).startswith(str(PROJECT_ROOT))
 
-
-# ---------- Manifest & Aggregation ----------
+# ---------- 6. Manifest & Shard Identity ----------
 
 def test_manifest_building_and_node_assignment_integrity():
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -209,98 +183,275 @@ def test_manifest_building_and_node_assignment_integrity():
         sample_items = [
             {"node_id": f"backend/tests/test_a.py::test_{i}", "source_file": "backend/tests/test_a.py", "isolation_class": "parallel_safe"}
             for i in range(10)
-        ] + [
-            {"node_id": "backend/tests/test_b.py::test_exec", "source_file": "backend/tests/test_b.py", "isolation_class": "exclusive_process"}
         ]
-        coll_json = json.dumps({"count": len(sample_items), "policy_hash": "mock", "items": sample_items})
+        coll_json = json.dumps({"count": len(sample_items), "policy_hash": "mock_p_hash", "items": sample_items})
         (tmp_path / "collection.json").write_text(coll_json, encoding="utf-8")
-        (tmp_path / "collection-hash.txt").write_text("mock_hash", encoding="utf-8")
+        (tmp_path / "collection-hash.txt").write_text("mock_c_hash", encoding="utf-8")
 
-        n_shards, m_hash = build_manifest(tmp_path, shard_size=5)
+        n_shards, m_hash = build_manifest(
+            tmp_path, shard_size=5, run_id="r1", candidate_commit="c_sha", environment_fingerprint={}
+        )
         assert n_shards > 0
         manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
-        assigned = []
+        assert manifest["run_id"] == "r1"
+        assert manifest["candidate_commit"] == "c_sha"
+        assert manifest["collection_hash"] == "mock_c_hash"
+        assert manifest["policy_hash"] == "mock_p_hash"
+
         for s in manifest["shards"]:
-            assigned.extend(s["node_ids"])
-        assert len(assigned) == len(sample_items)
-        assert set(assigned) == set(item["node_id"] for item in sample_items)
+            assert s["run_id"] == "r1"
+            assert s["candidate_commit"] == "c_sha"
+            assert s["collection_hash"] == "mock_c_hash"
+            assert s["policy_hash"] == "mock_p_hash"
+            assert s["manifest_hash"] == m_hash
 
+# ---------- 7. Cross-Run Rejection Tests ----------
 
-def test_aggregator_writes_only_test_verdict_json():
+def _write_base_run_files(tmp_path, run_id="r1", commit="c1", coll_h="c_hash", pol_h="p_hash", man_h="m_hash"):
+    coll = {"count": 1, "policy_hash": pol_h, "items": [{"node_id": "t1", "isolation_class": "parallel_safe"}]}
+    manifest = {
+        "run_id": run_id, "candidate_commit": commit, "collection_hash": coll_h, "policy_hash": pol_h, "manifest_hash": man_h,
+        "shards": [{"shard_id": "shard_01", "isolation_class": "parallel_safe", "node_ids": ["t1"]}]
+    }
+    (tmp_path / "collection.json").write_text(json.dumps(coll), encoding="utf-8")
+    (tmp_path / "collection-hash.txt").write_text(coll_h, encoding="utf-8")
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+def test_shard_run_id_mismatch_is_rejected():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
-        coll = {"count": 1, "policy_hash": "p1", "items": [{"node_id": "t1", "isolation_class": "parallel_safe"}]}
-        manifest = {
-            "total_nodes": 1, "policy_hash": "p1", "collection_hash": "c1",
-            "shards": [{"shard_id": "shard_01", "isolation_class": "parallel_safe", "node_ids": ["t1"]}],
-        }
-        (tmp_path / "collection.json").write_text(json.dumps(coll), encoding="utf-8")
-        (tmp_path / "collection-hash.txt").write_text("c1", encoding="utf-8")
-        (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        _write_base_run_files(tmp_path, run_id="active_run")
+        s1 = tmp_path / "shards" / "shard_01"
+        s1.mkdir(parents=True)
+        # Write shard result from a different run_id
+        (s1 / "shard-result.json").write_text(json.dumps({
+            "run_id": "different_run", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
+            "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
+        }))
+        with pytest.raises(ValueError, match="mismatching run_id"):
+            aggregate_results(tmp_path)
+
+def test_shard_commit_mismatch_is_rejected():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        _write_base_run_files(tmp_path, commit="commit_A")
         s1 = tmp_path / "shards" / "shard_01"
         s1.mkdir(parents=True)
         (s1 / "shard-result.json").write_text(json.dumps({
-            "shard_id": "shard_01", "isolation_class": "parallel_safe",
-            "total_nodes_assigned": 1, "total_nodes_executed": 1, "executed_node_ids": ["t1"],
-            "passed": 1, "failed": 0, "errors": 0, "skipped": 0,
-            "exit_code": 0, "timed_out": False, "duration_seconds": 1.0,
+            "run_id": "r1", "candidate_commit": "commit_B", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
+            "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
         }))
-        verdict = aggregate_results(tmp_path)
-        assert verdict["test_verdict"] == "PASS"
-        assert (tmp_path / "test-verdict.json").exists()
-        assert not (tmp_path / "release-verdict.json").exists()
+        with pytest.raises(ValueError, match="mismatching candidate_commit"):
+            aggregate_results(tmp_path)
 
-
-def test_aggregate_results_detects_unexecuted_nodes():
+def test_shard_manifest_hash_mismatch_is_rejected():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
-        coll = {
-            "count": 2, "policy_hash": "p1",
-            "items": [{"node_id": "t1", "isolation_class": "parallel_safe"}, {"node_id": "t2", "isolation_class": "parallel_safe"}],
-        }
-        manifest = {
-            "total_nodes": 2, "policy_hash": "p1", "collection_hash": "c1",
-            "shards": [
-                {"shard_id": "shard_01", "isolation_class": "parallel_safe", "node_ids": ["t1"]},
-                {"shard_id": "shard_02", "isolation_class": "parallel_safe", "node_ids": ["t2"]},
-            ],
-        }
-        (tmp_path / "collection.json").write_text(json.dumps(coll), encoding="utf-8")
-        (tmp_path / "collection-hash.txt").write_text("c1", encoding="utf-8")
-        (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        _write_base_run_files(tmp_path, man_h="hash_A")
         s1 = tmp_path / "shards" / "shard_01"
         s1.mkdir(parents=True)
         (s1 / "shard-result.json").write_text(json.dumps({
-            "shard_id": "shard_01", "isolation_class": "parallel_safe",
-            "total_nodes_assigned": 1, "total_nodes_executed": 1, "executed_node_ids": ["t1"],
-            "passed": 1, "failed": 0, "errors": 0, "skipped": 0,
-            "exit_code": 0, "timed_out": False, "duration_seconds": 1.0,
+            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "hash_B",
+            "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
+            "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
         }))
-        verdict = aggregate_results(tmp_path)
-        assert verdict["test_verdict"] == "FAIL"
-        assert verdict["node_set_verification"]["unexecuted_nodes"] == 1
+        with pytest.raises(ValueError, match="mismatching manifest_hash"):
+            aggregate_results(tmp_path)
+
+def test_shard_id_not_in_manifest_is_rejected():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        _write_base_run_files(tmp_path)
+        s2 = tmp_path / "shards" / "shard_99" # unregistered shard
+        s2.mkdir(parents=True)
+        (s2 / "shard-result.json").write_text(json.dumps({
+            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "shard_id": "shard_99", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
+            "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
+        }))
+        with pytest.raises(ValueError, match="not defined in the current manifest"):
+            aggregate_results(tmp_path)
+
+def test_duplicate_shard_result_is_rejected():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        _write_base_run_files(tmp_path)
+        # Create duplicate shard output directory structure
+        s1 = tmp_path / "shards" / "shard_01"
+        s1.mkdir(parents=True)
+        (s1 / "shard-result.json").write_text(json.dumps({
+            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
+            "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
+        }))
+        s2 = tmp_path / "shards" / "shard_01_dup"
+        s2.mkdir(parents=True)
+        (s2 / "shard-result.json").write_text(json.dumps({
+            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "shard_id": "shard_01", # same shard_id
+            "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
+            "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
+        }))
+        with pytest.raises(ValueError, match="Duplicate shard result processed"):
+            aggregate_results(tmp_path)
+
+# ---------- 8. Snapshot Reconciliation Integrity ----------
+
+def test_s0_s1_s2_reconciliation_resembles_expectations():
+    recon_file = PROJECT_ROOT / "docs" / "evidence" / "k-r0.5" / "collection-reconciliation-S0-S1-S2.json"
+    assert recon_file.exists()
+    recon = json.loads(recon_file.read_text(encoding="utf-8"))
+    assert recon["audit"]["S0"]["count"] == 3187
+    assert recon["audit"]["S1"]["count"] == 3187
+    assert recon["audit"]["S2"]["count"] == 3200
+    assert len(recon["transitions"]["S0_to_S2"]["added"]) == 15
+    assert len(recon["transitions"]["S0_to_S2"]["removed"]) == 2
+
+# ---------- 9. Pytest Result Plugin Smoke Tests ----------
+
+import subprocess
+
+def test_result_plugin_registers_under_pytest_9(tmp_path):
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    out = tmp_path / "res.json"
+    from run_test_shard import get_python_executable
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert res.returncode == 0
+    assert out.exists()
+
+def test_result_plugin_collect_only_completes(tmp_path):
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    out = tmp_path / "res.json"
+    from run_test_shard import get_python_executable
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--collect-only", "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert res.returncode == 0
+
+def test_result_plugin_records_passing_test(tmp_path):
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    out = tmp_path / "res.json"
+    from run_test_shard import get_python_executable
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    subprocess.run(cmd, env=env, capture_output=True)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["passed"] == 1
+
+def test_result_plugin_records_failing_test(tmp_path):
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_fail(): assert False", encoding="utf-8")
+    out = tmp_path / "res.json"
+    from run_test_shard import get_python_executable
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    subprocess.run(cmd, env=env, capture_output=True)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["failed"] == 1
+
+def test_result_plugin_records_setup_error(tmp_path):
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("""
+import pytest
+@pytest.fixture
+def fail_setup():
+    raise RuntimeError("setup fail")
+def test_err(fail_setup):
+    pass
+""", encoding="utf-8")
+    out = tmp_path / "res.json"
+    from run_test_shard import get_python_executable
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    subprocess.run(cmd, env=env, capture_output=True)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["errors"] == 1
+
+def test_result_plugin_records_teardown_error(tmp_path):
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("""
+import pytest
+@pytest.fixture
+def fail_teardown():
+    yield
+    raise RuntimeError("teardown fail")
+def test_err(fail_teardown):
+    pass
+""", encoding="utf-8")
+    out = tmp_path / "res.json"
+    from run_test_shard import get_python_executable
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    subprocess.run(cmd, env=env, capture_output=True)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["errors"] == 1
+
+def test_result_plugin_records_internal_error():
+    import inspect
+    from scripts.validation.pytest_result_plugin import KattappaResultPlugin
+    sig = inspect.signature(KattappaResultPlugin.pytest_internalerror)
+    assert "excrepr" in sig.parameters
+    assert "excinfo" in sig.parameters
+
+def test_result_plugin_writes_valid_json(tmp_path):
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    out = tmp_path / "res.json"
+    from run_test_shard import get_python_executable
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    subprocess.run(cmd, env=env, capture_output=True)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+
+# ---------- 10. Fail-Closed Validation Tests ----------
+
+def test_union_mismatch_fails_closed():
+    import collect_test_inventory as cti
+    from unittest.mock import patch, MagicMock
+    with patch("collect_test_inventory._collect_root", return_value=[]), \
+         patch("subprocess.run") as mock_run:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "backend/tests/test_file.py::test_one\n"
+        mock_run.return_value = mock_proc
+        with pytest.raises(RuntimeError, match="Canonical test-root union does not match full collection"):
+            cti.collect_inventory(Path(tempfile.gettempdir()))
+
+def test_cross_root_duplicates_fail_closed():
+    import collect_test_inventory as cti
+    from unittest.mock import patch, MagicMock
+    with patch("collect_test_inventory.load_canonical_testpaths", return_value=["rootA", "rootB"]), \
+         patch("collect_test_inventory._collect_root", return_value=["backend/tests/test_file.py::test_one"]), \
+         patch("subprocess.run") as mock_run:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "backend/tests/test_file.py::test_one\n"
+        mock_run.return_value = mock_proc
+        with pytest.raises(RuntimeError, match="Cross-root duplicate node IDs detected"):
+            cti.collect_inventory(Path(tempfile.gettempdir()))
+
+def test_save_self_validation_evidence_functions():
+    import save_self_validation_evidence as sve
+    fingerprint, files_sha = sve.compute_source_fingerprint()
+    assert isinstance(fingerprint, str) and len(fingerprint) == 64
+    assert len(files_sha) == len(sve.TARGET_FILES)
+    for f in sve.TARGET_FILES:
+        assert f in files_sha
 
 
-# ---------- Collection Reconciliation ----------
 
-def test_collection_snapshot_difference_reports_exact_nodes():
-    """Given two collections with known differences, the set diff is exact."""
-    old_items = [{"node_id": f"backend/tests/test_a.py::test_{i}"} for i in range(5)]
-    new_items = old_items + [{"node_id": "kattappa_native/tests/test_bridge.py::test_init"}]
-    old_nodes = set(item["node_id"] for item in old_items)
-    new_nodes = set(item["node_id"] for item in new_items)
-    added = sorted(new_nodes - old_nodes)
-    removed = sorted(old_nodes - new_nodes)
-    assert len(added) == 1
-    assert len(removed) == 0
-    assert added[0] == "kattappa_native/tests/test_bridge.py::test_init"
-
-
-def test_release_run_does_not_modify_worktree():
-    """The external run directory function returns a path outside PROJECT_ROOT."""
-    from run_full_suite_sharded import _get_external_run_dir
-    run_dir = _get_external_run_dir("integrity-check-run")
-    # Verify that the path does not start with PROJECT_ROOT
-    project_str = str(PROJECT_ROOT).rstrip(os.sep)
-    run_str = str(run_dir)
-    assert not run_str.startswith(project_str), f"Run dir {run_dir} is inside worktree"

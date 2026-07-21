@@ -164,9 +164,14 @@ def collect_inventory(output_dir: Path) -> tuple[int, str, str]:
     }
 
     if not root_union_verification["union_equals_full"]:
-        print(f"\n[WARNING] Root union ({len(sorted_root_union)}) != full collection ({len(unique_nodes)})")
+        print(f"\n[FAILED] Root union ({len(sorted_root_union)}) != full collection ({len(unique_nodes)})")
         print(f"  Missing from union: {len(missing_from_union)}")
         print(f"  Unexpected in union: {len(unexpected_in_union)}")
+        raise RuntimeError("Canonical test-root union does not match full collection")
+
+    if cross_root_dupes:
+        print(f"\n[FAILED] Cross-root duplicate node IDs detected: {len(cross_root_dupes)}")
+        raise RuntimeError(f"Cross-root duplicate node IDs detected: {cross_root_dupes[:10]}")
 
     # --- Classify nodes ---
     items = []

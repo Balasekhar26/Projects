@@ -2,7 +2,7 @@
 
 ## 1. Architectural Purpose & Scope
 
-**K-HIM (Kattappa Hierarchical Inference Memory Engine)** is Kattappa's native SSD-streamed inference runtime designed to execute compatible models larger than physical system RAM while keeping all Kattappa-owned processes strictly under a configurable **8 GiB total process-tree RAM ceiling**.
+**K-HIM (Kattappa Hierarchical Inference Memory Engine)** is Kattappa's native SSD-streamed inference runtime designed to execute compatible models larger than physical system RAM while keeping all Kattappa-owned processes strictly under a configurable **8.0 GB total process-tree RAM ceiling** (defined as `KATTAPPA_MAX_PROCESS_TREE_MEMORY_BYTES = 8_000_000_000` bytes, approximately 7.45 GiB).
 
 Rather than acting merely as an adapter to external inference engines, Kattappa owns model admission, tensor placement, SSD storage layout, expert cache policies, prefetch scheduling, KV-cache budgeting, process supervision, RAM enforcement, live telemetry, and fallback behavior.
 
@@ -17,7 +17,7 @@ Rather than acting merely as an adapter to external inference engines, Kattappa 
 +-------------------------------------------------------------+
                             |
 +-------------------------------------------------------------+
-| System RAM (Hard Kattappa limit: 8 GiB total process-tree)  |
+| System RAM (Hard Kattappa limit: 8.0 GB total process-tree) |
 | Resident model core, quantized KV cache, active workspace   |
 +-------------------------------------------------------------+
                             |
@@ -35,21 +35,35 @@ Rather than acting merely as an adapter to external inference engines, Kattappa 
 
 ---
 
-## 3. Dynamic 8 GiB Process-Tree RAM Budget
+## 3. Mode-Specific RAM Budgets
 
-The 8 GiB RAM limit applies to the complete Kattappa-owned process tree (control plane, sidecars, resident models, caches, and tools).
+The 8.0 GB limit applies to the complete Kattappa-owned process tree (control plane, sidecars, resident models, caches, and tools).
 
-| Domain | Initial Dynamic Ceiling | Description |
+### 3.1 Interactive Mode
+
+| Domain | Maximum Budget | Description |
 | :--- | :---: | :--- |
-| **Control plane, policy, & memory coordination** | **1.5 GiB** | Core orchestrator, state engines, security governors |
-| **Voice, UI, & automation bridges** | **0.5 GiB** | Playwright, TTS/STT helpers, desktop sidecars |
-| **Fast resident model (when active)** | **2.0 GiB** | Sub-second interactive chat & tool routing model |
-| **Deep inference resident core & expert cache** | **3.0 GiB** | Resident MoE core parameters and active expert cache |
-| **KV cache & I/O buffers** | **0.5 GiB** | Quantized KV cache pages and async read buffers |
-| **Emergency reserve** | **0.5 GiB** | Operating safety margin |
-| **Total Process Tree Ceiling** | **8.0 GiB** | **Hard Kattappa Governor Limit** |
+| **Control plane, policy, and memory** | **1.30 GB** | Core orchestrator, state engines, security governors |
+| **Voice, UI, and automation** | **0.70 GB** | Playwright, TTS/STT helpers, desktop sidecars |
+| **Fast resident model** | **2.30 GB** | Low-latency interactive chat and tool-routing model, subject to measured hardware performance |
+| **Working memory and telemetry** | **0.70 GB** | Context buffers, telemetry trackers, live stats |
+| **I/O and temporary buffers** | **0.40 GB** | Temporary execution workspace |
+| **Safety reserve** | **0.80 GB** | Host safety margin |
+| **Target Peak** | **6.20 GB** | **Interactive Mode Target** |
 
-*Note: Kattappa dynamically unloads or suspends optional components (such as fast resident models or voice bridges) when transitioning into Deep Reasoning Mode.*
+### 3.2 Deep Reasoning Mode
+
+| Domain | Maximum Budget | Description |
+| :--- | :---: | :--- |
+| **Control plane, policy, and memory** | **1.30 GB** | Core orchestrator, state engines, security governors |
+| **Minimal voice/UI/tool bridge** | **0.30 GB** | Scaled-down automation bridge |
+| **Resident model core and hot experts** | **4.50 GB** | MoE core parameters and active expert cache |
+| **KV cache and I/O buffers** | **1.00 GB** | Quantized KV cache pages and async read buffers |
+| **Telemetry and supervisor** | **0.20 GB** | Governor daemon, telemetry loggers |
+| **Emergency reserve** | **0.70 GB** | Host safety margin |
+| **Hard Peak Ceiling** | **8.00 GB** | **Deep Reasoning Hard Ceiling** |
+
+*Note: The fast resident model must be fully unloaded, suspended, or reduced before the deep inference runtime receives its full cache allocation.*
 
 ---
 
@@ -71,7 +85,7 @@ Voice, desktop, browser, chat               Architecture, science, research
                                              system retains control)
 ```
 
-- **Fast Interactive Task**: Small resident model (< 2.0 GiB RAM) for low-latency interactive tasks, subject to measured model, CPU and hardware performance.
+- **Fast Interactive Task**: Small resident model (< 2.0 GB RAM) for low-latency interactive tasks, subject to measured model, CPU and hardware performance.
 - **Deep Reasoning Task**: SSD-streamed MoE model for complex reasoning. The deep reasoning model produces structured plans and analysis; Kattappa's security, permission, and execution systems maintain absolute control.
 
 ---
@@ -106,7 +120,7 @@ SSD reads issued before expert execution
 | **Quantized Layer-Streamed Model** | **Medium** | Supported, but requires high storage bandwidth |
 | **Small Dense Model** | **High (as resident fallback)** | Entire model remains resident in RAM |
 | **Very Large Dense Transformer** | **Low** | Requires all weights for every token; unsuited for streaming |
-| **Model with Unbounded KV Growth** | **Rejected** | Violates 8 GiB RAM limit guarantee |
+| **Model with Unbounded KV Growth** | **Rejected** | Violates 8.0 GB RAM limit guarantee |
 | **Unsupported Tensor Layout** | **Rejected** | Inefficient or unsafe memory layout |
 
 ---
@@ -118,9 +132,9 @@ Before loading any model profile, the Kattappa Model Admission Controller evalua
 $$\text{estimated\_peak\_kattappa\_ram} = \text{control\_plane\_peak} + \text{voice\_and\_tool\_peak} + \text{resident\_model\_core} + \text{max\_active\_expert\_cache} + \text{KV\_cache\_budget} + \text{workspace\_buffers} + \text{safety\_reserve}$$
 
 ### Admission Requirement:
-$$\text{estimated\_peak\_kattappa\_ram} \le 8.0\text{ GiB}$$
+$$\text{estimated\_peak\_kattappa\_ram} \le 8.0\text{ GB (8,000,000,000 bytes)}$$
 
-If the estimate exceeds 8.0 GiB, Kattappa must:
+If the estimate exceeds 8.0 GB, Kattappa must:
 1. Reduce context length window.
 2. Reduce expert cache allocation.
 3. Apply higher quantization (e.g. 4-bit KV cache).
@@ -166,7 +180,7 @@ Native SSD-streamed MoE prototype with small sparse model
         |
         v
 K-HIM-2 (FUTURE)
-Hard 8 GiB total Kattappa process-tree RAM governor integration
+Hard 8 GB total Kattappa process-tree RAM governor integration
         |
         v
 K-HIM-3 (FUTURE)
