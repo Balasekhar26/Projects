@@ -110,16 +110,24 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
 
     result_json_path = shard_dir / "pytest_results.json"
 
+    # Write node_ids to JSON file to avoid WinError 206 (command line too long)
+    shard_node_ids_json = shard_dir / "shard_node_ids.json"
+    shard_node_ids_json.write_text(json.dumps(node_ids, indent=2), encoding="utf-8")
+
+    # Extract unique test files to pass on cmd line
+    unique_files = sorted(list(set(node.split("::")[0] for node in node_ids)))
+
     cmd = [
         get_python_executable(),
         "-m", "pytest",
         "-p", "scripts.validation.pytest_result_plugin",
         f"--kattappa-result-file={result_json_path}"
-    ] + node_ids
+    ] + unique_files
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     env["KATTAPPA_TEST_MODE"] = "true"
+    env["KATTAPPA_SHARD_NODE_IDS_FILE"] = str(shard_node_ids_json)
 
     # Enforce run details in environment
     env["KATTAPPA_RUN_ID"] = run_id or ""

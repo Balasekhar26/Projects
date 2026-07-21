@@ -22,6 +22,22 @@ class KattappaResultPlugin:
         self.internal_errors = []
         self.collection_errors = []
 
+    def pytest_collection_modifyitems(self, config, items):
+        import os
+        import json
+        node_ids_file = os.environ.get("KATTAPPA_SHARD_NODE_IDS_FILE")
+        if node_ids_file and os.path.exists(node_ids_file):
+            try:
+                with open(node_ids_file, "r", encoding="utf-8") as f:
+                    allowed_nodes = set(json.load(f))
+                kept = []
+                for item in items:
+                    if item.nodeid in allowed_nodes:
+                        kept.append(item)
+                items[:] = kept
+            except Exception as e:
+                self.internal_errors.append(f"Failed to filter shard node ids: {e}")
+
     def pytest_collection_finish(self, session):
         for item in session.items:
             self.collected_node_ids.add(item.nodeid)
