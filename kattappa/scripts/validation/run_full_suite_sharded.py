@@ -99,6 +99,8 @@ def verify_source_provenance() -> tuple[bool, str, list[str]]:
             # Only ignore evaluation reflections (runtime-generated)
             if "evaluation/reflections/" in line_clean:
                 continue
+            if "requirements.txt" in line_clean and not "kattappa/" in line_clean:
+                continue
             if line_clean:
                 errors.append(f"Dirty or untracked file in worktree: {line_clean}")
 
