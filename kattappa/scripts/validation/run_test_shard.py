@@ -110,26 +110,28 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
 
     result_json_path = shard_dir / "pytest_results.json"
 
-    # Write node_ids to JSON file to avoid WinError 206 (command line too long)
-    shard_node_ids_json = shard_dir / "shard_node_ids.json"
-    shard_node_ids_json.write_text(json.dumps(node_ids, indent=2), encoding="utf-8")
-
-    # Extract unique test files to pass on cmd line
-    unique_files = sorted(list(set(node.split("::")[0] for node in node_ids)))
+    # Write shard definition to JSON file to avoid WinError 206 (command line too long)
+    shard_def_json = shard_dir / "shard_definition.json"
+    shard_def_content = {
+        "shard_id": shard_id,
+        "run_id": run_id or "",
+        "candidate_commit": candidate_commit or "",
+        "manifest_core_hash": shard_data.get("manifest_core_hash", ""),
+        "manifest_file_hash": shard_data.get("manifest_file_hash", ""),
+        "node_ids": node_ids
+    }
+    shard_def_json.write_text(json.dumps(shard_def_content, indent=2), encoding="utf-8")
 
     cmd = [
         get_python_executable(),
-        "-m", "pytest",
-        "-p", "scripts.validation.pytest_result_plugin",
-        f"--kattappa-result-file={result_json_path}"
-    ] + unique_files
+        str(PROJECT_ROOT / "scripts" / "validation" / "execute_pytest_shard.py"),
+        f"--shard-definition={shard_def_json}",
+        f"--result-file={result_json_path}"
+    ]
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     env["KATTAPPA_TEST_MODE"] = "true"
-    env["KATTAPPA_SHARD_NODE_IDS_FILE"] = str(shard_node_ids_json)
-
-    # Enforce run details in environment
     env["KATTAPPA_RUN_ID"] = run_id or ""
     env["KATTAPPA_SHARD_ID"] = shard_id
     env["KATTAPPA_CANDIDATE_COMMIT"] = candidate_commit or ""
