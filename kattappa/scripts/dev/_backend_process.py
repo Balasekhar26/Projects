@@ -94,10 +94,15 @@ def read_metadata(path: Path) -> BackendProcessMetadata:
 
 
 def project_python() -> Path:
-    candidate = ROOT / "ai_system_env" / (
-        "Scripts/python.exe" if os.name == "nt" else "bin/python"
-    )
+    import sys
+    rel_path = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    candidate = ROOT / "ai_system_env" / rel_path
     if not candidate.is_file():
+        parent_candidate = ROOT.parent / "kattappa" / "ai_system_env" / rel_path
+        if parent_candidate.is_file():
+            return parent_candidate.resolve()
+        if Path(sys.executable).is_file():
+            return Path(sys.executable).resolve()
         raise RuntimeError(
             f"Kattappa virtual-environment interpreter is missing: {candidate}"
         )

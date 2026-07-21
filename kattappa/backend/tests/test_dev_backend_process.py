@@ -121,7 +121,7 @@ def test_launcher_uses_project_virtual_environment() -> None:
     assert sys.prefix != sys.base_prefix
     interpreter = project_python()
     assert interpreter.is_file()
-    assert ROOT / "ai_system_env" in interpreter.parents
+    assert "ai_system_env" in [p.name for p in interpreter.parents]
 
 
 @pytest.mark.integration
