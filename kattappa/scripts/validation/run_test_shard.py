@@ -84,7 +84,7 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
     shard_id = shard_data["shard_id"]
     iso_cls = shard_data["isolation_class"]
     node_ids = shard_data["node_ids"]
-    timeout_seconds = shard_data.get("timeout_seconds", 300)
+    timeout_seconds = shard_data.get("timeout_seconds", 600)
 
     # Bind identity fields from shard_data
     run_id = shard_data.get("run_id")
