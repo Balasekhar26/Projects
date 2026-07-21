@@ -10,7 +10,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "The test expects the project virtual environment folder name to be exactly 'ai_system_env', but the canonical environment is named 'k-r0.5-py310'.",
     "corrective_action": "Modify the test to accept either 'ai_system_env' or 'k-r0.5-py310'.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_belief_engine.py::test_truth_dependency_propagation",
@@ -23,7 +23,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Floating-point precision mismatch during propagation calculations on Python 3.10.11.",
     "corrective_action": "Use pytest.approx for floating-point comparisons in assertion.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_cognitive_pipeline_v2.py::test_metacognitive_triage",
@@ -36,7 +36,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Mock LLM handler did not trigger correctly or returned fallback answer instead of simulated reply.",
     "corrective_action": "Fix mock setup in test.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_cognitive_pipeline_v2.py::test_parallel_council_execution",
@@ -49,7 +49,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Parallel execution took longer than the hardcoded 0.25s threshold on Windows thread scheduling.",
     "corrective_action": "Increase the time threshold for Windows environments or mock elapsed time.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_cognitive_workers.py::TestCognitiveWorkers::test_planner_routing",
@@ -62,7 +62,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Cognitive worker routing returned None resulting in type crash during iteration.",
     "corrective_action": "Return empty iterable if router resolves to None.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_consolidation_engine.py::TestConsolidationEngine::test_jaccard_deduplication_and_merging",
@@ -75,7 +75,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Deduplication logic returned None instead of merged record payload.",
     "corrective_action": "Repair merging logic in consolidation_engine.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_macros.py::test_fast_path_speedtest_routing",
@@ -88,7 +88,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Speedtest macro request routed to default browser agent instead of speedtest handler.",
     "corrective_action": "Fix routing rules in macro dispatcher.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_meta_executive.py::TestMetaExecutive::test_prefrontal_loop_low_confidence",
@@ -101,7 +101,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Call to undefined 'log_event' in backend/core/meta_executive.py line 105.",
     "corrective_action": "Import or define 'log_event' in meta_executive.py.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_mission_persistence.py::test_failure_recovery_rca_and_retry_limits",
@@ -114,7 +114,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "RCA description returned generic fallback string instead of specific syntax analysis.",
     "corrective_action": "Improve RCA parser accuracy.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_personal_project_manager.py::test_executive_planner_ppm_dependency_mapping",
@@ -127,7 +127,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Project task list state persisted from prior test run, creating duplicate dependency maps.",
     "corrective_action": "Clear task manager database before each test run.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_planner_agent.py::test_planner_node_integration",
@@ -140,7 +140,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Planner node incorrectly flagged action source as untrusted.",
     "corrective_action": "Adjust trust evaluation checks in planner.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_procedural_memory.py::TestProceduralMemory::test_audit_logging",
@@ -153,7 +153,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Audit logger did not record the 'planning' memory category event.",
     "corrective_action": "Ensure procedural memory access triggers audit log writes.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_step29_knowledge_graph.py::TestThreadSafetyPerformance::test_traversal_performance",
@@ -166,7 +166,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Performance constraint (1s) exceeded due to CPU/disk speed limits on Windows virtualized host.",
     "corrective_action": "Increase traversal time threshold for virtualized environments.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_step6_audit.py::test_sandbox_process_isolation_pid",
@@ -179,7 +179,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "PID-based isolation assertion fails under Windows since PID namespaces are not supported natively.",
     "corrective_action": "Skip or adapt PID isolation checks under Windows OS.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_telemetry.py::test_metrics_collector",
@@ -192,7 +192,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Telemetry metrics singleton retains state from previous runs in the same process.",
     "corrective_action": "Reset telemetry collector state in teardown fixture.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_telemetry.py::test_metrics_collector_since",
@@ -205,7 +205,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Telemetry metrics singleton retains state from previous runs.",
     "corrective_action": "Reset telemetry collector state in teardown fixture.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_telemetry.py::test_telemetry_service_stats",
@@ -218,7 +218,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Telemetry metrics singleton retains state from previous runs.",
     "corrective_action": "Reset telemetry collector state in teardown fixture.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_telemetry_endpoints.py::test_telemetry_endpoints",
@@ -231,7 +231,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Telemetry metrics singleton retains state from previous runs.",
     "corrective_action": "Reset telemetry collector state in teardown fixture.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   },
   {
     "node_id": "backend/tests/test_tool_security.py::test_sandbox_runtime_execution",
@@ -244,6 +244,6 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Docker Desktop is not running or socket is missing on the host platform.",
     "corrective_action": "Skip test execution if docker socket query fails.",
-    "fix_commit": null
+    "fix_commit": "726119ea062098fdc7f77a794388012221413929"
   }
 ]
