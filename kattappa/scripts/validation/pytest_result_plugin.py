@@ -1,12 +1,16 @@
 import json
-import os
+import sys
 import pytest
+from pathlib import Path
 
 class KattappaResultPlugin:
-    def __init__(self, output_path: str):
-        self.output_path = output_path
-        self.collected_node_ids = []
-        self.executed_node_ids = []
+    def __init__(self, output_file: Path):
+        self.output_file = output_file
+        self.collected_node_ids = set()
+        self.attempted_node_ids = set()
+        self.call_executed_node_ids = set()
+        self.completed_node_ids = set()
+        
         self.outcomes = {
             "passed": [],
             "failed": [],
@@ -15,50 +19,106 @@ class KattappaResultPlugin:
             "xfailed": [],
             "xpassed": []
         }
-        self.collection_errors = []
         self.internal_errors = []
+        self.collection_errors = []
 
     def pytest_collection_finish(self, session):
-        self.collected_node_ids = [item.nodeid for item in session.items]
-
-    def pytest_runtest_logreport(self, report):
-        if report.when == "call":
-            if report.nodeid not in self.executed_node_ids:
-                self.executed_node_ids.append(report.nodeid)
-            if report.passed:
-                if hasattr(report, "wasxfail"):
-                    self.outcomes["xpassed"].append(report.nodeid)
-                else:
-                    self.outcomes["passed"].append(report.nodeid)
-            elif report.failed:
-                if hasattr(report, "wasxfail"):
-                    self.outcomes["xfailed"].append(report.nodeid)
-                else:
-                    self.outcomes["failed"].append(report.nodeid)
-            elif report.skipped:
-                self.outcomes["skipped"].append(report.nodeid)
-        elif report.when in ("setup", "teardown") and report.failed:
-            self.outcomes["errors"].append(f"{report.nodeid}::{report.when}")
+        for item in session.items:
+            self.collected_node_ids.add(item.nodeid)
 
     def pytest_collectreport(self, report):
         if report.failed:
-            self.collection_errors.append(f"{report.nodeid}: {report.longrepr}")
+            self.collection_errors.append({
+                "nodeid": getattr(report, "nodeid", "unknown"),
+                "longrepr": str(report.longrepr)
+            })
+
+    def pytest_runtest_logreport(self, report):
+        nodeid = report.nodeid
+        self.attempted_node_ids.add(nodeid)
+
+        # Track call execution
+        if report.when == "call":
+            self.call_executed_node_ids.add(nodeid)
+
+        # Teardown / final phase completed
+        if report.when == "teardown" and not report.failed:
+            self.completed_node_ids.add(nodeid)
+
+        # Check xfail / wasxfail semantics
+        was_xfail = hasattr(report, "wasxfail")
+
+        if report.when == "setup":
+            if report.failed:
+                self.outcomes["errors"].append(nodeid)
+            elif report.skipped:
+                if was_xfail:
+                    self.outcomes["xfailed"].append(nodeid)
+                else:
+                    self.outcomes["skipped"].append(nodeid)
+
+        elif report.when == "call":
+            if report.passed:
+                if was_xfail:
+                    self.outcomes["xpassed"].append(nodeid)
+                else:
+                    self.outcomes["passed"].append(nodeid)
+            elif report.failed:
+                if was_xfail:
+                    self.outcomes["xfailed"].append(nodeid)
+                else:
+                    self.outcomes["failed"].append(nodeid)
+            elif report.skipped:
+                if was_xfail:
+                    self.outcomes["xfailed"].append(nodeid)
+                else:
+                    self.outcomes["skipped"].append(nodeid)
+
+        elif report.when == "teardown":
+            if report.failed:
+                # Teardown failure overrides prior call pass
+                if nodeid in self.outcomes["passed"]:
+                    self.outcomes["passed"].remove(nodeid)
+                if nodeid not in self.outcomes["errors"]:
+                    self.outcomes["errors"].append(nodeid)
+
+    def pytest_internalerror(self, excreport, excinfo):
+        self.internal_errors.append({
+            "type": excinfo.typename,
+            "message": str(excinfo.value),
+            "repr": str(excreport)
+        })
 
     def pytest_sessionfinish(self, session, exitstatus):
-        result = {
-            "collected_node_ids": self.collected_node_ids,
-            "executed_node_ids": self.executed_node_ids,
+        result_payload = {
+            "collected_node_ids": sorted(list(self.collected_node_ids)),
+            "attempted_node_ids": sorted(list(self.attempted_node_ids)),
+            "executed_node_ids": sorted(list(self.call_executed_node_ids)),
+            "completed_node_ids": sorted(list(self.completed_node_ids)),
+            "passed": len(self.outcomes["passed"]),
+            "failed": len(self.outcomes["failed"]),
+            "errors": len(self.outcomes["errors"]),
+            "skipped": len(self.outcomes["skipped"]),
+            "xfailed": len(self.outcomes["xfailed"]),
+            "xpassed": len(self.outcomes["xpassed"]),
             "outcomes": self.outcomes,
-            "collection_errors": self.collection_errors,
             "internal_errors": self.internal_errors,
+            "collection_errors": self.collection_errors,
             "exit_status": exitstatus
         }
-        os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
-        with open(self.output_path, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2)
+        self.output_file.parent.mkdir(parents=True, exist_ok=True)
+        self.output_file.write_text(json.dumps(result_payload, indent=2), encoding="utf-8")
 
 def pytest_configure(config):
-    output_path = os.getenv("KATTAPPA_RESULT_JSON")
-    if output_path:
-        plugin = KattappaResultPlugin(output_path)
+    outfile = config.getoption("kattappa_result_file", None)
+    if outfile:
+        plugin = KattappaResultPlugin(Path(outfile))
         config.pluginmanager.register(plugin, "kattappa_result_plugin")
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--kattappa-result-file",
+        action="store",
+        default=None,
+        help="Path to save Kattappa machine-readable test execution results JSON"
+    )

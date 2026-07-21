@@ -1,0 +1,28 @@
+{
+  "run_class": "diagnostic",
+  "valid_for_release": false,
+  "verdict": "INVALID",
+  "start_commit": "9c5000f3bf1eafd22635b7e075b2d01c97e0f891",
+  "reported_final_head": "5f45b8b406d5024bf49c97cc2249635ca8619f47",
+  "reason_codes": [
+    "HEAD_CHANGED_DURING_RUN",
+    "SOURCE_CHANGED_DURING_RUN",
+    "TEST_CHANGED_DURING_RUN",
+    "MANUAL_REAGGREGATION_AFTER_INVALIDATION"
+  ],
+  "policy_hash": "cf40147b6649480c04383b56ebf68edb5df5f2ab303b8be45065f56f3fb15790",
+  "collection_hash": "e9d08ba6be50e9539aa2e800e12e140e7b114618f768ab9ff96ba08078814cfc",
+  "manifest_hash": "1df861062eb3831828114fcfdb8b7fa988ee5c09779df34bd91ae79c464c243f",
+  "stats": {
+    "total_nodes_collected": 3187,
+    "total_nodes_assigned": 3187,
+    "total_nodes_executed": 2183,
+    "passed": 2160,
+    "failed": 23,
+    "errors": 4,
+    "unexecuted": 1004,
+    "timed_out_shards": 1,
+    "crashed_shards": 11,
+    "total_duration_seconds": 2038.14
+  }
+}

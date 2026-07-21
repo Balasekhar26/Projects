@@ -1,0 +1,28 @@
+{
+  "verdict": "FAIL",
+  "valid_for_release": false,
+  "policy_hash": "cf40147b6649480c04383b56ebf68edb5df5f2ab303b8be45065f56f3fb15790",
+  "collection_hash": "e9d08ba6be50e9539aa2e800e12e140e7b114618f768ab9ff96ba08078814cfc",
+  "total_nodes_collected": 3187,
+  "total_nodes_assigned": 3187,
+  "total_nodes_executed": 2183,
+  "node_set_verification": {
+    "missing_from_manifest": 0,
+    "duplicate_assignments": 0,
+    "unexecuted_nodes": 1004,
+    "unexpected_executions": 0,
+    "duplicate_executions": 0
+  },
+  "test_outcomes": {
+    "passed": 2160,
+    "failed": 23,
+    "errors": 4,
+    "skipped": 0
+  },
+  "shard_outcomes": {
+    "total_shards": 18,
+    "crashed_shards": 11,
+    "timed_out_shards": 1
+  },
+  "total_duration_seconds": 2038.14
+}

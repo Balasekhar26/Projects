@@ -1,0 +1,17 @@
+{
+  "collected_node_ids": [],
+  "executed_node_ids": [],
+  "outcomes": {
+    "passed": [],
+    "failed": [],
+    "errors": [],
+    "skipped": [],
+    "xfailed": [],
+    "xpassed": []
+  },
+  "collection_errors": [
+    "backend/tests/test_trust_isolation.py: ImportError while importing test module 'C:\\Users\\balu\\Projects\\kattappa-k-r0.5-clean\\kattappa\\backend\\tests\\test_trust_isolation.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n..\\..\\..\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbackend\\tests\\test_trust_isolation.py:6: in <module>\n    from backend.core.graph import run_graph\nbackend\\core\\graph.py:49: in <module>\n    from backend.agents.executive import executive_node\nbackend\\agents\\executive.py:15: in <module>\n    from backend.core.simulation_engine import SimulationEngine\nbackend\\core\\simulation_engine.py:1027: in <module>\n    from backend.core.cognitive_kernel import CognitiveService, ServiceStatus\nbackend\\core\\cognitive_kernel.py:640: in <module>\n    KERNEL = CognitiveKernel()\n             ^^^^^^^^^^^^^^^^^\nbackend\\core\\cognitive_kernel.py:449: in __init__\n    from backend.core.simulation_engine import SimulationService\nE   ImportError: cannot import name 'SimulationService' from partially initialized module 'backend.core.simulation_engine' (most likely due to a circular import) (C:\\Users\\balu\\Projects\\kattappa-k-r0.5-clean\\kattappa\\backend\\core\\simulation_engine.py)"
+  ],
+  "internal_errors": [],
+  "exit_status": 4
+}

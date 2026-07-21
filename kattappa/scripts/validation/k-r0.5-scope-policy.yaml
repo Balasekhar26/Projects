@@ -1,0 +1,21 @@
+schema_version: 1
+baseline_commit: "97d4bd9a5507479b5b5b903a9e09abf4bcc7b709"
+
+allowed_paths:
+  - ".gitignore"
+  - "backend/core/ledger/stores/sqlite_store.py"
+  - "backend/core/openhuman_adapter.py"
+  - "backend/core/rbil.py"
+  - "backend/core/voice/runtime/*"
+  - "backend/core/orchestrator/runtime/*"
+  - "backend/tests/test_runtime_validation.py"
+  - "backend/tests/test_openhuman_adapter.py"
+  - "backend/tests/test_goal_lifecycle.py"
+  - "backend/tests/test_sharded_validation.py"
+  - "scripts/validation/*"
+  - "docs/adr/ADR-003-python-runtime-baseline.md"
+  - "docs/evidence/k-r0.5/*"
+
+conditionally_allowed_paths:
+  - "scripts/dev/_backend_process.py"
+  - "backend/tests/test_dev_backend_process.py"
