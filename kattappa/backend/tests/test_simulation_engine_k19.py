@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import pytest
 from backend.core.cognitive_kernel import KERNEL, ServiceStatus
 from backend.core.simulation_engine import SimulationEngine, SimulationService
@@ -9,6 +13,26 @@ from backend.core.meta_executive import MetaExecutive, MetaExecutiveMode
 
 
 class TestSimulationEngineK19:
+    def test_simulation_module_can_be_imported_before_kernel(self):
+        """Service contracts must not depend on global kernel construction order."""
+        code = (
+            "import backend.core.simulation_engine as simulation; "
+            "import backend.core.cognitive_kernel as kernel; "
+            "assert isinstance(kernel.KERNEL.get_service('simulation'), simulation.SimulationService)"
+        )
+        env = os.environ.copy()
+        env["KATTAPPA_TEST_MODE"] = "true"
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=os.getcwd(),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+
     def test_rollback_cost_estimation(self):
         # 1. Non-reversible destructive actions (DELETE)
         plan_delete = {

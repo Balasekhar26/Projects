@@ -110,29 +110,59 @@ class OpenHumanAdapter:
                     f"Size: 100 bytes\n"
                     f"SHA256: mock_sha"
                 )
+            elif action == "BROWSER_SPEEDTEST":
+                from backend.core.macros.browser_macros import execute_speedtest
+                return execute_speedtest()
             return {"success": True, "message": f"Browser action '{action}' executed (mocked)"}
 
         # Desktop
         elif action.startswith("DESKTOP_"):
+            from backend.tools.desktop_tools import (
+                click_element,
+                move_mouse,
+                open_application,
+                read_screen,
+                take_screenshot,
+                type_text,
+            )
+
             if action == "DESKTOP_SHUTDOWN":
                 return "Shutdown request completed (simulated)"
             elif action == "DESKTOP_DELETE_FILE":
                 path = params.get("path")
                 return f"Deleted file '{path}' (simulated)"
+            elif action == "DESKTOP_OPEN_APP":
+                return open_application(params.get("app_name", "VS Code"))
+            elif action == "DESKTOP_MOUSE_MOVE":
+                return move_mouse(
+                    params.get("x_norm", 500.0),
+                    params.get("y_norm", 500.0),
+                )
+            elif action == "DESKTOP_MOUSE_CLICK":
+                return click_element(
+                    params.get("x_norm", 500.0),
+                    params.get("y_norm", 500.0),
+                    params.get("button", "left"),
+                    params.get("click_type", "single"),
+                )
+            elif action == "DESKTOP_KEYBOARD_TYPING":
+                return type_text(params.get("text", ""))
             elif action == "DESKTOP_SCREENSHOT":
+                meta = take_screenshot()
                 return {
-                    "window": "active_window",
+                    "window": meta["window"],
                     "elements": [],
-                    "timestamp": time.time(),
-                    "sha256": "mock_hash",
+                    "timestamp": meta["timestamp"],
+                    "sha256": meta["sha256"],
                     "provenance": "UNTRUSTED_UI_DATA"
                 }
             elif action == "DESKTOP_READ_SCREEN":
+                screen = read_screen()
                 return {
-                    "window": "active_window",
-                    "elements": [],
-                    "text": "mock active screen text",
-                    "timestamp": time.time(),
+                    "window": screen["window"],
+                    "elements": screen["elements"],
+                    "text": screen["text"],
+                    "timestamp": screen["timestamp"],
                     "provenance": "UNTRUSTED_UI_DATA"
                 }
             return f"Desktop action '{action}' executed (mocked)"

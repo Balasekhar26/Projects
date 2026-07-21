@@ -158,7 +158,7 @@ def test_openhuman_adapter_desktop_routing() -> None:
     assert isinstance(res_desktop, dict)
     assert res_desktop.get("success") is True
     inner_res = res_desktop.get("result", {})
-    assert inner_res.get("window") == "active_window"
+    assert inner_res.get("window") == "VS Code"
     assert "sha256" in inner_res
 
 

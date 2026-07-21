@@ -276,6 +276,14 @@ class BeliefEngine:
 
         for entity_id, props in observation.entity_states.items():
             for prop_name, incoming_pv in props.items():
+                # An evidence item cannot occur after the observation envelope
+                # that contains it. PropertyValue defaults to wall-clock time,
+                # while simulations and replay use a logical observation clock;
+                # clamping future values removes execution-time-dependent decay
+                # without changing explicitly earlier measurement timestamps.
+                if incoming_pv.timestamp > observation.timestamp:
+                    incoming_pv = incoming_pv.clone()
+                    incoming_pv.timestamp = observation.timestamp
                 prior_pv = self.state.get_property(entity_id, prop_name)
 
                 if prior_pv is None:

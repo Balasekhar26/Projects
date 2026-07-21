@@ -31,16 +31,18 @@ class TestCognitiveWorkers(unittest.TestCase):
         self.assertEqual(cfg.model_map["compression"], "glm-5.2")
         self.assertEqual(cfg.model_map["safety"], "glm-5.2")
 
-    @patch("backend.core.model_router.ask_model")
-    def test_planner_routing(self, mock_ask_model):
+    @patch("backend.core.planner.planner_engine._should_use_mock_planner", return_value=False)
+    @patch("backend.core.planner.planner_engine.ask_model")
+    def test_planner_routing(self, mock_ask_model, _mock_mode):
         """Verifies planner CoT and decomposition route requests to the planning model."""
         mock_ask_model.return_value = '[]'
         
         # Test Decomposition
-        try:
+        with patch(
+            "backend.core.skills.skill_selector.SkillSelector.select_skill",
+            return_value=None,
+        ):
             PlannerAgent().decompose("test goal", context={})
-        except Exception:
-            pass
         
         # Verify ask_model was called with role="planning"
         called_roles = [kwargs.get("role") for _, kwargs in mock_ask_model.call_args_list]

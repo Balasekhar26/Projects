@@ -54,6 +54,29 @@ def test_recursive_dependency_propagation_and_cycles():
     assert pytest.approx(b_state.get_property("node_C", "val").confidence, 0.001) == 0.794
 
 
+def test_observation_timestamp_bounds_future_property_timestamp():
+    b_state = BeliefState(state_id="b1", branch_id="main", timestamp=100.0)
+    engine = BeliefEngine(b_state)
+    src = EvidenceSource(name="system", source_type="sensor", reliability=1.0)
+    b_state.set_property(
+        "node_A",
+        "val",
+        PropertyValue(value="active", confidence=0.9, source=src, timestamp=100.0),
+    )
+    obs = ObservedState(state_id="obs_1", branch_id="main", timestamp=105.0)
+    obs.set_property(
+        "node_A",
+        "val",
+        PropertyValue(value="active", confidence=0.3, source=src, timestamp=10_000.0),
+    )
+
+    engine.process_observation(obs)
+
+    fused = b_state.get_property("node_A", "val")
+    assert fused is not None
+    assert fused.timestamp == 105.0
+
+
 def test_explainability_apis():
     b_state = BeliefState(state_id="b1", branch_id="main", timestamp=100.0)
     engine = BeliefEngine(b_state)

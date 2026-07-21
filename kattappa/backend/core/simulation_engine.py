@@ -1024,7 +1024,7 @@ class SimulationReport:
         }
 
 
-from backend.core.cognitive_kernel import CognitiveService, ServiceStatus
+from backend.core.cognitive_service import CognitiveService, ServiceStatus
 
 class SimulationService(CognitiveService):
     """Microkernel service wrapper for the SimulationEngine."""

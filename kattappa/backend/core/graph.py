@@ -103,6 +103,11 @@ def route_council(state: AgentState) -> str:
 def route_agent(state: AgentState) -> str:
     if state.get("approval_required") and state.get("result"):
         return "evaluator"
+    if (
+        state.get("metacognitive_action") in {"ANSWER", "ASK_CLARIFICATION", "ABSTAIN"}
+        and state.get("result")
+    ):
+        return "evaluator"
     selected = state.get("selected_agent") or "evaluator"
     if selected == "memory":
         return "memory_agent"
@@ -778,7 +783,7 @@ def metacognition_node(state: AgentState) -> AgentState:
                 state["result"] = ask_model(prompt, role="general")
             except Exception as e:
                 state["result"] = f"Error generating answer: {e}"
-        elif state["metacognitive_action"] == "ASK_CLARIFICATION" and not state.get("result"):
+        elif state["metacognitive_action"] == "ASK_CLARIFICATION":
             from backend.core.model_router import ask_model
             prompt = (
                 "You are Kattappa. Ask the user for clarification about their request.\n\n"
@@ -788,7 +793,7 @@ def metacognition_node(state: AgentState) -> AgentState:
                 state["result"] = ask_model(prompt, role="general")
             except Exception as e:
                 state["result"] = f"Clarification request: {e}"
-        elif state["metacognitive_action"] == "ABSTAIN" and not state.get("result"):
+        elif state["metacognitive_action"] == "ABSTAIN":
             from backend.core.model_router import ask_model
             prompt = (
                 "You are Kattappa. Politely explain that you cannot perform or answer this request safely.\n\n"

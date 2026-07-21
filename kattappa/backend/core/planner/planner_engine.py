@@ -11,6 +11,17 @@ from backend.core.planner.verification_engine import VerificationEngine
 from backend.core.planner.dag_builder import DAGBuilder
 from backend.core.model_router import ask_model
 
+
+def _should_use_mock_planner() -> bool:
+    """Return whether deterministic planner output is required for this process."""
+    import sys
+
+    return (
+        "pytest" in sys.modules
+        or os.getenv("KATTAPPA_TEST_MODE") == "true"
+        or os.getenv("KATTAPPA_MOCK_LLM") == "true"
+    )
+
 class PlannerEngine:
     @classmethod
     def decompose(cls, goal: str, context: dict[str, Any] | None = None) -> TaskGraph:
@@ -26,12 +37,7 @@ class PlannerEngine:
         constraints = ConstraintExtractor.extract_constraints(goal)
         aggregated_context = ContextBuilder.build_context(goal)
         
-        import sys
-        use_mock = (
-            "pytest" in sys.modules or 
-            os.getenv("KATTAPPA_TEST_MODE") == "true" or
-            os.getenv("KATTAPPA_MOCK_LLM") == "true"
-        )
+        use_mock = _should_use_mock_planner()
         
         raw_steps = []
         
@@ -102,8 +108,10 @@ class PlannerEngine:
                 f"- action (string, e.g. 'WRITE_FILE', 'RUN_SHELL', 'BROWSER_SEARCH')\n"
                 f"- params (dict)\n"
                 f"- dependencies (list of strings, step_ids this step depends on)\n"
-                f"Example: "
-                f'[{"step_id": "s1", "description": "init venv", "agent": "coder", "action": "RUN_SHELL", "params": {"command": "python -m venv venv"}, "dependencies": []}]'
+                "Example: "
+                '[{"step_id": "s1", "description": "init venv", "agent": "coder", '
+                '"action": "RUN_SHELL", "params": {"command": "python -m venv venv"}, '
+                '"dependencies": []}]'
             )
             try:
                 res = ask_model(prompt, role="planning")

@@ -321,8 +321,22 @@ def test_parallel_council_execution(isolated_db):
     # Manual monkeypatch to avoid mock locking overhead
     original_elicit = CouncilSession._elicit_perspective
     CouncilSession._elicit_perspective = classmethod(mock_elicit)
-    
-    with patch.object(CouncilSession, "_run_auditor", return_value=([], [])):
+
+    mock_decision = MagicMock()
+    mock_decision.status.value = "approved"
+    mock_decision.selected = None
+    mock_decision.requires_human_approval = False
+    mock_decision.approve_mass = 3.0
+    mock_decision.reject_mass = 0.0
+    mock_decision.margin = 1.0
+    mock_decision.reasons = []
+
+    with patch.object(CouncilSession, "_run_auditor", return_value=([], [])), \
+         patch("backend.core.consensus_engine.ConsensusEngine.decide", return_value=mock_decision), \
+         patch("backend.core.council_session.CouncilArbiter.evaluate", return_value=[]), \
+         patch.object(CouncilSession, "_maybe_submit_governance", return_value=None), \
+         patch.object(CouncilSession, "_record_to_strategic_memory", return_value=None), \
+         patch.object(CouncilSession, "_persist", return_value=None):
         try:
             start_time = time.time()
             res = CouncilSession._run(
