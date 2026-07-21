@@ -2,8 +2,29 @@
   {
     "path": "backend/core/cognitive_kernel.py",
     "reason": "Repair import cycle blocking canonical collection",
-    "required_tests": [],
+    "required_tests": [
+      "test_cognitive_kernel_imports_without_simulation_cycle",
+      "test_simulation_engine_imports_without_kernel_cycle",
+      "test_import_order_kernel_then_simulation",
+      "test_import_order_simulation_then_kernel",
+      "test_kernel_resolves_simulation_service_lazily",
+      "test_lazy_resolution_does_not_recurse",
+      "test_simulation_service_singleton_or_scope_contract",
+      "test_kernel_shutdown_after_lazy_simulation_resolution",
+      "test_counterfactual_engine_execution",
+      "test_classify_risk_with_trust_tag",
+      "test_memory_agent_isolation"
+    ],
     "approved_milestone": "K-R0.5.10",
+    "temporary_exception": true
+  },
+  {
+    "path": "backend/core/reflection_engine.py",
+    "reason": "Move reflection output outside the repository when KATTAPPA_RELEASE_RUN_ACTIVE=1",
+    "required_tests": [
+      "test_reflect_on_execution"
+    ],
+    "approved_milestone": "K-R0.5.12",
     "temporary_exception": true
   }
 ]

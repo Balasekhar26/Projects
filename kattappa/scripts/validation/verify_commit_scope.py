@@ -87,6 +87,35 @@ def audit_commit_scope(base_sha: str = "97d4bd9a5507479b5b5b903a9e09abf4bcc7b709
             if not is_path_allowed(rel_f, policy):
                 errors.append(f"File modified in range {base_sha[:8]}..{resolved_head[:8]} is NOT in scope allowlist: {rel_f}")
 
+        # 4. Validate temporary scope exceptions
+        exceptions_file = PROJECT_ROOT / "docs" / "evidence" / "k-r0.5" / "scope-exceptions.json"
+        if exceptions_file.exists():
+            import json
+            try:
+                exceptions = json.loads(exceptions_file.read_text(encoding="utf-8"))
+                for entry in exceptions:
+                    path = entry.get("path")
+                    req_tests = entry.get("required_tests", [])
+                    if not req_tests:
+                        errors.append(f"required_tests is empty for temporary exception: {path}")
+                    
+                    # Scan for test functions in backend/tests
+                    validation_test_file = PROJECT_ROOT / "backend" / "tests" / "test_sharded_validation.py"
+                    cf_test_file = PROJECT_ROOT / "backend" / "tests" / "test_counterfactuals.py"
+                    ti_test_file = PROJECT_ROOT / "backend" / "tests" / "test_trust_isolation.py"
+                    re_test_file = PROJECT_ROOT / "backend" / "tests" / "test_reflection_engine.py"
+                    
+                    all_test_content = ""
+                    for tf in [validation_test_file, cf_test_file, ti_test_file, re_test_file]:
+                        if tf.exists():
+                            all_test_content += tf.read_text(encoding="utf-8")
+                            
+                    for t in req_tests:
+                        if t not in all_test_content:
+                            errors.append(f"required test does not exist in backend/tests: {t}")
+            except Exception as e:
+                errors.append(f"Failed to load or parse scope-exceptions.json: {e}")
+
         if errors:
             print("\n[FAILED] COMMIT SCOPE VERIFICATION FAILED:")
             for err in errors:

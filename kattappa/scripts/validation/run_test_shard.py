@@ -9,6 +9,11 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "validation"))
+from collect_test_inventory import load_shard_policy
+
+USED_DATA_ROOTS = set()
+
 def get_busy_ports(ports: list[int] = None) -> set[int]:
     if ports is None:
         ports = [8000, 8080, 8443, 9090]
@@ -84,6 +89,12 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
     shard_id = shard_data["shard_id"]
     iso_cls = shard_data["isolation_class"]
     node_ids = shard_data["node_ids"]
+
+    # 8. Timeout must be mandatory in official manifests
+    release_run_active = (os.environ.get("KATTAPPA_RELEASE_RUN_ACTIVE") == "1")
+    if release_run_active and "timeout_seconds" not in shard_data:
+        raise RuntimeError("Official shard is missing policy-resolved timeout")
+
     timeout_seconds = shard_data.get("timeout_seconds", 600)
 
     # Bind identity fields from shard_data
@@ -109,6 +120,39 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     env["KATTAPPA_TEST_MODE"] = "true"
+
+    # Enforce run details in environment
+    env["KATTAPPA_RUN_ID"] = run_id or ""
+    env["KATTAPPA_SHARD_ID"] = shard_id
+    env["KATTAPPA_CANDIDATE_COMMIT"] = candidate_commit or ""
+
+    # Check isolation config
+    policy = load_shard_policy()
+    cls_config = policy.isolation_classes.get(iso_cls, {})
+    requires_isolated = cls_config.get("requires_isolated_storage", False)
+
+    if requires_isolated:
+        workspace_base = evidence_dir / "workspaces" / shard_id
+        data_dir = workspace_base / "data"
+        runtime_dir = workspace_base / "runtime"
+        workspace_dir = workspace_base / "workspace"
+        temp_dir = workspace_base / "temp"
+        home_dir = workspace_base / "home"
+
+        for d in [data_dir, runtime_dir, workspace_dir, temp_dir, home_dir]:
+            d.mkdir(parents=True, exist_ok=True)
+
+        data_path_str = str(data_dir.resolve())
+        # Add a validation failure when two isolation-required shards share the same data root
+        if data_path_str in USED_DATA_ROOTS:
+            raise RuntimeError(f"Data root collision! Shard {shard_id} shares data root: {data_path_str}")
+        USED_DATA_ROOTS.add(data_path_str)
+
+        env["KATTAPPA_DATA_DIR"] = str(data_dir)
+        env["KATTAPPA_RUNTIME_DIR"] = str(runtime_dir)
+        env["KATTAPPA_WORKSPACE_DIR"] = str(workspace_dir)
+        env["TMP"] = str(temp_dir)
+        env["TEMP"] = str(temp_dir)
 
     stdout_path = shard_dir / "stdout.log"
     stderr_path = shard_dir / "stderr.log"
@@ -236,13 +280,42 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
         "internal_errors": internal_errors
     }
 
-    with open(shard_dir / "shard-result.json", "w", encoding="utf-8") as f:
-        json.dump(shard_result, f, indent=2)
+    atomic_write_json(shard_dir / "shard-result.json", shard_result)
 
     status_str = "TIMEOUT" if timed_out else ("PASS" if exit_code == 0 else "FAIL")
     print(f"[{shard_id}] {status_str} in {duration:.1f}s | Executed: {len(executed_nodes)}/{len(node_ids)} | Passed: {passed_cnt} | Failed: {failed_cnt}")
 
     return shard_result
+
+def atomic_write_json(path: Path, payload: dict):
+    tmp_path = path.with_suffix(".json.tmp") if path.suffix == ".json" else Path(str(path) + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with open(tmp_path, "r", encoding="utf-8") as f:
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            pass
+    try:
+        val = json.loads(tmp_path.read_text(encoding="utf-8"))
+        assert isinstance(val, (dict, list))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to validate temp JSON at {tmp_path}: {exc}")
+    os.replace(tmp_path, path)
+    try:
+        val2 = json.loads(path.read_text(encoding="utf-8"))
+        assert isinstance(val2, (dict, list))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to validate final JSON at {path}: {exc}")
+    parent = path.parent
+    try:
+        fd = os.open(str(parent), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

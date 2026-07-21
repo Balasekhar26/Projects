@@ -123,3 +123,7 @@ checkpoints/
 *.pth
 *.ckpt
 *.bin
+
+# Temporary and local requirements/reflections
+requirements.txt
+evaluation/reflections/

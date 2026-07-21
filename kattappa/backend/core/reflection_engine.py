@@ -1198,7 +1198,12 @@ class ReflectionEngine:
             "should_capability_genome_mutate": False
         }
 
-        reflections_dir = Path("evaluation/reflections")
+        import os
+        if os.getenv("KATTAPPA_RELEASE_RUN_ACTIVE") == "1":
+            from backend.core.config import runtime_data_root
+            reflections_dir = runtime_data_root() / "evaluation" / "reflections"
+        else:
+            reflections_dir = Path("evaluation/reflections")
         reflections_dir.mkdir(parents=True, exist_ok=True)
         file_path = reflections_dir / f"reflection_{uuid.uuid4().hex[:8]}.json"
         

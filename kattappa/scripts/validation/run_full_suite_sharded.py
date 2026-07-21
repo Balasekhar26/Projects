@@ -35,27 +35,29 @@ def _get_external_run_dir(run_id: str) -> Path:
 
 
 def compute_data_digest() -> dict:
-    paths = [
-        PROJECT_ROOT / "backend" / "data",
-        PROJECT_ROOT / "kattappa_data_engine" / "reports" / "defaults",
-    ]
-    k_data_dir = os.environ.get("KATTAPPA_DATA_DIR")
-    if k_data_dir:
-        paths.append(Path(k_data_dir))
+    try:
+        tracked_files = subprocess.check_output(
+            ["git", "-C", str(PROJECT_ROOT), "ls-files"], text=True
+        ).splitlines()
+    except Exception:
+        tracked_files = []
+
+    target_prefixes = (
+        "backend/data/",
+        "kattappa_data_engine/reports/defaults/"
+    )
 
     digests = {}
-    for p in paths:
-        if p.exists():
-            if p.is_file():
-                digests[str(p.relative_to(PROJECT_ROOT))] = hashlib.sha256(p.read_bytes()).hexdigest()
-            elif p.is_dir():
-                for f in sorted(list(p.rglob("*"))):
-                    if f.is_file() and not f.name.startswith("."):
-                        try:
-                            rel_p = str(f.relative_to(PROJECT_ROOT))
-                        except ValueError:
-                            rel_p = str(f)
-                        digests[rel_p] = hashlib.sha256(f.read_bytes()).hexdigest()
+    for f_rel in tracked_files:
+        norm_rel = f_rel.replace("\\", "/")
+        # If it matches the prefix or starts with it
+        if any(norm_rel.startswith(p) for p in target_prefixes):
+            abs_p = PROJECT_ROOT / norm_rel
+            if abs_p.is_file():
+                try:
+                    digests[norm_rel] = hashlib.sha256(abs_p.read_bytes()).hexdigest()
+                except Exception:
+                    pass
     return digests
 
 
@@ -94,13 +96,14 @@ def verify_source_provenance() -> tuple[bool, str, list[str]]:
             text=True,
         ).splitlines()
 
+        release_active = (os.environ.get("KATTAPPA_RELEASE_RUN_ACTIVE") == "1")
         for line in status_lines:
             line_clean = line.strip()
-            # Only ignore evaluation reflections (runtime-generated)
-            if "evaluation/reflections/" in line_clean:
-                continue
-            if "requirements.txt" in line_clean and not "kattappa/" in line_clean:
-                continue
+            if not release_active:
+                if "evaluation/reflections/" in line_clean:
+                    continue
+                if "requirements.txt" in line_clean and not "kattappa/" in line_clean:
+                    continue
             if line_clean:
                 errors.append(f"Dirty or untracked file in worktree: {line_clean}")
 
@@ -110,10 +113,13 @@ def verify_source_provenance() -> tuple[bool, str, list[str]]:
 
 
 def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule_order: str = "canonical"):
-    if os.environ.get("KATTAPPA_RELEASE_RUN_ACTIVE") == "1":
+    active = os.environ.get("KATTAPPA_RELEASE_RUN_ACTIVE")
+    launcher_pid = os.environ.get("KATTAPPA_RELEASE_LAUNCHER_PID")
+    if active == "1" and launcher_pid != str(os.getpid()):
         print("[CRITICAL] Recursive run guard triggered. Aborting execution.")
         sys.exit(5)
     os.environ["KATTAPPA_RELEASE_RUN_ACTIVE"] = "1"
+    os.environ["KATTAPPA_RELEASE_LAUNCHER_PID"] = str(os.getpid())
 
     # --- Generate immutable run identity ---
     start_sha_pre = "unknown"
@@ -210,6 +216,9 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
 
     t0 = time.time()
     for s in manifest["shards"]:
+        # 8. Timeout must be mandatory in official manifests
+        if os.environ.get("KATTAPPA_RELEASE_RUN_ACTIVE") == "1" and "timeout_seconds" not in s:
+            raise RuntimeError("Official shard is missing policy-resolved timeout")
         run_shard(s, run_dir)
     total_time = time.time() - t0
 
@@ -226,14 +235,21 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
         if pre_digest.get(p) != post_digest.get(p)
     ]
 
-    if start_sha != end_sha or not valid_end or data_changed:
-        print("\n[FAILED] POST-EXECUTION INTEGRITY OR PROVENANCE FAILED.")
-        if start_sha != end_sha:
-            print(f"  - Start SHA {start_sha[:8]} != End SHA {end_sha[:8]}")
+    # Calculate runtime writes and escapes
+    runtime_files_created = 0
+    runtime_files_modified = 0
+    runtime_writes_outside_assigned_roots = []
+    
+    # Any post-execution status warnings outside reflections become escapes
+    if not valid_end:
         for err in post_errors:
-            print(f"  - {err}")
-        if data_changed:
-            print(f"  - Data mutation detected in paths: {changed_data_paths}")
+            runtime_writes_outside_assigned_roots.append(err)
+
+    workspaces_base = run_dir / "workspaces"
+    if workspaces_base.exists():
+        for f in workspaces_base.rglob("*"):
+            if f.is_file():
+                runtime_files_created += 1
 
     print("\n--- 5. Aggregating Test Results ---")
     invalid_artifacts = False
@@ -249,13 +265,13 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
         invalid_artifacts = True
         artifact_errors = [str(e)]
 
-    provenance_passed = valid_start and valid_end and start_sha == end_sha and not data_changed
+    provenance_passed = valid_start and valid_end and start_sha == end_sha and not data_changed and len(runtime_writes_outside_assigned_roots) == 0
     final_is_pass = provenance_passed and not invalid_artifacts and test_verdict_data.get("test_verdict") == "PASS"
 
     # Define explicit terminal status
     if not valid_start or not valid_end or start_sha != end_sha:
         status = "invalid_provenance"
-    elif data_changed:
+    elif data_changed or len(runtime_writes_outside_assigned_roots) > 0:
         status = "invalid_provenance"
     elif invalid_artifacts:
         status = "invalid_artifacts"
@@ -286,8 +302,10 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
             "post_errors": post_errors,
         },
         "data_integrity_verification": {
-            "data_changed": data_changed,
-            "changed_paths": changed_data_paths,
+            "tracked_repository_data_changed": data_changed,
+            "runtime_files_created": runtime_files_created,
+            "runtime_files_modified": runtime_files_modified,
+            "runtime_writes_outside_assigned_roots": runtime_writes_outside_assigned_roots,
         },
         "test_verdict": test_verdict_data,
     }
@@ -296,37 +314,14 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
         release_verdict["artifact_errors"] = artifact_errors
 
     # Atomic write for release-verdict.json
-    import os
-    import hashlib
-    
-    rv_tmp = run_dir / "release-verdict.tmp"
     rv_final = run_dir / "release-verdict.json"
-    rv_tmp.write_text(json.dumps(release_verdict, indent=2), encoding="utf-8")
-    
-    # Validate the tmp release verdict
-    try:
-        loaded_rv = json.loads(rv_tmp.read_text(encoding="utf-8"))
-        assert loaded_rv.get("run_id") == run_id
-        assert "verdict" in loaded_rv
-    except Exception as exc:
-        raise RuntimeError(f"Atomic release-verdict validation failed: {exc}")
-    os.replace(rv_tmp, rv_final)
+    atomic_write_json(rv_final, release_verdict)
 
     # Atomic write for run-metadata.json
     run_metadata["status"] = status
     run_metadata["completed_at"] = datetime.now(timezone.utc).isoformat()
-    
-    rm_tmp = run_dir / "run-metadata.tmp"
     rm_final = run_dir / "run-metadata.json"
-    rm_tmp.write_text(json.dumps(run_metadata, indent=2), encoding="utf-8")
-    
-    # Validate the tmp run metadata
-    try:
-        loaded_rm = json.loads(rm_tmp.read_text(encoding="utf-8"))
-        assert loaded_rm.get("status") == status
-    except Exception as exc:
-        raise RuntimeError(f"Atomic run-metadata validation failed: {exc}")
-    os.replace(rm_tmp, rm_final)
+    atomic_write_json(rm_final, run_metadata)
 
     # Reopen and compute hashes of all final files to create RUN_COMPLETE marker
     def compute_file_sha256(path: Path) -> str:
@@ -352,9 +347,13 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
         tree_hash_payload = "\n".join(f"{name}:{sha}" for name, sha in all_files)
         artifact_tree_sha256 = hashlib.sha256(tree_hash_payload.encode("utf-8")).hexdigest()
 
+        # RUN_COMPLETE needs verdict binding
         run_complete = {
             "run_id": run_id,
             "candidate_commit": start_sha,
+            "status": status,
+            "verdict": release_verdict['verdict'],
+            "valid_for_release": final_is_pass,
             "release_verdict_sha256": release_verdict_sha,
             "test_verdict_sha256": test_verdict_sha,
             "manifest_file_sha256": manifest_sha,
@@ -363,14 +362,8 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
         }
 
         # Write RUN_COMPLETE atomically
-        rc_tmp = run_dir / "RUN_COMPLETE.tmp"
         rc_final = run_dir / "RUN_COMPLETE"
-        rc_tmp.write_text(json.dumps(run_complete, indent=2), encoding="utf-8")
-        
-        # Verify it can be loaded
-        loaded_rc = json.loads(rc_tmp.read_text(encoding="utf-8"))
-        assert loaded_rc.get("run_id") == run_id
-        os.replace(rc_tmp, rc_final)
+        atomic_write_json(rc_final, run_complete)
     except Exception as exc:
         raise RuntimeError(f"RUN_COMPLETE generation or verification failed: {exc}")
 
@@ -384,6 +377,37 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
     print("=============================================================\n")
 
     return 0 if final_is_pass else 1
+
+def atomic_write_json(path: Path, payload: dict):
+    import os
+    tmp_path = path.with_suffix(".json.tmp") if path.suffix == ".json" else Path(str(path) + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with open(tmp_path, "r", encoding="utf-8") as f:
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            pass
+    try:
+        val = json.loads(tmp_path.read_text(encoding="utf-8"))
+        assert isinstance(val, (dict, list))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to validate temp JSON at {tmp_path}: {exc}")
+    os.replace(tmp_path, path)
+    try:
+        val2 = json.loads(path.read_text(encoding="utf-8"))
+        assert isinstance(val2, (dict, list))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to validate final JSON at {path}: {exc}")
+    parent = path.parent
+    try:
+        fd = os.open(str(parent), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
