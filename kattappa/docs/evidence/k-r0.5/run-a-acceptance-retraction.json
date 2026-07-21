@@ -1,0 +1,20 @@
+{
+  "retracted_run_id": "k-r0.5-A-f23c62f6-20260721T104550Z",
+  "candidate_commit": "f23c62f61cf9b5ee48489125c73c5c2825573d78",
+  "previous_classification": "PROVISIONAL_PASS",
+  "corrected_classification": "INVALID",
+  "valid_for_release": false,
+  "reason_codes": [
+    "RUN_NOT_FINALIZED",
+    "RELEASE_VERDICT_MISSING",
+    "INCOMPLETE_SHARD_SET",
+    "INCOMPLETE_EXECUTED_NODE_SET",
+    "OBSERVED_TEST_FAILURES",
+    "CONSOLE_ARTIFACT_DISAGREEMENT"
+  ],
+  "expected_shards": 17,
+  "observed_shards": 5,
+  "assigned_nodes": 3222,
+  "executed_nodes": 257,
+  "observed_failures": 2
+}

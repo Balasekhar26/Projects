@@ -91,7 +91,8 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
     candidate_commit = shard_data.get("candidate_commit")
     collection_hash = shard_data.get("collection_hash")
     policy_hash = shard_data.get("policy_hash")
-    manifest_hash = shard_data.get("manifest_hash")
+    manifest_core_hash = shard_data.get("manifest_core_hash")
+    manifest_file_hash = shard_data.get("manifest_file_hash")
 
     shard_dir = evidence_dir / "shards" / shard_id
     shard_dir.mkdir(parents=True, exist_ok=True)
@@ -206,7 +207,8 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
         "candidate_commit": candidate_commit,
         "collection_hash": collection_hash,
         "policy_hash": policy_hash,
-        "manifest_hash": manifest_hash,
+        "manifest_core_hash": manifest_core_hash,
+        "manifest_file_hash": manifest_file_hash,
         "shard_id": shard_id,
         "isolation_class": iso_cls,
         "total_nodes_assigned": len(node_ids),

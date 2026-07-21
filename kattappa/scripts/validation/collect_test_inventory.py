@@ -19,6 +19,7 @@ class ShardPolicy:
     default_isolation_class: str
     isolation_classes: dict
     path_rules: dict
+    timeout_policy: dict
 
 def load_shard_policy() -> ShardPolicy:
     policy_file = PROJECT_ROOT / "scripts" / "validation" / "test_shard_policy.yaml"
@@ -30,7 +31,8 @@ def load_shard_policy() -> ShardPolicy:
         policy_name=data.get("policy_name", "default_policy"),
         default_isolation_class=data.get("default_isolation_class", "isolated_stateful"),
         isolation_classes=data.get("isolation_classes", {}),
-        path_rules=data.get("path_rules", {})
+        path_rules=data.get("path_rules", {}),
+        timeout_policy=data.get("timeout_policy", {})
     )
 
 def compute_policy_hash() -> str:

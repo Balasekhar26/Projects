@@ -446,8 +446,6 @@ class CognitiveKernel:
         self.register_service(LedgerService())
         from backend.core.meta_executive import MetaExecutiveService
         self.register_service(MetaExecutiveService())
-        from backend.core.simulation_engine import SimulationService
-        self.register_service(SimulationService())
 
         # Automatically start default services
         self.initialize_all()
@@ -488,6 +486,9 @@ class CognitiveKernel:
     def get_service(self, name: str) -> Any:
         """Retrieve a registered service instance by name."""
         with self._services_lock:
+            if name == "simulation" and "simulation" not in self._services:
+                from backend.core.simulation_engine import SimulationService
+                self.register_service(SimulationService())
             service = self._services.get(name)
             if not service:
                 raise RuntimeError(f"Service {name!r} not registered with CognitiveKernel.")

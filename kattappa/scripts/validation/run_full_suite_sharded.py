@@ -110,6 +110,11 @@ def verify_source_provenance() -> tuple[bool, str, list[str]]:
 
 
 def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule_order: str = "canonical"):
+    if os.environ.get("KATTAPPA_RELEASE_RUN_ACTIVE") == "1":
+        print("[CRITICAL] Recursive run guard triggered. Aborting execution.")
+        sys.exit(5)
+    os.environ["KATTAPPA_RELEASE_RUN_ACTIVE"] = "1"
+
     # --- Generate immutable run identity ---
     start_sha_pre = "unknown"
     try:
@@ -177,13 +182,14 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
     print("[PASSED] Provenance Preflight Passed: All runner files tracked in HEAD, 0 untracked source files.")
 
     print("\n--- 1. Collecting Test Inventory ---")
+
     n_collected, c_hash, p_hash = collect_inventory(run_dir)
 
     run_metadata["collection_hash"] = c_hash
     run_metadata["policy_hash"] = p_hash
 
     print("\n--- 2. Building Shard Manifest ---")
-    n_shards, m_hash = build_manifest(
+    n_shards, m_core_hash, m_file_hash = build_manifest(
         run_dir,
         shard_size=shard_size,
         run_id=run_id,
@@ -193,7 +199,8 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
         schedule_order=schedule_order
     )
 
-    run_metadata["manifest_hash"] = m_hash
+    run_metadata["manifest_core_hash"] = m_core_hash
+    run_metadata["manifest_file_hash"] = m_file_hash
     (run_dir / "run-metadata.json").write_text(
         json.dumps(run_metadata, indent=2), encoding="utf-8"
     )
@@ -269,7 +276,8 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
         "end_commit": end_sha,
         "policy_hash": p_hash,
         "collection_hash": c_hash,
-        "manifest_hash": m_hash,
+        "manifest_core_hash": m_core_hash,
+        "manifest_file_hash": m_file_hash,
         "provenance_verification": {
             "valid_start": valid_start,
             "valid_end": valid_end,
@@ -287,16 +295,84 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
     if invalid_artifacts:
         release_verdict["artifact_errors"] = artifact_errors
 
-    # SOLE author of release-verdict.json — written to EXTERNAL run directory
-    (run_dir / "release-verdict.json").write_text(
-        json.dumps(release_verdict, indent=2), encoding="utf-8"
-    )
+    # Atomic write for release-verdict.json
+    import os
+    import hashlib
+    
+    rv_tmp = run_dir / "release-verdict.tmp"
+    rv_final = run_dir / "release-verdict.json"
+    rv_tmp.write_text(json.dumps(release_verdict, indent=2), encoding="utf-8")
+    
+    # Validate the tmp release verdict
+    try:
+        loaded_rv = json.loads(rv_tmp.read_text(encoding="utf-8"))
+        assert loaded_rv.get("run_id") == run_id
+        assert "verdict" in loaded_rv
+    except Exception as exc:
+        raise RuntimeError(f"Atomic release-verdict validation failed: {exc}")
+    os.replace(rv_tmp, rv_final)
 
+    # Atomic write for run-metadata.json
     run_metadata["status"] = status
     run_metadata["completed_at"] = datetime.now(timezone.utc).isoformat()
-    (run_dir / "run-metadata.json").write_text(
-        json.dumps(run_metadata, indent=2), encoding="utf-8"
-    )
+    
+    rm_tmp = run_dir / "run-metadata.tmp"
+    rm_final = run_dir / "run-metadata.json"
+    rm_tmp.write_text(json.dumps(run_metadata, indent=2), encoding="utf-8")
+    
+    # Validate the tmp run metadata
+    try:
+        loaded_rm = json.loads(rm_tmp.read_text(encoding="utf-8"))
+        assert loaded_rm.get("status") == status
+    except Exception as exc:
+        raise RuntimeError(f"Atomic run-metadata validation failed: {exc}")
+    os.replace(rm_tmp, rm_final)
+
+    # Reopen and compute hashes of all final files to create RUN_COMPLETE marker
+    def compute_file_sha256(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    try:
+        collection_sha = compute_file_sha256(run_dir / "collection.json")
+        manifest_sha = compute_file_sha256(run_dir / "manifest.json")
+        test_verdict_sha = compute_file_sha256(run_dir / "test-verdict.json")
+        release_verdict_sha = compute_file_sha256(run_dir / "release-verdict.json")
+        run_metadata_sha = compute_file_sha256(run_dir / "run-metadata.json")
+
+        # Compute artifact tree SHA-256 (hashing the sorted names & hashes of all non-complete files in run_dir)
+        all_files = []
+        for root_dir, _, files in os.walk(run_dir):
+            for file in files:
+                if file != "RUN_COMPLETE":
+                    fp = Path(root_dir) / file
+                    rel_p = fp.relative_to(run_dir).as_posix()
+                    file_sha = compute_file_sha256(fp)
+                    all_files.append((rel_p, file_sha))
+        all_files.sort()
+        tree_hash_payload = "\n".join(f"{name}:{sha}" for name, sha in all_files)
+        artifact_tree_sha256 = hashlib.sha256(tree_hash_payload.encode("utf-8")).hexdigest()
+
+        run_complete = {
+            "run_id": run_id,
+            "candidate_commit": start_sha,
+            "release_verdict_sha256": release_verdict_sha,
+            "test_verdict_sha256": test_verdict_sha,
+            "manifest_file_sha256": manifest_sha,
+            "artifact_tree_sha256": artifact_tree_sha256,
+            "completed_at": run_metadata["completed_at"]
+        }
+
+        # Write RUN_COMPLETE atomically
+        rc_tmp = run_dir / "RUN_COMPLETE.tmp"
+        rc_final = run_dir / "RUN_COMPLETE"
+        rc_tmp.write_text(json.dumps(run_complete, indent=2), encoding="utf-8")
+        
+        # Verify it can be loaded
+        loaded_rc = json.loads(rc_tmp.read_text(encoding="utf-8"))
+        assert loaded_rc.get("run_id") == run_id
+        os.replace(rc_tmp, rc_final)
+    except Exception as exc:
+        raise RuntimeError(f"RUN_COMPLETE generation or verification failed: {exc}")
 
     print("\n=================== FINAL RELEASE VERDICT ===================")
     print(f"RUN ID: {run_id}")

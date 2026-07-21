@@ -20,7 +20,8 @@ def aggregate_results(evidence_dir: Path) -> dict:
     candidate_commit = manifest.get("candidate_commit")
     collection_hash = manifest.get("collection_hash")
     policy_hash = manifest.get("policy_hash")
-    manifest_hash = manifest.get("manifest_hash")
+    manifest_core_hash = manifest.get("manifest_core_hash")
+    manifest_file_hash = manifest.get("manifest_file_hash")
 
     manifest_shard_ids = {s["shard_id"] for s in manifest["shards"]}
 
@@ -90,8 +91,10 @@ def aggregate_results(evidence_dir: Path) -> dict:
                 raise ValueError(f"Shard {s_id} has mismatching collection_hash: {sres.get('collection_hash')} != {collection_hash}")
             if sres.get("policy_hash") != policy_hash:
                 raise ValueError(f"Shard {s_id} has mismatching policy_hash: {sres.get('policy_hash')} != {policy_hash}")
-            if sres.get("manifest_hash") != manifest_hash:
-                raise ValueError(f"Shard {s_id} has mismatching manifest_hash: {sres.get('manifest_hash')} != {manifest_hash}")
+            if sres.get("manifest_core_hash") != manifest_core_hash:
+                raise ValueError(f"Shard {s_id} has mismatching manifest_core_hash: {sres.get('manifest_core_hash')} != {manifest_core_hash}")
+            if sres.get("manifest_file_hash") != manifest_file_hash:
+                raise ValueError(f"Shard {s_id} has mismatching manifest_file_hash: {sres.get('manifest_file_hash')} != {manifest_file_hash}")
 
             if s_id not in manifest_shard_ids:
                 raise ValueError(f"Shard ID {s_id} is not defined in the current manifest")
@@ -191,9 +194,24 @@ def aggregate_results(evidence_dir: Path) -> dict:
         "total_duration_seconds": round(total_duration, 2)
     }
 
-    # Write ONLY test-verdict.json (never release-verdict.json)
-    with open(evidence_dir / "test-verdict.json", "w", encoding="utf-8") as f:
+    # Write test-verdict.tmp and atomically rename
+    import os
+    tmp_path = evidence_dir / "test-verdict.tmp"
+    final_path = evidence_dir / "test-verdict.json"
+    
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(test_verdict, f, indent=2)
+        
+    # Validate the tmp file
+    try:
+        content = tmp_path.read_text(encoding="utf-8")
+        loaded = json.loads(content)
+        assert "test_verdict" in loaded
+        assert "node_set_verification" in loaded
+    except Exception as exc:
+        raise RuntimeError(f"Atomic test-verdict validation failed: {exc}")
+        
+    os.replace(tmp_path, final_path)
 
     print("\n=================== TEST VERDICT SUMMARY ===================")
     print(f"VERDICT: {test_verdict['test_verdict']}")

@@ -49,3 +49,21 @@ path_rules:
     - ".*db.*"
     - ".*persistence.*"
     - ".*file.*"
+
+timeout_policy:
+  parallel_safe:
+    base_seconds: 300
+    maximum_seconds: 600
+  isolated_stateful:
+    base_seconds: 450
+    maximum_seconds: 900
+  exclusive_process:
+    base_seconds: 600
+    maximum_seconds: 1200
+  browser_ui:
+    base_seconds: 600
+    maximum_seconds: 1200
+  resource_heavy:
+    base_seconds: 600
+    maximum_seconds: 1200
+
