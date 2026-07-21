@@ -1,0 +1,14 @@
+{
+  "attempt": "A2",
+  "run_class": "diagnostic",
+  "valid_for_release": false,
+  "verdict": "INVALID",
+  "start_commit": "478b27148f5020f300f31ee9cd4a101032633cd7",
+  "reported_final_head": "478b27148f5020f300f31ee9cd4a101032633cd7",
+  "reason_codes": [
+    "INCOMPLETE_TEST_ROOT_COLLECTION",
+    "TARGETED_ONLY_BACKEND_TESTS",
+    "EXCLUDED_CANONICAL_TESTPATHS"
+  ],
+  "invalidation_note": "Attempt A2 started from 478b2714...; invalid/incomplete because collection targeted only backend/tests instead of all four canonical pytest.ini testpaths."
+}

@@ -1,10 +1,10 @@
 # K-HIM: Kattappa Hierarchical Inference Memory Engine
 
-## 1. Architectural Purpose & Requirements
+## 1. Architectural Purpose & Scope
 
-**K-HIM (Kattappa Hierarchical Inference Memory Engine)** is Kattappa's native SSD-streamed inference system designed to execute models larger than physical system RAM while enforcing a strict **8 GB total Kattappa process-tree RAM governor**.
+**K-HIM (Kattappa Hierarchical Inference Memory Engine)** is Kattappa's native SSD-streamed inference runtime designed to execute compatible models larger than physical system RAM while keeping all Kattappa-owned processes strictly under a configurable **8 GiB total process-tree RAM ceiling**.
 
-Rather than connecting to external third-party inference backends, Kattappa native inference streams cold tensors and expert parameters dynamically from high-speed SSD storage into a bounded RAM cache, streaming only the specific active experts required per token.
+Rather than acting merely as an adapter to external inference engines, Kattappa owns model admission, tensor placement, SSD storage layout, expert cache policies, prefetch scheduling, KV-cache budgeting, process supervision, RAM enforcement, live telemetry, and fallback behavior.
 
 ---
 
@@ -17,12 +17,13 @@ Rather than connecting to external third-party inference backends, Kattappa nati
 +-------------------------------------------------------------+
                             |
 +-------------------------------------------------------------+
-| System RAM (Hard Kattappa limit: 8 GB)                      |
+| System RAM (Hard Kattappa limit: 8 GiB total process-tree)  |
 | Resident model core, quantized KV cache, active workspace   |
 +-------------------------------------------------------------+
                             |
 +-------------------------------------------------------------+
-| 2 TB NVMe SSD                                               |
+| 2 TB SSD                                                    |
+| Interface and measured bandwidth: TBD during K-HIM-0        |
 | Cold experts, model weight shards, inactive tensor store   |
 +-------------------------------------------------------------+
                             |
@@ -34,7 +35,25 @@ Rather than connecting to external third-party inference backends, Kattappa nati
 
 ---
 
-## 3. Two-Mind System Architecture
+## 3. Dynamic 8 GiB Process-Tree RAM Budget
+
+The 8 GiB RAM limit applies to the complete Kattappa-owned process tree (control plane, sidecars, resident models, caches, and tools).
+
+| Domain | Initial Dynamic Ceiling | Description |
+| :--- | :---: | :--- |
+| **Control plane, policy, & memory coordination** | **1.5 GiB** | Core orchestrator, state engines, security governors |
+| **Voice, UI, & automation bridges** | **0.5 GiB** | Playwright, TTS/STT helpers, desktop sidecars |
+| **Fast resident model (when active)** | **2.0 GiB** | Sub-second interactive chat & tool routing model |
+| **Deep inference resident core & expert cache** | **3.0 GiB** | Resident MoE core parameters and active expert cache |
+| **KV cache & I/O buffers** | **0.5 GiB** | Quantized KV cache pages and async read buffers |
+| **Emergency reserve** | **0.5 GiB** | Operating safety margin |
+| **Total Process Tree Ceiling** | **8.0 GiB** | **Hard Kattappa Governor Limit** |
+
+*Note: Kattappa dynamically unloads or suspends optional components (such as fast resident models or voice bridges) when transitioning into Deep Reasoning Mode.*
+
+---
+
+## 4. Two-Mind System Architecture
 
 ```text
 User Request
@@ -52,45 +71,81 @@ Voice, desktop, browser, chat               Architecture, science, research
                                              system retains control)
 ```
 
-1. **Fast Interactive Mind**: A small, fully resident model (< 2-3 GB RAM) dedicated to sub-second interactive chat, desktop control, voice, and browser automation.
-2. **Deep Reasoning Mind**: A large, SSD-streamed MoE model invoked for complex planning, research, code synthesis, and architectural verification. The reasoning model produces structured plans and recommendations but does NOT bypass Kattappa's security and permission boundaries.
+- **Fast Interactive Task**: Small resident model (< 2.0 GiB RAM) for instant interactive tasks.
+- **Deep Reasoning Task**: SSD-streamed MoE model for complex reasoning. The deep reasoning model produces structured plans and analysis; Kattappa's security, permission, and execution systems maintain absolute control.
 
 ---
 
-## 4. Key Subsystems & Technical Components
-
-1. **SSD Tensor & Expert Store**: Memory-mapped binary layout optimizing sequential and random block reads for model weights on NVMe storage.
-2. **Bounded Hot-Expert RAM Cache**: LRU/LFU cache keeping frequently activated experts resident within allocated System RAM budgets.
-3. **Asynchronous Prefetcher**: Predictive pipeline that fetches next-token candidate experts before layer computation begins.
-4. **Expert Routing & Predictor**: Lightweight predictor neural net or heuristic layer estimating expert activation paths.
-5. **Quantized KV Cache Manager**: 4-bit/8-bit quantized Key-Value cache manager with sliding window and paged memory allocation.
-6. **Model Admission Controller**: Verifies RAM, VRAM, and SSD bandwidth availability before loading candidate models.
-7. **Strict 8 GB RAM Governor**: Hard process-tree monitor enforcing memory caps across all sidecars and parent processes.
-8. **Inference Sidecar Crash Isolation**: Runs inference engine in an isolated subprocess; process crashes do NOT collapse the main Kattappa control plane.
-9. **Automatic Fallback Model**: Instantly routes requests to a smaller resident model if SSD streaming stalls or crashes.
-10. **Telemetry & Diagnostics**: Live measurement of RAM, VRAM, SSD read bandwidth, latency, prefetch hit rate, and thermals.
-
----
-
-## 5. K-HIM-0 Research & Measurement Targets
-
-Prior to prototyping code implementation in K-HIM-1, the following baseline parameters must be measured on the workstation:
-
-- **Storage Bandwidth**: Sustained sequential and 4K random read MB/s on NVMe target.
-- **RAM Footprint**: Baseline Windows host RAM consumption and available Kattappa ceiling.
-- **Candidate Quantizations**: FP16 vs INT8 vs INT4 activation and weight memory trade-offs.
-- **Resident Core Bytes**: Minimum non-swappable core parameters for target MoE architectures.
-- **Active Expert Bytes**: Parameter size per token activation.
-- **KV Cache Growth Rate**: Memory per 1,000 context tokens under 4-bit quantization.
-- **SSD Thermal & Wear**: Impact of continuous token streaming on NVMe thermals and endurance.
-- **I/O Mechanism Performance**: Benchmark `mmap` vs Direct I/O (`O_DIRECT`) vs `io_uring` / `FILE_FLAG_NO_BUFFERING`.
-
----
-
-## 6. Authoritative Roadmap Milestones
+## 5. Expert Routing & Prefetch Architecture
 
 ```text
-K-R0.5 (ACTIVE)
+Native MoE Router Logits
+        |
+        v
+Selected experts for current layer
+        |
+        v
+Prefetch scheduler uses routing information
+and recent expert-transition statistics
+        |
+        v
+SSD reads issued before expert execution
+```
+
+1. **Authoritative Selector**: The model's **native MoE router or gating logits** determine which experts are required for each layer and token.
+2. **Prefetch Scheduler**: Analyzes native routing logits and historical layer transition probabilities to issue async SSD read requests before execution reaches subsequent layers.
+
+---
+
+## 6. Model Compatibility Matrix
+
+| Model Class | K-HIM Suitability | Architectural Rationale |
+| :--- | :--- | :--- |
+| **Sparse MoE** | **High** | Only selected experts activate per token; ideal for streaming |
+| **Modular Specialist Model** | **High** | Specialized sub-networks can be loaded independently |
+| **Quantized Layer-Streamed Model** | **Medium** | Supported, but requires high storage bandwidth |
+| **Small Dense Model** | **High (as resident fallback)** | Entire model remains resident in RAM |
+| **Very Large Dense Transformer** | **Low** | Requires all weights for every token; unsuited for streaming |
+| **Model with Unbounded KV Growth** | **Rejected** | Violates 8 GiB RAM limit guarantee |
+| **Unsupported Tensor Layout** | **Rejected** | Inefficient or unsafe memory layout |
+
+---
+
+## 7. Formal Memory-Admission Equation
+
+Before loading any model profile, the Kattappa Model Admission Controller evaluates:
+
+$$\text{estimated\_peak\_kattappa\_ram} = \text{control\_plane\_peak} + \text{voice\_and\_tool\_peak} + \text{resident\_model\_core} + \text{max\_active\_expert\_cache} + \text{KV\_cache\_budget} + \text{workspace\_buffers} + \text{safety\_reserve}$$
+
+### Admission Requirement:
+$$\text{estimated\_peak\_kattappa\_ram} \le 8.0\text{ GiB}$$
+
+If the estimate exceeds 8.0 GiB, Kattappa must:
+1. Reduce context length window.
+2. Reduce expert cache allocation.
+3. Apply higher quantization (e.g. 4-bit KV cache).
+4. Suspend non-critical voice/UI sidecars.
+5. Select a smaller compatible fallback model.
+6. **Reject model loading.** (Never silently depend on OS page swapping).
+
+---
+
+## 8. SSD Storage & Capacity Policy
+
+To prevent model streaming from exhausting host system disk space:
+
+```text
+Minimum Protected Free SSD Space = max(15% of SSD capacity, 250 GB)
+```
+
+K-HIM reserves protected space for Windows OS updates, virtual memory, temporary files, Kattappa databases, crash dumps, and expert-cache staging buffers. The 500 GB HDD serves strictly as archival storage, not as the active streaming tier.
+
+---
+
+## 9. Authoritative Roadmap Milestones
+
+```text
+K-R0.5 (ACTIVE: Release Validation Repair)
 Complete immutable release Runs A, B and C
         |
         v
@@ -103,7 +158,7 @@ Unified capabilities, permissions and approvals
         |
         v
 K-HIM-0 (QUEUED)
-Feasibility research, hardware benchmarks and technical specification
+Scientific feasibility, hardware benchmarks (SSD bandwidth, CPU I/O mode), and spec
         |
         v
 K-HIM-1 (FUTURE)
@@ -111,7 +166,7 @@ Native SSD-streamed MoE prototype with small sparse model
         |
         v
 K-HIM-2 (FUTURE)
-Hard 8 GB total process-tree RAM governor integration
+Hard 8 GiB total Kattappa process-tree RAM governor integration
         |
         v
 K-HIM-3 (FUTURE)

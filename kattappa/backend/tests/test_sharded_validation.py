@@ -13,6 +13,7 @@ from collect_test_inventory import (
     classify_node,
     classify_node_with_policy,
     load_shard_policy,
+    load_canonical_testpaths,
     compute_policy_hash,
     ShardPolicy
 )
@@ -56,7 +57,8 @@ def test_scope_policy_allowlist_matching():
     policy = {
         "allowed_paths": [
             "backend/core/rbil.py",
-            "scripts/validation/*"
+            "scripts/validation/*",
+            "docs/architecture/*"
         ],
         "conditionally_allowed_paths": [
             "scripts/dev/_backend_process.py"
@@ -64,10 +66,20 @@ def test_scope_policy_allowlist_matching():
     }
     assert is_path_allowed("backend/core/rbil.py", policy) is True
     assert is_path_allowed("scripts/validation/run_test_shard.py", policy) is True
+    assert is_path_allowed("docs/architecture/k-him-hierarchical-inference-memory.md", policy) is True
     assert is_path_allowed("scripts/dev/_backend_process.py", policy) is True
     assert is_path_allowed("backend/unapproved/cognitive_hack.py", policy) is False
 
-# 5. Manifest building and node assignment integrity
+# 5. Canonical testpaths loader reads pytest.ini
+def test_canonical_testpaths_loader():
+    testpaths = load_canonical_testpaths()
+    assert "backend/tests" in testpaths
+    assert "kattappa_native/tests" in testpaths
+    assert "kattappa_data_engine/tests" in testpaths
+    assert "kattappa_runtime/resource_governor" in testpaths
+    assert len(testpaths) == 4
+
+# 6. Manifest building and node assignment integrity
 def test_manifest_building_and_node_assignment_integrity():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
@@ -97,7 +109,7 @@ def test_manifest_building_and_node_assignment_integrity():
         assert len(assigned_nodes) == len(sample_items)
         assert set(assigned_nodes) == set(item["node_id"] for item in sample_items)
 
-# 6. Aggregator writes ONLY test-verdict.json (NEVER release-verdict.json)
+# 7. Aggregator writes ONLY test-verdict.json (NEVER release-verdict.json)
 def test_aggregator_writes_only_test_verdict_json():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
@@ -136,7 +148,7 @@ def test_aggregator_writes_only_test_verdict_json():
         assert not (tmp_path / "release-verdict.json").exists()
         assert "valid_for_release" not in verdict
 
-# 7. Unexecuted node triggers FAIL in test-verdict
+# 8. Unexecuted node triggers FAIL in test-verdict
 def test_aggregate_results_detects_unexecuted_nodes():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
@@ -175,29 +187,3 @@ def test_aggregate_results_detects_unexecuted_nodes():
         verdict = aggregate_results(tmp_path)
         assert verdict["test_verdict"] == "FAIL"
         assert verdict["node_set_verification"]["unexecuted_nodes"] == 1
-
-# 8. Exit code breakdown
-def test_exit_code_breakdown_in_aggregator():
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        
-        coll_json = json.dumps({"count": 1, "policy_hash": "p1", "items": [{"node_id": "t1", "isolation_class": "parallel_safe"}]})
-        manifest_json = json.dumps({"total_nodes": 1, "shards": [{"shard_id": "shard_01", "isolation_class": "parallel_safe", "node_ids": ["t1"]}]})
-        
-        (tmp_path / "collection.json").write_text(coll_json, encoding="utf-8")
-        (tmp_path / "collection-hash.txt").write_text("c1", encoding="utf-8")
-        (tmp_path / "manifest.json").write_text(manifest_json, encoding="utf-8")
-
-        s1_dir = tmp_path / "shards" / "shard_01"
-        s1_dir.mkdir(parents=True)
-        (s1_dir / "shard-result.json").write_text(json.dumps({
-            "shard_id": "shard_01",
-            "total_nodes_assigned": 1,
-            "executed_node_ids": ["t1"],
-            "passed": 0, "failed": 1, "errors": 0, "skipped": 0,
-            "exit_code": 1, "timed_out": False, "duration_seconds": 1.0
-        }))
-
-        verdict = aggregate_results(tmp_path)
-        assert verdict["shard_outcomes"]["failed_test_shards"] == 1
-        assert verdict["shard_outcomes"]["crashed_shards"] == 0

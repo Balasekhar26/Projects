@@ -1,0 +1,15 @@
+{
+  "attempt": "A1",
+  "run_class": "diagnostic",
+  "valid_for_release": false,
+  "verdict": "INVALID",
+  "start_commit": "9c5000f3bf1eafd22635b7e075b2d01c97e0f891",
+  "reported_final_head": "5f45b8b406d5024bf49c97cc2249635ca8619f47",
+  "reason_codes": [
+    "COLLECTION_FAILED_ON_DIAGNOSTIC_EVIDENCE_JSON",
+    "HEAD_CHANGED_DURING_RUN",
+    "SOURCE_CHANGED_DURING_RUN",
+    "MANUAL_REAGGREGATION_AFTER_INVALIDATION"
+  ],
+  "invalidation_note": "Attempt A1 started before collection pollution was discovered; invalid because collection failed when scanning diagnostic JSON files in docs/."
+}

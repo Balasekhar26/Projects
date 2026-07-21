@@ -5,6 +5,7 @@ import json
 import yaml
 import hashlib
 import platform
+import configparser
 import subprocess
 from pathlib import Path
 from dataclasses import dataclass
@@ -38,19 +39,34 @@ def compute_policy_hash() -> str:
 
 def classify_node_with_policy(node_id: str, policy: ShardPolicy) -> str:
     norm_id = node_id.lower()
-    
-    # 1. Evaluate Path Rules from YAML policy
     for cls_name, patterns in policy.path_rules.items():
         for pat in patterns:
             if re.search(pat.lower(), norm_id):
                 return cls_name
-
-    # 2. Default fallback must be isolated_stateful (NOT parallel_safe)
     return policy.default_isolation_class
 
 def classify_node(node_id: str) -> str:
     policy = load_shard_policy()
     return classify_node_with_policy(node_id, policy)
+
+def load_canonical_testpaths() -> list[str]:
+    ini_path = PROJECT_ROOT / "pytest.ini"
+    if not ini_path.exists():
+        raise FileNotFoundError(f"pytest.ini missing at {ini_path}")
+    
+    config = configparser.ConfigParser()
+    config.read(ini_path, encoding="utf-8")
+    
+    testpaths_str = config.get("pytest", "testpaths", fallback="")
+    testpaths = [tp.strip() for tp in testpaths_str.strip().splitlines() if tp.strip()]
+    if not testpaths:
+        testpaths = [
+            "backend/tests",
+            "kattappa_native/tests",
+            "kattappa_data_engine/tests",
+            "kattappa_runtime/resource_governor"
+        ]
+    return testpaths
 
 def get_environment_fingerprint() -> dict:
     head_sha = "unknown"
@@ -71,18 +87,36 @@ def collect_inventory(output_dir: Path) -> tuple[int, str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     policy = load_shard_policy()
     p_hash = compute_policy_hash()
+    testpaths = load_canonical_testpaths()
 
-    print(f"Collecting test inventory with policy '{policy.policy_name}' (default={policy.default_isolation_class})...")
-    
-    cmd = [sys.executable, "-m", "pytest", "backend/tests", "--collect-only", "-q"]
-    proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    print(f"Collecting test inventory with policy '{policy.policy_name}' across {len(testpaths)} canonical testpaths...")
 
-    if proc.returncode != 0:
-        print(f"\n[FAILED] Pytest collection failed with exit code {proc.returncode}")
-        print(proc.stderr)
-        raise RuntimeError(f"Pytest collection failed with exit code {proc.returncode}")
+    per_root_counts = {}
+    per_root_node_ids = {}
 
-    node_ids_raw = [line.strip() for line in proc.stdout.splitlines() if "::" in line and not line.startswith("=")]
+    for tp in testpaths:
+        cmd = [sys.executable, "-m", "pytest", tp, "--collect-only", "-q", "--ignore=docs"]
+        proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+        if proc.returncode != 0:
+            print(f"\n[FAILED] Pytest collection for root '{tp}' failed with exit code {proc.returncode}")
+            print(proc.stderr)
+            raise RuntimeError(f"Pytest collection for root '{tp}' failed with exit code {proc.returncode}")
+        
+        nodes = [line.strip() for line in proc.stdout.splitlines() if "::" in line and not line.startswith("=")]
+        per_root_node_ids[tp] = nodes
+        per_root_counts[tp] = len(nodes)
+        print(f"  - Root '{tp}': {len(nodes)} test nodes")
+
+    # Full collection across all testpaths
+    full_cmd = [sys.executable, "-m", "pytest"] + testpaths + ["--collect-only", "-q", "--ignore=docs"]
+    full_proc = subprocess.run(full_cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+
+    if full_proc.returncode != 0:
+        print(f"\n[FAILED] Full pytest collection failed with exit code {full_proc.returncode}")
+        print(full_proc.stderr)
+        raise RuntimeError(f"Full pytest collection failed with exit code {full_proc.returncode}")
+
+    node_ids_raw = [line.strip() for line in full_proc.stdout.splitlines() if "::" in line and not line.startswith("=")]
     
     # Check duplicate node IDs before deduplicating
     node_id_counts = {}
@@ -111,6 +145,8 @@ def collect_inventory(output_dir: Path) -> tuple[int, str, str]:
         "count": len(items),
         "raw_collected_count": len(node_ids_raw),
         "unique_collected_count": len(unique_nodes),
+        "per_root_counts": per_root_counts,
+        "canonical_testpaths": testpaths,
         "duplicate_node_ids": duplicate_node_ids,
         "policy_hash": p_hash,
         "environment_fingerprint": env_fp,
@@ -123,7 +159,7 @@ def collect_inventory(output_dir: Path) -> tuple[int, str, str]:
     (output_dir / "collection.json").write_bytes(coll_bytes)
     (output_dir / "collection-hash.txt").write_text(c_hash, encoding="utf-8")
 
-    print(f"Collected {len(items)} unique test node IDs. Collection hash: {c_hash[:12]} | Policy hash: {p_hash[:12]}")
+    print(f"Collected {len(items)} unique test node IDs across all canonical testpaths. Collection hash: {c_hash[:12]} | Policy hash: {p_hash[:12]}")
     return len(items), c_hash, p_hash
 
 if __name__ == "__main__":
