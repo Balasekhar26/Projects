@@ -43,12 +43,12 @@ def audit_commit_scope():
                 errors.append(f"Tracked data file modified in worktree: {f}")
 
     if errors:
-        print("\n❌ COMMIT SCOPE VERIFICATION FAILED:")
+        print("\n[FAILED] COMMIT SCOPE VERIFICATION FAILED:")
         for err in errors:
             print(f"  - {err}")
         return 1
     
-    print("\n✅ COMMIT SCOPE VERIFICATION PASSED: All validation runner files tracked in HEAD, 0 tracked data mutations.")
+    print("\n[PASSED] COMMIT SCOPE VERIFICATION PASSED: All validation runner files tracked in HEAD, 0 tracked data mutations.")
     return 0
 
 if __name__ == "__main__":
