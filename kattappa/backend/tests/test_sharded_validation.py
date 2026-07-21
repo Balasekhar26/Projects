@@ -316,9 +316,11 @@ import subprocess
 def test_result_plugin_registers_under_pytest_9(tmp_path):
     dummy = tmp_path / "test_dummy.py"
     dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
     out = tmp_path / "res.json"
     from run_test_shard import get_python_executable
-    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", str(ini), "-p", "no:langsmith", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     res = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -328,9 +330,11 @@ def test_result_plugin_registers_under_pytest_9(tmp_path):
 def test_result_plugin_collect_only_completes(tmp_path):
     dummy = tmp_path / "test_dummy.py"
     dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
     out = tmp_path / "res.json"
     from run_test_shard import get_python_executable
-    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--collect-only", "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--collect-only", "--noconftest", "-c", str(ini), "-p", "no:langsmith", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     res = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -339,9 +343,11 @@ def test_result_plugin_collect_only_completes(tmp_path):
 def test_result_plugin_records_passing_test(tmp_path):
     dummy = tmp_path / "test_dummy.py"
     dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
     out = tmp_path / "res.json"
     from run_test_shard import get_python_executable
-    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", str(ini), "-p", "no:langsmith", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     subprocess.run(cmd, env=env, capture_output=True)
@@ -351,9 +357,11 @@ def test_result_plugin_records_passing_test(tmp_path):
 def test_result_plugin_records_failing_test(tmp_path):
     dummy = tmp_path / "test_dummy.py"
     dummy.write_text("def test_fail(): assert False", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
     out = tmp_path / "res.json"
     from run_test_shard import get_python_executable
-    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", str(ini), "-p", "no:langsmith", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     subprocess.run(cmd, env=env, capture_output=True)
@@ -370,9 +378,11 @@ def fail_setup():
 def test_err(fail_setup):
     pass
 """, encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
     out = tmp_path / "res.json"
     from run_test_shard import get_python_executable
-    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", str(ini), "-p", "no:langsmith", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     subprocess.run(cmd, env=env, capture_output=True)
@@ -390,9 +400,11 @@ def fail_teardown():
 def test_err(fail_teardown):
     pass
 """, encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
     out = tmp_path / "res.json"
     from run_test_shard import get_python_executable
-    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", str(ini), "-p", "no:langsmith", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     subprocess.run(cmd, env=env, capture_output=True)
@@ -409,9 +421,11 @@ def test_result_plugin_records_internal_error():
 def test_result_plugin_writes_valid_json(tmp_path):
     dummy = tmp_path / "test_dummy.py"
     dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
     out = tmp_path / "res.json"
     from run_test_shard import get_python_executable
-    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", "NUL", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
+    cmd = [get_python_executable(), "-m", "pytest", str(dummy), "--noconftest", "-c", str(ini), "-p", "no:langsmith", "-p", "scripts.validation.pytest_result_plugin", f"--kattappa-result-file={out}"]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     subprocess.run(cmd, env=env, capture_output=True)
