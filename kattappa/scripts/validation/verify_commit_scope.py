@@ -28,10 +28,11 @@ def audit_commit_scope():
     errors = []
     
     # 1. Check all runner files exist in HEAD
+    tracked_in_head = set(
+        subprocess.check_output(["git", "-C", str(ROOT), "ls-tree", "-r", "--name-only", "HEAD"], text=True).splitlines()
+    )
     for rf in RUNNER_FILES:
-        try:
-            subprocess.check_output(["git", "-C", str(ROOT), "cat-file", "-e", f"HEAD:{rf}"], stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError:
+        if rf not in tracked_in_head:
             errors.append(f"Validation runner file missing from HEAD: {rf}")
 
     # 2. Check worktree dirty files for tracked data modification
