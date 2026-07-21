@@ -569,40 +569,507 @@ def test_kernel_shutdown_after_lazy_simulation_resolution():
     assert "ok" in res.stdout
 
 
-def test_file_backed_pytest_shard_launcher_winerror_206_prevention():
-    """Verify that execute_pytest_shard.py launches file-backed shard without command line overflow."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        shard_def_path = tmp_path / "shard_definition.json"
-        result_file_path = tmp_path / "pytest_results.json"
+# ---------- 12. File-Backed Launcher Integration Tests ----------
 
-        # Create 500 synthetic long node IDs that would exceed 32,767 chars on command line
-        synthetic_nodes = [f"backend/tests/test_sharded_validation.py::test_circular_import_simulated_{i}_" + ("a" * 100) for i in range(500)]
-        shard_data = {
-            "shard_id": "test_winerror_206_shard",
-            "run_id": "winerror_test_run",
-            "candidate_commit": "test_commit_sha",
-            "manifest_core_hash": "a" * 64,
-            "manifest_file_hash": "b" * 64,
-            "node_ids": synthetic_nodes
+def _make_shard_definition(tmp_path, shard_id="test_shard", node_ids=None,
+                           run_id="test_run", run_label="T",
+                           candidate_commit="a"*64, collection_hash="b"*64,
+                           policy_hash="c"*64, manifest_core_hash="d"*64,
+                           manifest_file_hash="e"*64, environment_hash="f"*64,
+                           timeout_seconds=120, schema_version=1):
+    """Helper to create a valid shard definition JSON file."""
+    if node_ids is None:
+        node_ids = ["test_dummy.py::test_ok"]
+    shard_def = {
+        "schema_version": schema_version,
+        "shard_id": shard_id,
+        "isolation_class": "parallel_safe",
+        "run_id": run_id,
+        "run_label": run_label,
+        "candidate_commit": candidate_commit,
+        "collection_hash": collection_hash,
+        "policy_hash": policy_hash,
+        "manifest_core_hash": manifest_core_hash,
+        "manifest_file_hash": manifest_file_hash,
+        "environment_hash": environment_hash,
+        "timeout_seconds": timeout_seconds,
+        "node_ids": node_ids
+    }
+    shard_def_path = tmp_path / "shard_definition.json"
+    shard_def_path.write_text(json.dumps(shard_def, indent=2), encoding="utf-8")
+    return shard_def_path, shard_def
+
+
+def _make_run_identity(tmp_path, run_id="test_run", run_label="T",
+                       candidate_commit="a"*64, collection_hash="b"*64,
+                       policy_hash="c"*64, manifest_core_hash="d"*64,
+                       manifest_file_hash="e"*64, environment_hash="f"*64):
+    """Helper to create a matching run-identity.json file."""
+    identity = {
+        "run_id": run_id,
+        "run_label": run_label,
+        "candidate_commit": candidate_commit,
+        "collection_hash": collection_hash,
+        "policy_hash": policy_hash,
+        "manifest_core_hash": manifest_core_hash,
+        "manifest_file_hash": manifest_file_hash,
+        "environment_hash": environment_hash,
+    }
+    identity_path = tmp_path / "run-identity.json"
+    identity_path.write_text(json.dumps(identity, indent=2), encoding="utf-8")
+    return identity_path
+
+
+def _run_launcher(shard_def_path, result_path, run_identity_path=None, timeout=60, cwd=None):
+    """Execute the file-backed launcher in a subprocess."""
+    from run_test_shard import get_python_executable
+    launcher = PROJECT_ROOT / "scripts" / "validation" / "execute_pytest_shard.py"
+    cmd = [
+        get_python_executable(),
+        str(launcher),
+        f"--shard-definition={shard_def_path}",
+        f"--result-file={result_path}"
+    ]
+    if run_identity_path:
+        cmd.append(f"--run-identity={run_identity_path}")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    run_cwd = cwd if cwd else str(PROJECT_ROOT)
+    return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout, cwd=run_cwd)
+
+
+def test_launcher_constructs_result_plugin_with_supported_signature(tmp_path):
+    """Verify the launcher can construct the plugin without TypeError (Section 9)."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    shard_def_path, _ = _make_shard_definition(
+        tmp_path, node_ids=["test_dummy.py::test_ok"]
+    )
+    res = _run_launcher(shard_def_path, result_path, cwd=tmp_path)
+    assert res.returncode == 0, f"Launcher failed: {res.stderr}"
+    assert result_path.exists(), "Result file was not created"
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    assert data["passed"] == 1
+
+
+def test_launcher_exit_code_pass(tmp_path):
+    """Exit code 0 for all-pass shard."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass\ndef test_ok2(): pass\n", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    shard_def_path, _ = _make_shard_definition(
+        tmp_path, node_ids=["test_dummy.py::test_ok", "test_dummy.py::test_ok2"]
+    )
+    res = _run_launcher(shard_def_path, result_path, cwd=tmp_path)
+    assert res.returncode == 0
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    assert data["passed"] == 2
+    assert data["failed"] == 0
+
+
+def test_launcher_exit_code_assertion_failure(tmp_path):
+    """Non-zero exit for assertion failures."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_fail(): assert False", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    shard_def_path, _ = _make_shard_definition(
+        tmp_path, node_ids=["test_dummy.py::test_fail"]
+    )
+    res = _run_launcher(shard_def_path, result_path, cwd=tmp_path)
+    assert res.returncode != 0
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    assert data["failed"] == 1
+
+
+def test_launcher_exit_code_setup_error(tmp_path):
+    """Non-zero exit for setup errors."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("""\
+import pytest
+@pytest.fixture
+def broken():
+    raise RuntimeError("boom")
+def test_err(broken):
+    pass
+""", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    shard_def_path, _ = _make_shard_definition(
+        tmp_path, node_ids=["test_dummy.py::test_err"]
+    )
+    res = _run_launcher(shard_def_path, result_path, cwd=tmp_path)
+    assert res.returncode != 0
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    assert data["errors"] == 1
+
+
+def test_launcher_exit_code_collection_error(tmp_path):
+    """Non-zero exit for collection errors (syntax error in test file)."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok( ::: pass\n", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    shard_def_path, _ = _make_shard_definition(
+        tmp_path, node_ids=["test_dummy.py::test_ok"]
+    )
+    res = _run_launcher(shard_def_path, result_path, cwd=tmp_path)
+    assert res.returncode != 0
+
+
+def test_launcher_exit_code_no_tests_collected(tmp_path):
+    """Non-zero exit when shard points to nonexistent nodes."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass\n", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    shard_def_path, _ = _make_shard_definition(
+        tmp_path, node_ids=["test_dummy.py::test_nonexistent"]
+    )
+    res = _run_launcher(shard_def_path, result_path, cwd=tmp_path)
+    # Plugin will filter to 0 items → fail-closed on empty
+    assert res.returncode != 0
+
+
+def test_launcher_unique_file_filtering(tmp_path):
+    """A file with 100 tests, shard assigns 3, exactly 3 execute (Section 11)."""
+    # Generate file with 100 tests
+    test_lines = [f"def test_case_{i}(): pass" for i in range(100)]
+    dummy = tmp_path / "test_hundred.py"
+    dummy.write_text("\n".join(test_lines) + "\n", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+
+    # Assign only 3 specific tests
+    assigned = ["test_hundred.py::test_case_7", "test_hundred.py::test_case_42", "test_hundred.py::test_case_99"]
+    result_path = tmp_path / "result.json"
+    shard_def_path, _ = _make_shard_definition(
+        tmp_path, node_ids=assigned
+    )
+    res = _run_launcher(shard_def_path, result_path, cwd=tmp_path)
+    assert res.returncode == 0, f"Launcher failed: {res.stderr}"
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    assert data["passed"] == 3
+    assert len(data["collected_node_ids"]) == 3
+    assert len(data["executed_node_ids"]) == 3
+    assert data["collection_set_match"] is True
+
+
+def test_plugin_node_filter_fail_closed_missing_file(tmp_path):
+    """Plugin raises UsageError when node IDs file is missing (Section 6)."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass\n", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    out = tmp_path / "res.json"
+    from run_test_shard import get_python_executable
+    cmd = [
+        get_python_executable(), "-m", "pytest", str(dummy),
+        "--noconftest", "-c", str(ini),
+        "-p", "no:langsmith",
+        "-p", "scripts.validation.pytest_result_plugin",
+        f"--kattappa-result-file={out}"
+    ]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    env["KATTAPPA_SHARD_NODE_IDS_FILE"] = str(tmp_path / "nonexistent.json")
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert res.returncode != 0
+    assert "SHARD_NODE_FILTER_FAIL_CLOSED" in res.stderr or "SHARD_NODE_FILTER_FAIL_CLOSED" in res.stdout
+
+
+def test_plugin_node_filter_fail_closed_invalid_json(tmp_path):
+    """Plugin raises UsageError when node IDs file contains invalid JSON (Section 6)."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_ok(): pass\n", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    out = tmp_path / "res.json"
+    bad_json = tmp_path / "bad_nodes.json"
+    bad_json.write_text("{not valid json!!!", encoding="utf-8")
+    from run_test_shard import get_python_executable
+    cmd = [
+        get_python_executable(), "-m", "pytest", str(dummy),
+        "--noconftest", "-c", str(ini),
+        "-p", "no:langsmith",
+        "-p", "scripts.validation.pytest_result_plugin",
+        f"--kattappa-result-file={out}"
+    ]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    env["KATTAPPA_SHARD_NODE_IDS_FILE"] = str(bad_json)
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert res.returncode != 0
+
+
+def test_plugin_exact_collection_set_verification(tmp_path):
+    """Expected vs collected node sets match exactly (Section 7)."""
+    dummy = tmp_path / "test_dummy.py"
+    dummy.write_text("def test_a(): pass\ndef test_b(): pass\n", encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+    out = tmp_path / "res.json"
+    node_file = tmp_path / "nodes.json"
+    node_file.write_text(json.dumps(["test_dummy.py::test_a", "test_dummy.py::test_b"]), encoding="utf-8")
+    from run_test_shard import get_python_executable
+    cmd = [
+        get_python_executable(), "-m", "pytest", str(dummy),
+        "--noconftest", "-c", str(ini),
+        "-p", "no:langsmith",
+        "-p", "scripts.validation.pytest_result_plugin",
+        f"--kattappa-result-file={out}"
+    ]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    env["KATTAPPA_SHARD_NODE_IDS_FILE"] = str(node_file)
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert res.returncode == 0
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["collection_set_match"] is True
+    assert data["missing_expected_node_ids"] == []
+    assert data["unexpected_collected_node_ids"] == []
+    assert len(data["expected_node_ids"]) == 2
+
+
+def test_file_backed_pytest_shard_launcher_winerror_206_prevention(tmp_path):
+    """Real 500-node transport test proving file-backed execution (Section 8).
+    Generates 500 parametrized tests with long IDs that exceed 32,767 chars,
+    launches execute_pytest_shard.py via subprocess, and verifies all 500 pass.
+    """
+    # Generate a test module with 500 parametrized cases with long IDs
+    long_id_prefix = "long_parametrized_case_identifier_string_" + "x" * 50 + "_"
+    test_code = "import pytest\n\n"
+    test_code += "@pytest.mark.parametrize(\n"
+    test_code += '    "value",\n'
+    test_code += "    range(500),\n"
+    test_code += "    ids=[" + ", ".join(
+        f'"{long_id_prefix}{i:04d}"' for i in range(500)
+    ) + "],\n"
+    test_code += ")\n"
+    test_code += "def test_generated_transport(value):\n"
+    test_code += "    assert value >= 0\n"
+
+    test_file = tmp_path / "test_transport_500.py"
+    test_file.write_text(test_code, encoding="utf-8")
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+
+    # Collect exact node IDs
+    from run_test_shard import get_python_executable
+    collect_cmd = [
+        get_python_executable(), "-m", "pytest", str(test_file),
+        "--collect-only", "-q", "--noconftest", "-c", str(ini),
+        "-p", "no:langsmith"
+    ]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    collect_res = subprocess.run(collect_cmd, capture_output=True, text=True, env=env, timeout=30, cwd=tmp_path)
+    assert collect_res.returncode == 0, f"Collection failed: {collect_res.stderr}"
+
+    node_ids = [
+        line.strip() for line in collect_res.stdout.strip().split("\n")
+        if "::" in line and not line.startswith("=")
+    ]
+    assert len(node_ids) == 500, f"Expected 500 nodes, got {len(node_ids)}"
+
+    # Confirm expanded text length exceeds 32,767 chars
+    expanded_text = " ".join(node_ids)
+    assert len(expanded_text) > 32767, f"Expanded text only {len(expanded_text)} chars"
+
+    # Create shard definition and launch
+    result_path = tmp_path / "result.json"
+    shard_def_path, _ = _make_shard_definition(
+        tmp_path, shard_id="winerror_206_shard", node_ids=node_ids
+    )
+
+    # Verify command line is short
+    launcher = PROJECT_ROOT / "scripts" / "validation" / "execute_pytest_shard.py"
+    cmd_str = f"{get_python_executable()} {launcher} --shard-definition={shard_def_path} --result-file={result_path}"
+    assert len(cmd_str) < 1000, f"Command line too long: {len(cmd_str)}"
+
+    res = _run_launcher(shard_def_path, result_path, timeout=120, cwd=tmp_path)
+    assert res.returncode == 0, f"Launcher failed (exit {res.returncode}): {res.stderr[-500:]}"
+
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    assert data["passed"] == 500, f"Expected 500 passed, got {data['passed']}"
+    assert data["failed"] == 0
+    assert data["errors"] == 0
+    assert len(data["collected_node_ids"]) == 500
+    assert len(data["executed_node_ids"]) == 500
+    assert len(data["completed_node_ids"]) == 500
+    assert data["collection_set_match"] is True
+    assert len(data.get("missing_expected_node_ids", [])) == 0
+    assert len(data.get("unexpected_collected_node_ids", [])) == 0
+
+
+def test_miniature_end_to_end_release_run(tmp_path):
+    """Miniature release run with 2 test files, 10 tests, 3 shards (Section 14).
+    Uses real manifest, sidecars, run-identity, launcher, plugin, and aggregator.
+    """
+    import hashlib
+
+    # Create 2 test files
+    file_a = tmp_path / "test_file_a.py"
+    file_a.write_text("\n".join(
+        [f"def test_a_{i}(): pass" for i in range(6)]
+    ) + "\n", encoding="utf-8")
+
+    file_b = tmp_path / "test_file_b.py"
+    file_b.write_text("\n".join(
+        [f"def test_b_{i}(): pass" for i in range(4)]
+    ) + "\n", encoding="utf-8")
+
+    ini = tmp_path / "pytest.ini"
+    ini.write_text("[pytest]\n", encoding="utf-8")
+
+    # Collect exact relative node IDs from tmp_path
+    from run_test_shard import get_python_executable
+    collect_cmd = [
+        get_python_executable(), "-m", "pytest",
+        "test_file_a.py", "test_file_b.py",
+        "--collect-only", "-q", "--noconftest", "-c", str(ini),
+        "-p", "no:langsmith"
+    ]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    collect_res = subprocess.run(collect_cmd, capture_output=True, text=True, env=env, timeout=30, cwd=tmp_path)
+    assert collect_res.returncode == 0
+
+    all_nodes = [
+        line.strip() for line in collect_res.stdout.strip().split("\n")
+        if "::" in line and not line.startswith("=")
+    ]
+    assert len(all_nodes) == 10
+
+    # Build evidence directory structure
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+
+    # Create collection using exact relative all_nodes
+    items = [{"node_id": n, "isolation_class": "parallel_safe"} for n in all_nodes]
+    coll_hash = hashlib.sha256(json.dumps(sorted(all_nodes)).encode()).hexdigest()
+    collection = {"items": items, "collection_hash": coll_hash, "policy_hash": "a" * 64}
+    (evidence_dir / "collection.json").write_text(json.dumps(collection, indent=2), encoding="utf-8")
+    (evidence_dir / "collection-hash.txt").write_text(coll_hash, encoding="utf-8")
+
+    # Create 3 shards: shard 1 gets file_a tests 0-2, shard 2 gets file_a tests 3-5 + file_b test 0 (shared file),
+    # shard 3 gets file_b tests 1-3
+    shard_1_nodes = [n for n in all_nodes if "test_a_0" in n or "test_a_1" in n or "test_a_2" in n]
+    shard_2_nodes = [n for n in all_nodes if "test_a_3" in n or "test_a_4" in n or "test_a_5" in n or "test_b_0" in n]
+    shard_3_nodes = [n for n in all_nodes if "test_b_1" in n or "test_b_2" in n or "test_b_3" in n]
+
+    assert len(shard_1_nodes) + len(shard_2_nodes) + len(shard_3_nodes) == 10
+    assert len(set(shard_1_nodes + shard_2_nodes + shard_3_nodes)) == 10
+
+    shards = [
+        {"shard_id": "mini_shard_01", "isolation_class": "parallel_safe", "concurrency": 1,
+         "timeout_seconds": 60, "duration_estimation_source": "class_default", "node_ids": shard_1_nodes},
+        {"shard_id": "mini_shard_02", "isolation_class": "parallel_safe", "concurrency": 1,
+         "timeout_seconds": 60, "duration_estimation_source": "class_default", "node_ids": shard_2_nodes},
+        {"shard_id": "mini_shard_03", "isolation_class": "parallel_safe", "concurrency": 1,
+         "timeout_seconds": 60, "duration_estimation_source": "class_default", "node_ids": shard_3_nodes},
+    ]
+
+    run_id = "mini_e2e_run"
+    candidate_commit = "a" * 64
+
+    manifest_core = {
+        "schema_version": 2, "run_id": run_id, "run_label": "T",
+        "candidate_commit": candidate_commit, "collection_hash": coll_hash,
+        "policy_hash": "a" * 64, "environment_fingerprint": {},
+        "shards": shards
+    }
+    core_json = json.dumps(manifest_core, sort_keys=True, separators=(',', ':'))
+    manifest_core_hash = hashlib.sha256(core_json.encode()).hexdigest()
+
+    manifest_content = dict(manifest_core)
+    manifest_content["manifest_core_hash"] = manifest_core_hash
+    for s in manifest_content["shards"]:
+        s["run_id"] = run_id
+        s["run_label"] = "T"
+        s["candidate_commit"] = candidate_commit
+        s["collection_hash"] = coll_hash
+        s["policy_hash"] = "a" * 64
+        s["manifest_core_hash"] = manifest_core_hash
+
+    manifest_bytes = json.dumps(manifest_content, indent=2).encode("utf-8")
+    (evidence_dir / "manifest.json").write_bytes(manifest_bytes)
+    manifest_file_hash = hashlib.sha256(manifest_bytes).hexdigest()
+
+    (evidence_dir / "manifest-core-hash.txt").write_text(manifest_core_hash, encoding="utf-8")
+    (evidence_dir / "manifest-file-hash.txt").write_text(manifest_file_hash, encoding="utf-8")
+
+    env_hash = hashlib.sha256(json.dumps({}, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    run_identity = {
+        "run_id": run_id, "run_label": "T", "candidate_commit": candidate_commit,
+        "collection_hash": coll_hash, "policy_hash": "a" * 64,
+        "manifest_core_hash": manifest_core_hash, "manifest_file_hash": manifest_file_hash,
+        "environment_hash": env_hash
+    }
+    (evidence_dir / "run-identity.json").write_text(json.dumps(run_identity, indent=2), encoding="utf-8")
+
+    # Execute each shard via the real launcher running with cwd=tmp_path
+    for shard in shards:
+        shard_dir = evidence_dir / "shards" / shard["shard_id"]
+        shard_dir.mkdir(parents=True)
+        result_path = shard_dir / "pytest_results.json"
+
+        shard_def = {
+            "schema_version": 1,
+            "shard_id": shard["shard_id"],
+            "isolation_class": shard["isolation_class"],
+            "run_id": run_id, "run_label": "T",
+            "candidate_commit": candidate_commit,
+            "collection_hash": coll_hash,
+            "policy_hash": "a" * 64,
+            "manifest_core_hash": manifest_core_hash,
+            "manifest_file_hash": manifest_file_hash,
+            "environment_hash": env_hash,
+            "timeout_seconds": 60,
+            "node_ids": shard["node_ids"]
         }
-        shard_def_path.write_text(json.dumps(shard_data, indent=2), encoding="utf-8")
+        shard_def_path = shard_dir / "shard_definition.json"
+        shard_def_path.write_text(json.dumps(shard_def, indent=2), encoding="utf-8")
 
-        launcher_script = PROJECT_ROOT / "scripts" / "validation" / "execute_pytest_shard.py"
-        cmd = [
-            sys.executable,
-            str(launcher_script),
-            f"--shard-definition={shard_def_path}",
-            f"--result-file={result_file_path}"
-        ]
+        identity_path = evidence_dir / "run-identity.json"
+        res = _run_launcher(shard_def_path, result_path, run_identity_path=identity_path, timeout=60, cwd=tmp_path)
+        assert res.returncode == 0, f"Shard {shard['shard_id']} failed: {res.stderr[-500:]}"
 
-        # Assert command line string length is well below Windows limits
-        cmd_str = " ".join(cmd)
-        assert len(cmd_str) < 1000, f"Command line string too long: {len(cmd_str)} chars"
+        # Write shard-result.json from launcher result
+        launcher_data = json.loads(result_path.read_text(encoding="utf-8"))
+        shard_result = {
+            "run_id": run_id, "candidate_commit": candidate_commit,
+            "collection_hash": coll_hash, "policy_hash": "a" * 64,
+            "manifest_core_hash": manifest_core_hash, "manifest_file_hash": manifest_file_hash,
+            "shard_id": shard["shard_id"], "isolation_class": shard["isolation_class"],
+            "total_nodes_assigned": len(shard["node_ids"]),
+            "total_nodes_executed": len(launcher_data.get("executed_node_ids", [])),
+            "assigned_node_ids": shard["node_ids"],
+            "attempted_node_ids": launcher_data.get("attempted_node_ids", []),
+            "executed_node_ids": launcher_data.get("executed_node_ids", []),
+            "completed_node_ids": launcher_data.get("completed_node_ids", []),
+            "passed": launcher_data["passed"], "failed": launcher_data["failed"],
+            "errors": launcher_data["errors"], "skipped": launcher_data["skipped"],
+            "exit_code": 0, "timed_out": False, "duration_seconds": 1.0,
+            "internal_errors": []
+        }
+        (shard_dir / "shard-result.json").write_text(json.dumps(shard_result, indent=2), encoding="utf-8")
 
-        # Verify executing script directly
-        assert launcher_script.exists()
-
-
-
+    # Run real aggregator
+    verdict = aggregate_results(evidence_dir)
+    assert verdict["test_verdict"] == "PASS", f"Verdict was {verdict['test_verdict']}"
+    assert verdict["total_nodes_collected"] == 10
+    assert verdict["total_nodes_executed"] == 10
+    assert verdict["test_outcomes"]["passed"] == 10
+    assert verdict["test_outcomes"]["failed"] == 0
+    assert verdict["test_outcomes"]["errors"] == 0
 

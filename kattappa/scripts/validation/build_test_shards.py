@@ -234,13 +234,10 @@ def build_manifest(
 def atomic_write_json(path: Path, payload: dict):
     import os
     tmp_path = path.with_suffix(".json.tmp") if path.suffix == ".json" else Path(str(path) + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    with open(tmp_path, "r", encoding="utf-8") as f:
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
         f.flush()
-        try:
-            os.fsync(f.fileno())
-        except OSError:
-            pass
+        os.fsync(f.fileno())
     try:
         val = json.loads(tmp_path.read_text(encoding="utf-8"))
         assert isinstance(val, (dict, list))
@@ -265,13 +262,10 @@ def atomic_write_json(path: Path, payload: dict):
 def atomic_write_text(path: Path, content: str):
     import os
     tmp_path = Path(str(path) + ".tmp")
-    tmp_path.write_text(content, encoding="utf-8")
-    with open(tmp_path, "r", encoding="utf-8") as f:
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
         f.flush()
-        try:
-            os.fsync(f.fileno())
-        except OSError:
-            pass
+        os.fsync(f.fileno())
     assert tmp_path.read_text(encoding="utf-8") == content
     os.replace(tmp_path, path)
     assert path.read_text(encoding="utf-8") == content

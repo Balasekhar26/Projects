@@ -214,12 +214,32 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
     print("\n--- 3. Executing Shards ---")
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
 
+    # Load authoritative run identity from sidecar (not from manifest.json)
+    run_identity = json.loads((run_dir / "run-identity.json").read_text(encoding="utf-8"))
+
+    # Validate sidecar consistency
+    assert run_identity["manifest_core_hash"] == m_core_hash, "run-identity manifest_core_hash mismatch"
+    assert run_identity["manifest_file_hash"] == m_file_hash, "run-identity manifest_file_hash mismatch"
+
     t0 = time.time()
     for s in manifest["shards"]:
         # 8. Timeout must be mandatory in official manifests
         if os.environ.get("KATTAPPA_RELEASE_RUN_ACTIVE") == "1" and "timeout_seconds" not in s:
             raise RuntimeError("Official shard is missing policy-resolved timeout")
-        run_shard(s, run_dir)
+
+        # Construct execution_shard by merging manifest shard with authoritative identity
+        execution_shard = {
+            **s,
+            "run_id": run_identity["run_id"],
+            "run_label": run_identity["run_label"],
+            "candidate_commit": run_identity["candidate_commit"],
+            "collection_hash": run_identity["collection_hash"],
+            "policy_hash": run_identity["policy_hash"],
+            "manifest_core_hash": run_identity["manifest_core_hash"],
+            "manifest_file_hash": run_identity["manifest_file_hash"],
+            "environment_hash": run_identity["environment_hash"],
+        }
+        run_shard(execution_shard, run_dir)
     total_time = time.time() - t0
 
     print(f"\nCompleted all {n_shards} shards in {total_time:.2f}s")
@@ -381,13 +401,10 @@ def run_full_sharded_suite(shard_size: int = 250, run_label: str = "A", schedule
 def atomic_write_json(path: Path, payload: dict):
     import os
     tmp_path = path.with_suffix(".json.tmp") if path.suffix == ".json" else Path(str(path) + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    with open(tmp_path, "r", encoding="utf-8") as f:
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
         f.flush()
-        try:
-            os.fsync(f.fileno())
-        except OSError:
-            pass
+        os.fsync(f.fileno())
     try:
         val = json.loads(tmp_path.read_text(encoding="utf-8"))
         assert isinstance(val, (dict, list))

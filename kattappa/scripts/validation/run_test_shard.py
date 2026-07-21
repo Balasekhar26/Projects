@@ -99,35 +99,74 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
 
     # Bind identity fields from shard_data
     run_id = shard_data.get("run_id")
+    run_label = shard_data.get("run_label", "")
     candidate_commit = shard_data.get("candidate_commit")
     collection_hash = shard_data.get("collection_hash")
     policy_hash = shard_data.get("policy_hash")
     manifest_core_hash = shard_data.get("manifest_core_hash")
     manifest_file_hash = shard_data.get("manifest_file_hash")
+    environment_hash = shard_data.get("environment_hash", "")
 
     shard_dir = evidence_dir / "shards" / shard_id
     shard_dir.mkdir(parents=True, exist_ok=True)
 
     result_json_path = shard_dir / "pytest_results.json"
 
-    # Write shard definition to JSON file to avoid WinError 206 (command line too long)
+    # Write expanded shard definition to JSON file (schema_version=1)
     shard_def_json = shard_dir / "shard_definition.json"
     shard_def_content = {
+        "schema_version": 1,
         "shard_id": shard_id,
+        "isolation_class": iso_cls,
         "run_id": run_id or "",
+        "run_label": run_label or "",
         "candidate_commit": candidate_commit or "",
-        "manifest_core_hash": shard_data.get("manifest_core_hash", ""),
-        "manifest_file_hash": shard_data.get("manifest_file_hash", ""),
+        "collection_hash": collection_hash or "",
+        "policy_hash": policy_hash or "",
+        "manifest_core_hash": manifest_core_hash or "",
+        "manifest_file_hash": manifest_file_hash or "",
+        "environment_hash": environment_hash or "",
+        "timeout_seconds": timeout_seconds,
         "node_ids": node_ids
     }
-    shard_def_json.write_text(json.dumps(shard_def_content, indent=2), encoding="utf-8")
 
+    # Atomic write shard definition
+    shard_def_tmp = shard_def_json.with_suffix(".json.tmp")
+    with open(shard_def_tmp, "w", encoding="utf-8") as f:
+        json.dump(shard_def_content, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(shard_def_tmp, shard_def_json)
+
+    # Compute shard definition hash
+    import hashlib
+    shard_definition_sha256 = hashlib.sha256(shard_def_json.read_bytes()).hexdigest()
+
+    # Write expected-node-ids.json atomically
+    expected_node_ids_path = shard_dir / "expected-node-ids.json"
+    if expected_node_ids_path.exists():
+        expected_node_ids_path.unlink()
+    eni_tmp = expected_node_ids_path.with_suffix(".json.tmp")
+    with open(eni_tmp, "w", encoding="utf-8") as f:
+        json.dump(node_ids, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(eni_tmp, expected_node_ids_path)
+    # Validate
+    reopened = json.loads(expected_node_ids_path.read_text(encoding="utf-8"))
+    assert reopened == node_ids, "expected-node-ids.json content mismatch"
+    expected_node_ids_sha256 = hashlib.sha256(expected_node_ids_path.read_bytes()).hexdigest()
+
+    # Build launcher command with --run-identity if available
+    run_identity_path = evidence_dir / "run-identity.json"
     cmd = [
         get_python_executable(),
         str(PROJECT_ROOT / "scripts" / "validation" / "execute_pytest_shard.py"),
         f"--shard-definition={shard_def_json}",
         f"--result-file={result_json_path}"
     ]
+    if run_identity_path.exists():
+        cmd.append(f"--run-identity={run_identity_path}")
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
@@ -258,11 +297,15 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
 
     shard_result = {
         "run_id": run_id,
+        "run_label": run_label,
         "candidate_commit": candidate_commit,
         "collection_hash": collection_hash,
         "policy_hash": policy_hash,
         "manifest_core_hash": manifest_core_hash,
         "manifest_file_hash": manifest_file_hash,
+        "environment_hash": environment_hash,
+        "shard_definition_sha256": shard_definition_sha256,
+        "expected_node_ids_sha256": expected_node_ids_sha256,
         "shard_id": shard_id,
         "isolation_class": iso_cls,
         "total_nodes_assigned": len(node_ids),
@@ -299,13 +342,10 @@ def run_shard(shard_data: dict, evidence_dir: Path) -> dict:
 
 def atomic_write_json(path: Path, payload: dict):
     tmp_path = path.with_suffix(".json.tmp") if path.suffix == ".json" else Path(str(path) + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    with open(tmp_path, "r", encoding="utf-8") as f:
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
         f.flush()
-        try:
-            os.fsync(f.fileno())
-        except OSError:
-            pass
+        os.fsync(f.fileno())
     try:
         val = json.loads(tmp_path.read_text(encoding="utf-8"))
         assert isinstance(val, (dict, list))
