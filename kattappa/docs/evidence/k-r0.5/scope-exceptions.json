@@ -1,0 +1,9 @@
+[
+  {
+    "path": "backend/core/cognitive_kernel.py",
+    "reason": "Repair import cycle blocking canonical collection",
+    "required_tests": [],
+    "approved_milestone": "K-R0.5.10",
+    "temporary_exception": true
+  }
+]

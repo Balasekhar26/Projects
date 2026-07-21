@@ -19,7 +19,7 @@ class ShardPolicy:
     default_isolation_class: str
     isolation_classes: dict
     path_rules: dict
-    timeout_policy: dict
+    timeout_policy: dict = None
 
 def load_shard_policy() -> ShardPolicy:
     policy_file = PROJECT_ROOT / "scripts" / "validation" / "test_shard_policy.yaml"

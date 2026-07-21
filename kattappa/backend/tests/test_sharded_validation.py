@@ -44,6 +44,8 @@ from build_test_shards import build_manifest
 from aggregate_test_results import aggregate_results
 from verify_commit_scope import is_path_allowed, load_scope_policy
 
+pytestmark = pytest.mark.validation_harness
+
 # ---------- 1. Policy & Classification ----------
 
 def test_policy_yaml_controls_classification():
@@ -188,7 +190,7 @@ def test_manifest_building_and_node_assignment_integrity():
         (tmp_path / "collection.json").write_text(coll_json, encoding="utf-8")
         (tmp_path / "collection-hash.txt").write_text("mock_c_hash", encoding="utf-8")
 
-        n_shards, m_hash = build_manifest(
+        n_shards, m_core_hash, m_file_hash = build_manifest(
             tmp_path, shard_size=5, run_id="r1", candidate_commit="c_sha", environment_fingerprint={}
         )
         assert n_shards > 0
@@ -203,19 +205,21 @@ def test_manifest_building_and_node_assignment_integrity():
             assert s["candidate_commit"] == "c_sha"
             assert s["collection_hash"] == "mock_c_hash"
             assert s["policy_hash"] == "mock_p_hash"
-            assert s["manifest_hash"] == m_hash
+            assert s["manifest_core_hash"] == m_core_hash
 
 # ---------- 7. Cross-Run Rejection Tests ----------
 
 def _write_base_run_files(tmp_path, run_id="r1", commit="c1", coll_h="c_hash", pol_h="p_hash", man_h="m_hash"):
     coll = {"count": 1, "policy_hash": pol_h, "items": [{"node_id": "t1", "isolation_class": "parallel_safe"}]}
     manifest = {
-        "run_id": run_id, "candidate_commit": commit, "collection_hash": coll_h, "policy_hash": pol_h, "manifest_hash": man_h,
+        "run_id": run_id, "candidate_commit": commit, "collection_hash": coll_h, "policy_hash": pol_h,
+        "manifest_core_hash": man_h, "manifest_file_hash": man_h,
         "shards": [{"shard_id": "shard_01", "isolation_class": "parallel_safe", "node_ids": ["t1"]}]
     }
     (tmp_path / "collection.json").write_text(json.dumps(coll), encoding="utf-8")
     (tmp_path / "collection-hash.txt").write_text(coll_h, encoding="utf-8")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / "manifest-hash.txt").write_text(man_h, encoding="utf-8")
 
 def test_shard_run_id_mismatch_is_rejected():
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -225,7 +229,8 @@ def test_shard_run_id_mismatch_is_rejected():
         s1.mkdir(parents=True)
         # Write shard result from a different run_id
         (s1 / "shard-result.json").write_text(json.dumps({
-            "run_id": "different_run", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "run_id": "different_run", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash",
+            "manifest_core_hash": "m_hash", "manifest_file_hash": "m_hash",
             "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
         }))
@@ -239,7 +244,8 @@ def test_shard_commit_mismatch_is_rejected():
         s1 = tmp_path / "shards" / "shard_01"
         s1.mkdir(parents=True)
         (s1 / "shard-result.json").write_text(json.dumps({
-            "run_id": "r1", "candidate_commit": "commit_B", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "run_id": "r1", "candidate_commit": "commit_B", "collection_hash": "c_hash", "policy_hash": "p_hash",
+            "manifest_core_hash": "m_hash", "manifest_file_hash": "m_hash",
             "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
         }))
@@ -253,11 +259,12 @@ def test_shard_manifest_hash_mismatch_is_rejected():
         s1 = tmp_path / "shards" / "shard_01"
         s1.mkdir(parents=True)
         (s1 / "shard-result.json").write_text(json.dumps({
-            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "hash_B",
+            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash",
+            "manifest_core_hash": "hash_B", "manifest_file_hash": "hash_A",
             "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
         }))
-        with pytest.raises(ValueError, match="mismatching manifest_hash"):
+        with pytest.raises(ValueError, match="mismatching manifest_core_hash"):
             aggregate_results(tmp_path)
 
 def test_shard_id_not_in_manifest_is_rejected():
@@ -267,7 +274,8 @@ def test_shard_id_not_in_manifest_is_rejected():
         s2 = tmp_path / "shards" / "shard_99" # unregistered shard
         s2.mkdir(parents=True)
         (s2 / "shard-result.json").write_text(json.dumps({
-            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash",
+            "manifest_core_hash": "m_hash", "manifest_file_hash": "m_hash",
             "shard_id": "shard_99", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
         }))
@@ -282,14 +290,16 @@ def test_duplicate_shard_result_is_rejected():
         s1 = tmp_path / "shards" / "shard_01"
         s1.mkdir(parents=True)
         (s1 / "shard-result.json").write_text(json.dumps({
-            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash",
+            "manifest_core_hash": "m_hash", "manifest_file_hash": "m_hash",
             "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
         }))
         s2 = tmp_path / "shards" / "shard_01_dup"
         s2.mkdir(parents=True)
         (s2 / "shard-result.json").write_text(json.dumps({
-            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash", "manifest_hash": "m_hash",
+            "run_id": "r1", "candidate_commit": "c1", "collection_hash": "c_hash", "policy_hash": "p_hash",
+            "manifest_core_hash": "m_hash", "manifest_file_hash": "m_hash",
             "shard_id": "shard_01", # same shard_id
             "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
@@ -466,6 +476,67 @@ def test_save_self_validation_evidence_functions():
     assert len(files_sha) == len(sve.TARGET_FILES)
     for f in sve.TARGET_FILES:
         assert f in files_sha
+
+# ---------- 11. Circular Import Focused Architectural Tests ----------
+
+def test_cognitive_kernel_imports_without_simulation_cycle():
+    cmd = [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); from backend.core.cognitive_kernel import KERNEL; print('ok')"]
+    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    assert res.returncode == 0
+    assert "ok" in res.stdout
+
+def test_simulation_engine_imports_without_kernel_cycle():
+    cmd = [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); from backend.core.simulation_engine import SimulationEngine; print('ok')"]
+    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    assert res.returncode == 0
+    assert "ok" in res.stdout
+
+def test_import_order_kernel_then_simulation():
+    cmd = [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); import backend.core.cognitive_kernel; import backend.core.simulation_engine; print('ok')"]
+    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    assert res.returncode == 0
+    assert "ok" in res.stdout
+
+def test_import_order_simulation_then_kernel():
+    cmd = [sys.executable, "-c", "import sys; sys.path.insert(0, '.'); import backend.core.simulation_engine; import backend.core.cognitive_kernel; print('ok')"]
+    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    assert res.returncode == 0
+    assert "ok" in res.stdout
+
+def test_kernel_resolves_simulation_service_lazily():
+    from backend.core.cognitive_kernel import KERNEL
+    # Access simulation via helper property to trigger lazy registration
+    sim_engine = KERNEL.simulation
+    assert sim_engine is not None
+    # Verify it is registered in KERNEL services
+    assert KERNEL.get_service("simulation") is not None
+
+def test_lazy_resolution_does_not_recurse():
+    from backend.core.cognitive_kernel import KERNEL
+    sim_service1 = KERNEL.get_service("simulation")
+    sim_service2 = KERNEL.get_service("simulation")
+    assert sim_service1 is sim_service2
+
+def test_simulation_service_singleton_or_scope_contract():
+    from backend.core.cognitive_kernel import KERNEL
+    from backend.core.simulation_engine import SimulationService
+    sim_service = KERNEL.get_service("simulation")
+    assert isinstance(sim_service, SimulationService)
+
+def test_kernel_shutdown_after_lazy_simulation_resolution():
+    # Run in a separate subprocess to avoid messing with global KERNEL singleton state
+    code = (
+        "import sys\n"
+        "sys.path.insert(0, '.')\n"
+        "from backend.core.cognitive_kernel import KERNEL\n"
+        "sim = KERNEL.simulation\n"
+        "KERNEL.shutdown_all()\n"
+        "print('ok')\n"
+    )
+    cmd = [sys.executable, "-c", code]
+    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    assert res.returncode == 0
+    assert "ok" in res.stdout
 
 
 
