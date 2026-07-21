@@ -74,11 +74,11 @@ def collect_inventory(output_dir: Path) -> tuple[int, str, str]:
 
     print(f"Collecting test inventory with policy '{policy.policy_name}' (default={policy.default_isolation_class})...")
     
-    cmd = [sys.executable, "-m", "pytest", "--collect-only", "-q"]
+    cmd = [sys.executable, "-m", "pytest", "backend/tests", "--collect-only", "-q"]
     proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
 
     if proc.returncode != 0:
-        print(f"\n❌ Pytest collection failed with exit code {proc.returncode}")
+        print(f"\n[FAILED] Pytest collection failed with exit code {proc.returncode}")
         print(proc.stderr)
         raise RuntimeError(f"Pytest collection failed with exit code {proc.returncode}")
 
@@ -91,7 +91,7 @@ def collect_inventory(output_dir: Path) -> tuple[int, str, str]:
         
     duplicate_node_ids = [nid for nid, count in node_id_counts.items() if count > 1]
     if duplicate_node_ids:
-        print(f"\n❌ Collection error: Duplicate node IDs detected: {len(duplicate_node_ids)}")
+        print(f"\n[FAILED] Collection error: Duplicate node IDs detected: {len(duplicate_node_ids)}")
         raise RuntimeError(f"Duplicate node IDs detected in test collection: {duplicate_node_ids[:5]}")
 
     unique_nodes = sorted(list(set(node_ids_raw)))
