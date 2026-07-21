@@ -17,7 +17,7 @@
   "duplicate_node_ids": [],
   "policy_hash": "cf40147b6649480c04383b56ebf68edb5df5f2ab303b8be45065f56f3fb15790",
   "environment_fingerprint": {
-    "commit_sha": "57013779f1e44ed11790a0085d5ded9a20a90f51",
+    "commit_sha": "b4b33f0e009d12117019e45336f9cb9839a2520d",
     "python_executable": "C:\\Users\\balu\\Projects\\kattappa\\ai_system_env\\Scripts\\python.exe",
     "python_version": "3.13.13",
     "pytest_version": "pytest 9.0.3",
