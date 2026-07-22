@@ -175,7 +175,10 @@ class ContradictionDetector:
 
 
 class TruthDependencyTracker:
-    """Maintains logical truth dependency DAG between parent and child derived properties."""
+    """Maintains logical truth dependency DAG between parent and child derived properties.
+    Uses Tarjan's SCC algorithm to detect cyclic components deterministically and apply
+    atomic confidence bounding without dependence on Python set iteration or hash seeds.
+    """
 
     def __init__(self):
         # Maps (parent_uuid, parent_prop) -> Set of (child_uuid, child_prop)
@@ -191,6 +194,12 @@ class TruthDependencyTracker:
             f"Dependency: {child_uuid}.{child_prop} depends on {parent_uuid}.{parent_prop}",
         )
 
+    def _get_children(self, key: Tuple[str, str]) -> List[Tuple[str, str]]:
+        """Return deterministically sorted list of child nodes."""
+        if key not in self.dependencies:
+            return []
+        return sorted(list(self.dependencies[key]))
+
     def propagate_change(
         self,
         state: BeliefState,
@@ -198,68 +207,154 @@ class TruthDependencyTracker:
         parent_prop: str,
         visited: Optional[Set[Tuple[str, str]]] = None,
     ) -> None:
-        """Decays or bounds child properties recursively, handling circular cycles."""
-        if visited is None:
-            visited = set()
+        """Decays or bounds child properties deterministically using SCC decomposition."""
+        root_key = (parent_uuid, parent_prop)
+        
+        # 1. Gather all reachable nodes in affected subgraph
+        subgraph_nodes: List[Tuple[str, str]] = []
+        stack_nodes: List[Tuple[str, str]] = [root_key]
+        seen: Set[Tuple[str, str]] = set()
 
-        key = (parent_uuid, parent_prop)
-        if key in visited:
-            log_event(
-                "circular_dependency_detected",
-                f"Cycle hit at parent {parent_uuid}.{parent_prop}. Halting propagation.",
+        while stack_nodes:
+            curr = stack_nodes.pop()
+            if curr not in seen:
+                seen.add(curr)
+                subgraph_nodes.append(curr)
+                # Sort children for deterministic traversal
+                for child in self._get_children(curr):
+                    if child not in seen:
+                        stack_nodes.append(child)
+
+        # 2. Compute Strongly Connected Components (SCCs) using Tarjan's algorithm
+        idx = 0
+        indices: Dict[Tuple[str, str], int] = {}
+        lowlink: Dict[Tuple[str, str], int] = {}
+        on_stack: Dict[Tuple[str, str], bool] = {}
+        tarjan_stack: List[Tuple[str, str]] = []
+        sccs: List[List[Tuple[str, str]]] = []
+
+        def strongconnect(node: Tuple[str, str]) -> None:
+            nonlocal idx
+            indices[node] = idx
+            lowlink[node] = idx
+            idx += 1
+            tarjan_stack.append(node)
+            on_stack[node] = True
+
+            for child in self._get_children(node):
+                if child not in indices:
+                    strongconnect(child)
+                    lowlink[node] = min(lowlink[node], lowlink[child])
+                elif on_stack[child]:
+                    lowlink[node] = min(lowlink[node], indices[child])
+
+            if lowlink[node] == indices[node]:
+                scc: List[Tuple[str, str]] = []
+                while True:
+                    w = tarjan_stack.pop()
+                    on_stack[w] = False
+                    scc.append(w)
+                    if w == node:
+                        break
+                # Sort nodes inside SCC for determinism
+                scc.sort()
+                sccs.append(scc)
+
+        # Run Tarjan's starting from deterministic sorted order of subgraph nodes
+        for node in sorted(subgraph_nodes):
+            if node not in indices:
+                strongconnect(node)
+
+        # Tarjan's returns SCCs in reverse topological order, so reverse to get topological order
+        sccs.reverse()
+
+        # 3. Process each SCC topologically
+        for scc in sccs:
+            is_cycle = len(scc) > 1 or (
+                len(scc) == 1 and scc[0] in self._get_children(scc[0])
             )
-            return
 
-        visited.add(key)
+            scc_set = set(scc)
 
-        if key not in self.dependencies:
-            return
+            if is_cycle:
+                # Cyclic component: calculate deterministic minimum confidence of component nodes AND external incoming parents
+                confidences = []
+                for n_uuid, n_prop in scc:
+                    pv = state.get_property(n_uuid, n_prop)
+                    if pv is not None:
+                        confidences.append(pv.confidence)
 
-        parent_val = state.get_property(parent_uuid, parent_prop)
-        if parent_val is None:
-            return
+                # Check external parents pointing into this SCC
+                for p_key, children in self.dependencies.items():
+                    if p_key not in scc_set:
+                        # If any child is in SCC
+                        if any(c in scc_set for c in children):
+                            p_val = state.get_property(p_key[0], p_key[1])
+                            if p_val is not None:
+                                confidences.append(p_val.confidence)
 
-        for child_uuid, child_prop in self.dependencies[key]:
-            child_val = state.get_property(child_uuid, child_prop)
-            if child_val is None:
-                continue
+                if not confidences:
+                    continue
 
-            # In K21.3.5 we bound child confidence by parent confidence: child_conf = min(child_conf, parent_conf)
-            if parent_val.confidence < child_val.confidence:
-                updated_confidence = min(child_val.confidence, parent_val.confidence)
-                updated_child = PropertyValue(
-                    value=child_val.value,
-                    confidence=updated_confidence,
-                    source=parent_val.source,
-                    timestamp=time.time(),
-                    history=[child_val.clone()]
-                    + [h.clone() for h in child_val.history],
-                    evidence_history=list(child_val.evidence_history),
-                )
-                state.set_property(child_uuid, child_prop, updated_child)
+                min_conf = min(confidences)
                 log_event(
-                    "dependency_bounded",
-                    f"Propagated bound to {child_uuid}.{child_prop} (conf={updated_confidence:.2f})",
+                    "cycle_component_bounded",
+                    f"Cyclic component {scc} bounded to deterministic min confidence: {min_conf:.4f}",
                 )
-                try:
-                    from backend.core.knowledge_graph import KnowledgeGraph
-                    kg = KnowledgeGraph.get_instance()
-                    node_data = kg.get_node(child_uuid)
-                    node_props = dict(node_data.get("properties", {})) if node_data else {}
-                    node_props[child_prop] = child_val.value
-                    kg.add_node(
-                        name=child_uuid,
-                        entity_type="CONCEPT",
-                        node_id=child_uuid,
-                        properties=node_props,
-                        confidence=updated_confidence,
-                        belief_state="BELIEVED" if updated_confidence >= 0.5 else "HYPOTHESIS"
-                    )
-                except Exception as exc:
-                    logger.debug("Persisting bounded TMS property to KG failed: %s", exc)
 
-                # Recursively propagate downstream updates
-                self.propagate_change(state, child_uuid, child_prop, visited)
+                # Apply min_conf atomically to all nodes in the cycle
+                for n_uuid, n_prop in scc:
+                    child_val = state.get_property(n_uuid, n_prop)
+                    if child_val is not None and child_val.confidence != min_conf:
+                        updated_child = PropertyValue(
+                            value=child_val.value,
+                            confidence=min_conf,
+                            source=child_val.source,
+                            timestamp=time.time(),
+                            history=[child_val.clone()] + [h.clone() for h in child_val.history],
+                            evidence_history=list(child_val.evidence_history) + [
+                                Evidence(
+                                    evidence_id=f"cycle_bound_{int(time.time() * 1000)}",
+                                    value=child_val.value,
+                                    confidence=min_conf,
+                                    source=child_val.source,
+                                    timestamp=time.time(),
+                                    correlation_id="scc_cycle_provenance",
+                                )
+                            ],
+                        )
+                        state.set_property(n_uuid, n_prop, updated_child)
+            else:
+                # Acyclic node: bound by parent confidences
+                n_uuid, n_prop = scc[0]
+                curr_val = state.get_property(n_uuid, n_prop)
+                if curr_val is None:
+                    continue
+
+                # Find all parents of this node in dependencies
+                parent_confs = []
+                for p_key, children in self.dependencies.items():
+                    if (n_uuid, n_prop) in children:
+                        p_val = state.get_property(p_key[0], p_key[1])
+                        if p_val is not None:
+                            parent_confs.append(p_val.confidence)
+
+                if parent_confs:
+                    min_p_conf = min(parent_confs)
+                    if min_p_conf < curr_val.confidence:
+                        updated_child = PropertyValue(
+                            value=curr_val.value,
+                            confidence=min_p_conf,
+                            source=curr_val.source,
+                            timestamp=time.time(),
+                            history=[curr_val.clone()] + [h.clone() for h in curr_val.history],
+                            evidence_history=list(curr_val.evidence_history),
+                        )
+                        state.set_property(n_uuid, n_prop, updated_child)
+                        log_event(
+                            "dependency_bounded",
+                            f"Propagated bound to {n_uuid}.{n_prop} (conf={min_p_conf:.4f})",
+                        )
 
 
 class BeliefEngine:
