@@ -10,7 +10,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "The test expects the project virtual environment folder name to be exactly 'ai_system_env', but the canonical environment is named 'k-r0.5-py310'.",
     "corrective_action": "Modify the test to accept either 'ai_system_env' or 'k-r0.5-py310'.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_01_focused_1",
     "focused_run_2": "node_01_focused_2",
@@ -19,7 +19,7 @@
     "isolated_storage_run": "node_01_isolated",
     "predecessor_order_run": "node_01_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "652a6c5a8427dfe33d761ebcf1cbe685e3115120a223f524948c8fde834861c3"
+    "evidence_sha256": "41874e2a60245751262a060749d10ff142c31fac0511f6c1e04e8da0b95470a6"
   },
   {
     "node_id": "backend/tests/test_belief_engine.py::test_truth_dependency_propagation",
@@ -32,7 +32,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Floating-point precision mismatch during propagation calculations on Python 3.10.11.",
     "corrective_action": "Use pytest.approx for floating-point comparisons in assertion.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_02_focused_1",
     "focused_run_2": "node_02_focused_2",
@@ -41,7 +41,7 @@
     "isolated_storage_run": "node_02_isolated",
     "predecessor_order_run": "node_02_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "5e8db067a27235de4be341620fb915701598519ba1f43955814a722fdd5b2c72"
+    "evidence_sha256": "3e35a7e39efba3864951fb7fd59d9bf4c342cbd776a3f757a3742fe545196b19"
   },
   {
     "node_id": "backend/tests/test_cognitive_pipeline_v2.py::test_metacognitive_triage",
@@ -54,7 +54,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Mock LLM handler did not trigger correctly or returned fallback answer instead of simulated reply.",
     "corrective_action": "Fix mock setup in test.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_03_focused_1",
     "focused_run_2": "node_03_focused_2",
@@ -63,7 +63,7 @@
     "isolated_storage_run": "node_03_isolated",
     "predecessor_order_run": "node_03_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "4163ba098ef9a9932b159fa4b6f99313c202257df5831cc1a2517b90025ddb0b"
+    "evidence_sha256": "da2547698dd83aaa7d9e4f0f205b0e873201ae378a46de48b706a934c0f1e72e"
   },
   {
     "node_id": "backend/tests/test_cognitive_pipeline_v2.py::test_parallel_council_execution",
@@ -76,7 +76,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Parallel execution took longer than the hardcoded 0.25s threshold on Windows thread scheduling.",
     "corrective_action": "Increase the time threshold for Windows environments or mock elapsed time.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_04_focused_1",
     "focused_run_2": "node_04_focused_2",
@@ -85,7 +85,7 @@
     "isolated_storage_run": "node_04_isolated",
     "predecessor_order_run": "node_04_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "fd35246b0abb3b6e3598734b8fb2b3ecb7fac4f5dacd03af940b3f6a3404d937"
+    "evidence_sha256": "a32fca32051a0415d687b67d1bd6ae9265fd35be90b20d326a2c5a3af5c4393c"
   },
   {
     "node_id": "backend/tests/test_cognitive_workers.py::TestCognitiveWorkers::test_planner_routing",
@@ -98,7 +98,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Cognitive worker routing returned None resulting in type crash during iteration.",
     "corrective_action": "Return empty iterable if router resolves to None.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_05_focused_1",
     "focused_run_2": "node_05_focused_2",
@@ -107,7 +107,7 @@
     "isolated_storage_run": "node_05_isolated",
     "predecessor_order_run": "node_05_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "d39b6d660d258ef24db290c5b95f9d11b01c8a589b350e67d47976f430ab44dd"
+    "evidence_sha256": "59551ce0f865958e86c2a9d2cbad494822454221e3c2a81d42895beb1bcd74f1"
   },
   {
     "node_id": "backend/tests/test_consolidation_engine.py::TestConsolidationEngine::test_jaccard_deduplication_and_merging",
@@ -120,7 +120,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Deduplication logic returned None instead of merged record payload.",
     "corrective_action": "Repair merging logic in consolidation_engine.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_06_focused_1",
     "focused_run_2": "node_06_focused_2",
@@ -129,7 +129,7 @@
     "isolated_storage_run": "node_06_isolated",
     "predecessor_order_run": "node_06_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "59d6c1cefc86b2c1c317908bb68b005cb868529b397ee004cd0e34e82de2c651"
+    "evidence_sha256": "cf6f5c7cefea9e5582e9e9dd6ee58c32ac5d844579d05011b73678c14a88622c"
   },
   {
     "node_id": "backend/tests/test_macros.py::test_fast_path_speedtest_routing",
@@ -142,7 +142,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Speedtest macro request routed to default browser agent instead of speedtest handler.",
     "corrective_action": "Fix routing rules in macro dispatcher.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_07_focused_1",
     "focused_run_2": "node_07_focused_2",
@@ -151,7 +151,7 @@
     "isolated_storage_run": "node_07_isolated",
     "predecessor_order_run": "node_07_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "b8232f2410e107a7f616b687419e13f76a199323d09d04b41589fd4a98fe4f07"
+    "evidence_sha256": "b5170f0eed1449db5746796daec3316a63e090b1fb0899c54d4a38098f875148"
   },
   {
     "node_id": "backend/tests/test_meta_executive.py::TestMetaExecutive::test_prefrontal_loop_low_confidence",
@@ -164,7 +164,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Call to undefined 'log_event' in backend/core/meta_executive.py line 105.",
     "corrective_action": "Import or define 'log_event' in meta_executive.py.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_08_focused_1",
     "focused_run_2": "node_08_focused_2",
@@ -173,7 +173,7 @@
     "isolated_storage_run": "node_08_isolated",
     "predecessor_order_run": "node_08_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "d49fc7aedda78941f29d82a4f59b3f59e90e1928ef4d609381b00d5421101255"
+    "evidence_sha256": "dce99df3cb03adb80d00e87429048e7b72989d67b4c846fa3ebce42fb55f4e13"
   },
   {
     "node_id": "backend/tests/test_mission_persistence.py::test_failure_recovery_rca_and_retry_limits",
@@ -186,7 +186,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "RCA description returned generic fallback string instead of specific syntax analysis.",
     "corrective_action": "Improve RCA parser accuracy.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_09_focused_1",
     "focused_run_2": "node_09_focused_2",
@@ -195,7 +195,7 @@
     "isolated_storage_run": "node_09_isolated",
     "predecessor_order_run": "node_09_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "b32c6feaf945f8ee4997b153099fc0fa04789ee42292d3e56d3ce78353716915"
+    "evidence_sha256": "0f2b20ce7990aee728260a78ac634ebbe9220537dcd68fa1910fff1b0903a15a"
   },
   {
     "node_id": "backend/tests/test_personal_project_manager.py::test_executive_planner_ppm_dependency_mapping",
@@ -208,7 +208,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Project task list state persisted from prior test run, creating duplicate dependency maps.",
     "corrective_action": "Clear task manager database before each test run.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_10_focused_1",
     "focused_run_2": "node_10_focused_2",
@@ -217,7 +217,7 @@
     "isolated_storage_run": "node_10_isolated",
     "predecessor_order_run": "node_10_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "c0f00086ea3f93f628eefbe40909dd7ec6c9f0c892ac771770885dedb1e3b317"
+    "evidence_sha256": "5720383be5f7f843349264def83ea7ebe1c1b27a771bfda56cc81a7b4f01f3d8"
   },
   {
     "node_id": "backend/tests/test_planner_agent.py::test_planner_node_integration",
@@ -230,7 +230,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Planner node incorrectly flagged action source as untrusted.",
     "corrective_action": "Adjust trust evaluation checks in planner.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_11_focused_1",
     "focused_run_2": "node_11_focused_2",
@@ -239,7 +239,7 @@
     "isolated_storage_run": "node_11_isolated",
     "predecessor_order_run": "node_11_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "0ced32a8bee9de94634d4ba31f64e69b5de2a244aa317b38daea71308ff13b24"
+    "evidence_sha256": "87c9af5d7fbde53d95867e6c50b7c0b47b43f82c45cac2779e31c30cfbb58d92"
   },
   {
     "node_id": "backend/tests/test_procedural_memory.py::TestProceduralMemory::test_audit_logging",
@@ -252,7 +252,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Audit logger did not record the 'planning' memory category event.",
     "corrective_action": "Ensure procedural memory access triggers audit log writes.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_12_focused_1",
     "focused_run_2": "node_12_focused_2",
@@ -261,7 +261,7 @@
     "isolated_storage_run": "node_12_isolated",
     "predecessor_order_run": "node_12_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "c4b5bbfc61bb2791c5f111f6126503431baa2950a52d131a473e87a41d9e8198"
+    "evidence_sha256": "47a9d6956c50ba0046f95df57cbe1fe2ae15b7715aeecbd84d6a9e71df39fca5"
   },
   {
     "node_id": "backend/tests/test_step29_knowledge_graph.py::TestThreadSafetyPerformance::test_traversal_performance",
@@ -274,7 +274,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Performance constraint (1s) exceeded due to CPU/disk speed limits on Windows virtualized host.",
     "corrective_action": "Increase traversal time threshold for virtualized environments.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_13_focused_1",
     "focused_run_2": "node_13_focused_2",
@@ -283,7 +283,7 @@
     "isolated_storage_run": "node_13_isolated",
     "predecessor_order_run": "node_13_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "788a80860551a09e7e04aa474ca2c359bc4a52b5b46d89001b279ad5afc5974e"
+    "evidence_sha256": "29db9118d135d8119dd891ad5ebb238cd505c1e7e224668f099599e028ca320e"
   },
   {
     "node_id": "backend/tests/test_step6_audit.py::test_sandbox_process_isolation_pid",
@@ -296,7 +296,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "PID-based isolation assertion fails under Windows since PID namespaces are not supported natively.",
     "corrective_action": "Skip or adapt PID isolation checks under Windows OS.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_14_focused_1",
     "focused_run_2": "node_14_focused_2",
@@ -305,7 +305,7 @@
     "isolated_storage_run": "node_14_isolated",
     "predecessor_order_run": "node_14_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "3c3d37e8fec7be1a25d00b615806fac80589ee054098565fcd9464ac1e85d7f0"
+    "evidence_sha256": "7b4f2a51ae53e64a6f1d28701abe59459f1f7b1967bd5edbdb70069b5bb8449b"
   },
   {
     "node_id": "backend/tests/test_telemetry.py::test_metrics_collector",
@@ -318,7 +318,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Telemetry metrics singleton retains state from previous runs in the same process.",
     "corrective_action": "Reset telemetry collector state in teardown fixture.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_15_focused_1",
     "focused_run_2": "node_15_focused_2",
@@ -327,7 +327,7 @@
     "isolated_storage_run": "node_15_isolated",
     "predecessor_order_run": "node_15_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "29e57f37cc6e75ce84f389b45fac886d0ba708b4e096754e96d175e18ede569a"
+    "evidence_sha256": "e4a587fb9577e29c3e801e7841f2b90a5b29920bc2a3d1246f9ef2139b4ee8c7"
   },
   {
     "node_id": "backend/tests/test_telemetry.py::test_metrics_collector_since",
@@ -340,7 +340,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Telemetry metrics singleton retains state from previous runs.",
     "corrective_action": "Reset telemetry collector state in teardown fixture.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_16_focused_1",
     "focused_run_2": "node_16_focused_2",
@@ -349,7 +349,7 @@
     "isolated_storage_run": "node_16_isolated",
     "predecessor_order_run": "node_16_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "d3a36ec411722acdd641b421851a9939f175814f65889362e93cea152129d8b4"
+    "evidence_sha256": "4afc0556537587ace30abb4107a13a374e956e48d6b7b93b43d38e3376e590bd"
   },
   {
     "node_id": "backend/tests/test_telemetry.py::test_telemetry_service_stats",
@@ -362,7 +362,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Telemetry metrics singleton retains state from previous runs.",
     "corrective_action": "Reset telemetry collector state in teardown fixture.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_17_focused_1",
     "focused_run_2": "node_17_focused_2",
@@ -371,7 +371,7 @@
     "isolated_storage_run": "node_17_isolated",
     "predecessor_order_run": "node_17_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "3a1ed2ad4127096735452d55d934df9d5c6b6aa7e929a44423f03b1dfb32f8fd"
+    "evidence_sha256": "47ff746668960f22ea6bbffa7f94f59a6bb26747146043a4539305fd6e94181e"
   },
   {
     "node_id": "backend/tests/test_telemetry_endpoints.py::test_telemetry_endpoints",
@@ -384,7 +384,7 @@
     "reproduces_after_predecessor": false,
     "root_cause": "Telemetry metrics singleton retains state from previous runs.",
     "corrective_action": "Reset telemetry collector state in teardown fixture.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_18_focused_1",
     "focused_run_2": "node_18_focused_2",
@@ -393,7 +393,7 @@
     "isolated_storage_run": "node_18_isolated",
     "predecessor_order_run": "node_18_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "d6926c5da8a802716a5cf992e3879f88635a85d86899253ce9f874f88a9dd838"
+    "evidence_sha256": "31bd91c1f38ed668935b7ab943b067d07507822b41d53da0881822753a29a538"
   },
   {
     "node_id": "backend/tests/test_tool_security.py::test_sandbox_runtime_execution",
@@ -406,7 +406,7 @@
     "reproduces_after_predecessor": true,
     "root_cause": "Docker Desktop is not running or socket is missing on the host platform.",
     "corrective_action": "Skip test execution if docker socket query fails.",
-    "fix_commit": "f68c17761e394bcec3f9a5708a460f0582a7c59c",
+    "fix_commit": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
     "resolution_status": "FIXED",
     "focused_run_1": "node_19_focused_1",
     "focused_run_2": "node_19_focused_2",
@@ -415,6 +415,6 @@
     "isolated_storage_run": "node_19_isolated",
     "predecessor_order_run": "node_19_predecessor",
     "post_fix_failure_signature": null,
-    "evidence_sha256": "18d271d07aa9b441c7b643c9af5a72ff48e8f381bc28e676ba954507f5893ad8"
+    "evidence_sha256": "aa98b5581b2d029560cf2c023e5863bbf159f31536e7d6dbd510bb73481a9c99"
   }
 ]
