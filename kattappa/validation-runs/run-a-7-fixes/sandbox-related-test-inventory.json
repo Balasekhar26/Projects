@@ -1,0 +1,25 @@
+{
+  "inventory_id": "sandbox-related-test-inventory-k-r0.5.23",
+  "candidate_sha": "fc2e8b2b08121e81aabc4062b5bb7e082232eb02",
+  "timestamp_utc": "2026-07-22T14:22:00Z",
+  "modules_audited": [
+    "backend/core/sandbox/local_sandbox.py",
+    "backend/core/rbil.py",
+    "backend/core/governance/sandbox_allocator.py"
+  ],
+  "test_files": [
+    "backend/tests/test_rbil.py",
+    "backend/tests/test_skill_registry.py",
+    "backend/tests/test_skill_sandbox.py",
+    "backend/tests/test_governance_chaos.py"
+  ],
+  "results": {
+    "total_collected": 21,
+    "passed": 21,
+    "failed": 0,
+    "errors": 0,
+    "runtime_paths_created": 0,
+    "runtime_paths_leaked": 0,
+    "external_writes": 0
+  }
+}

@@ -2,10 +2,14 @@
   "valid_for_release": false,
   "verdict": "invalid",
   "reason_codes": [
-    "COMMIT_CONTENT_MISMATCH",
-    "RUNNER_SOURCE_NOT_PROVEN_IN_COMMIT",
-    "TRACKED_DATA_MUTATED",
-    "WORKTREE_PROVENANCE_UNKNOWN"
+    "CONTAMINATED_COMMIT_HISTORY",
+    "RUNNER_FAIL_OPEN",
+    "EXECUTED_NODE_SET_NOT_MEASURED",
+    "AGGREGATE_FIELDS_NOT_MEASURED",
+    "NO_SHARD_TIMEOUT",
+    "NO_PROCESS_TREE_CLEANUP",
+    "NO_PRODUCTION_DATA_DIGEST",
+    "NONCANONICAL_RELEASE_INTERPRETER"
   ],
-  "notes": "Task 5804 was terminated. Run was invalidated due to commit content mismatch and worktree provenance audit requirements."
+  "notes": "Task 5900 terminated. Run marked invalid for release due to runner fail-open architecture, missing node execution set measurement, and contaminated commit history."
 }

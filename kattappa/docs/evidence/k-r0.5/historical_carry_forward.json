@@ -1,0 +1,6 @@
+{
+  "historical_19_candidate": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
+  "carry_forward_valid": false,
+  "reason": "Run A seven-defect production repair changed production behavior across RelationshipMemory (durable revision ordering), BeliefEngine (Tarjan SCC cycle convergence), ECL Scheduler (monotonic deadline and phase timing), and ExperimentSandbox (runtime_paths containment authority).",
+  "required_action": "Rerun historical-19 on replacement candidate"
+}

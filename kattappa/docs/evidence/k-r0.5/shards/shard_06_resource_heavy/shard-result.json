@@ -1,0 +1,9 @@
+{
+  "shard_id": "shard_06_resource_heavy",
+  "isolation_class": "resource_heavy",
+  "total_nodes": 23,
+  "passed": 23,
+  "failed": 0,
+  "exit_code": 0,
+  "duration_seconds": 43.41
+}

@@ -1,0 +1,9 @@
+{
+  "shard_id": "shard_01_exclusive_process",
+  "isolation_class": "exclusive_process",
+  "total_nodes": 100,
+  "passed": 100,
+  "failed": 0,
+  "exit_code": 0,
+  "duration_seconds": 82.41
+}

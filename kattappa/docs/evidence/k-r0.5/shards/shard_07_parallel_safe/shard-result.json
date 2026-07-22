@@ -1,0 +1,9 @@
+{
+  "shard_id": "shard_07_parallel_safe",
+  "isolation_class": "parallel_safe",
+  "total_nodes": 250,
+  "passed": 250,
+  "failed": 0,
+  "exit_code": 0,
+  "duration_seconds": 89.52
+}

@@ -1,0 +1,9 @@
+{
+  "shard_id": "shard_03_browser_ui",
+  "isolation_class": "browser_ui",
+  "total_nodes": 100,
+  "passed": 100,
+  "failed": 0,
+  "exit_code": 0,
+  "duration_seconds": 132.29
+}
