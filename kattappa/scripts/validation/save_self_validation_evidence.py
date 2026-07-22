@@ -98,10 +98,18 @@ def parse_junit_xml(xml_path: Path) -> dict[str, int]:
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
-    tests = int(root.attrib.get("tests", 0))
-    failures = int(root.attrib.get("failures", 0))
-    errors = int(root.attrib.get("errors", 0))
-    skipped = int(root.attrib.get("skipped", 0))
+    tests = 0
+    failures = 0
+    errors = 0
+    skipped = 0
+
+    suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+    for s in suites:
+        tests += int(s.attrib.get("tests", 0))
+        failures += int(s.attrib.get("failures", 0))
+        errors += int(s.attrib.get("errors", 0))
+        skipped += int(s.attrib.get("skipped", 0))
+
     passed = tests - (failures + errors + skipped)
 
     return {
