@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,7 +27,12 @@ class LocalExecutionSandbox:
     def create_snapshot(cls, src_dir: str | Path) -> str:
         """Copies target workspace directory to a temporary backup path, ignoring system/meta dirs."""
         src_path = Path(src_dir).resolve()
-        temp_dir = tempfile.mkdtemp(prefix="kattappa_sandbox_snap_")
+        # Use project-local sandbox root from central runtime_paths authority
+        from backend.core.runtime_paths import get_sandbox_root
+        sandbox_root = get_sandbox_root()
+        snap_dir = sandbox_root / f"kattappa_sandbox_snap_{uuid.uuid4().hex[:8]}"
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir = str(snap_dir)
         
         ignore_func = shutil.ignore_patterns(
             "ai_system_env", ".git", ".pytest_cache", "__pycache__", ".vscode", ".agents"

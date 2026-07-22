@@ -34,6 +34,12 @@ def allocate_sandbox_and_run(skill: Dict[str, Any], args: Dict[str, Any]) -> Dic
             "error_message": f"Entrypoint script '{entrypoint}' not found.",
         }
 
+    # Always allow entrypoint directory and sandbox root for script execution
+    from backend.core.runtime_paths import get_sandbox_root
+    effective_allowed_paths = list(allowed_paths)
+    effective_allowed_paths.append(str(entrypoint_path.parent.resolve()))
+    effective_allowed_paths.append(str(get_sandbox_root().resolve()))
+
     # Build the bootstrapper script dynamically
     # It injects interceptors into the target interpreter context
     bootstrap_code = f"""import builtins
@@ -50,7 +56,7 @@ if not {allow_network}:
     socket.getaddrinfo = blocked_socket
 
 # 2. Filesystem restrictions
-ALLOWED_PATHS = {json.dumps(allowed_paths)}
+ALLOWED_PATHS = {json.dumps(effective_allowed_paths)}
 def check_path_allowed(path):
     if not ALLOWED_PATHS:
         return  # If none specified, allow
@@ -95,8 +101,9 @@ with original_open({json.dumps(str(entrypoint_path.resolve()))}, 'r', encoding='
 exec(code, {{"__name__": "__main__", "__file__": {json.dumps(str(entrypoint_path.resolve()))}}})
 """
 
-    # Write wrapper to temporary directory
-    temp_dir = tempfile.gettempdir()
+    # Write wrapper to project-local sandbox directory
+    from backend.core.runtime_paths import get_sandbox_root
+    temp_dir = str(get_sandbox_root())
     temp_wrapper_path = os.path.join(temp_dir, f"sandbox_wrapper_{uuid.uuid4().hex}.py")
     
     with open(temp_wrapper_path, "w", encoding="utf-8") as f:
@@ -104,8 +111,14 @@ exec(code, {{"__name__": "__main__", "__file__": {json.dumps(str(entrypoint_path
 
     try:
         # Start child process in restricted environment
-        # Strip env variables except minimal PATH
-        clean_env = {"PATH": os.environ.get("PATH", "")}
+        # Strip env variables except minimal PATH, SYSTEMROOT, and PYTHONPATH for Python interpreter runtime
+        clean_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "SYSTEMROOT": os.environ.get("SYSTEMROOT", r"C:\WINDOWS"),
+            "PATHEXT": os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
+            "PYTHONPATH": os.environ.get("PYTHONPATH", sys.path[0]),
+            "KATTAPPA_SANDBOX_ROOT": str(get_sandbox_root()),
+        }
         process = subprocess.Popen(
             [sys.executable, temp_wrapper_path, str(entrypoint_path.resolve()), json.dumps(args)],
             stdout=subprocess.PIPE,

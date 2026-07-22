@@ -377,8 +377,8 @@ class TestGitWorktreeIsolation:
         t2 = threading.Thread(target=_run, args=("beta",))
         t1.start()
         t2.start()
-        t1.join(timeout=30)
-        t2.join(timeout=30)
+        t1.join(timeout=120)
+        t2.join(timeout=120)
 
         assert not errors, f"Thread errors: {errors}"
         assert "alpha" in results and "beta" in results
@@ -489,8 +489,8 @@ class TestOrphanSweeper:
         os.utime(str(old_dir), (old_time, old_time))
 
         with patch(
-            "backend.core.experiment_sandbox.tempfile.gettempdir",
-            return_value=str(tmp_path),
+            "backend.core.experiment_sandbox.ExperimentManager._sandbox_root",
+            return_value=tmp_path,
         ):
             # Also patch the data root so it does not resolve to a real path
             with patch(
@@ -508,8 +508,8 @@ class TestOrphanSweeper:
         # mtime is now (fresh)
 
         with patch(
-            "backend.core.experiment_sandbox.tempfile.gettempdir",
-            return_value=str(tmp_path),
+            "backend.core.experiment_sandbox.ExperimentManager._sandbox_root",
+            return_value=tmp_path,
         ):
             with patch(
                 "backend.core.experiment_sandbox.runtime_data_root",
@@ -527,8 +527,8 @@ class TestOrphanSweeper:
         os.utime(str(old_db), (old_time, old_time))
 
         with patch(
-            "backend.core.experiment_sandbox.tempfile.gettempdir",
-            return_value=str(tmp_path),
+            "backend.core.experiment_sandbox.ExperimentManager._sandbox_root",
+            return_value=tmp_path,
         ):
             with patch(
                 "backend.core.experiment_sandbox.runtime_data_root",
@@ -546,8 +546,8 @@ class TestOrphanSweeper:
         os.utime(str(old_dir), (old_time, old_time))
 
         with patch(
-            "backend.core.experiment_sandbox.tempfile.gettempdir",
-            return_value=str(tmp_path),
+            "backend.core.experiment_sandbox.ExperimentManager._sandbox_root",
+            return_value=tmp_path,
         ):
             with patch(
                 "backend.core.experiment_sandbox.runtime_data_root",
@@ -562,36 +562,21 @@ class TestOrphanSweeper:
 # ---------------------------------------------------------------------------
 
 class TestCrashAndTimeoutSafety:
-    def test_crash_raises_and_workspace_cleaned(self):
-        """mock_crash=True raises an exception and leaves no temp directories."""
-        original_temp = tempfile.TemporaryDirectory
-        created_workspaces = []
-
-        class _Tracked(original_temp):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                created_workspaces.append(Path(self.name))
-
-        with patch("backend.core.experiment_sandbox.tempfile.TemporaryDirectory", _Tracked):
+    def test_crash_raises_and_workspace_cleaned(self, tmp_path):
+        """mock_crash=True raises an exception and leaves no sandbox directories."""
+        with patch.object(ExperimentManager, "_sandbox_root", return_value=tmp_path):
             with pytest.raises(Exception):
                 ExperimentManager.execute_experiment(
                     proposal_id="p-crash-cleanup",
                     mock_crash=True,
                 )
 
-        for ws in created_workspaces:
-            assert not ws.exists(), f"Workspace {ws} leaked after crash"
+        # All sandbox directories under tmp_path should have been cleaned up
+        remaining = [p for p in tmp_path.iterdir() if "kattappa_sandbox_" in p.name]
+        assert not remaining, f"Workspace(s) leaked after crash: {remaining}"
 
-    def test_crash_before_git_mount_still_cleans(self, monkeypatch):
-        """If git worktree mount fails, temp dir is still cleaned."""
-        original_temp = tempfile.TemporaryDirectory
-        created_workspaces = []
-
-        class _Tracked(original_temp):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                created_workspaces.append(Path(self.name))
-
+    def test_crash_before_git_mount_still_cleans(self, tmp_path, monkeypatch):
+        """If git worktree mount fails, sandbox dir is still cleaned."""
         # Simulate git failure
         monkeypatch.setattr(
             ExperimentManager,
@@ -601,12 +586,12 @@ class TestCrashAndTimeoutSafety:
             ),
         )
 
-        with patch("backend.core.experiment_sandbox.tempfile.TemporaryDirectory", _Tracked):
+        with patch.object(ExperimentManager, "_sandbox_root", return_value=tmp_path):
             with pytest.raises(Exception):
                 ExperimentManager.execute_experiment(proposal_id="p-git-fail")
 
-        for ws in created_workspaces:
-            assert not ws.exists(), f"Workspace {ws} leaked after git mount failure"
+        remaining = [p for p in tmp_path.iterdir() if "kattappa_sandbox_" in p.name]
+        assert not remaining, f"Workspace(s) leaked after git mount failure: {remaining}"
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,9 @@ def _get_metrics_path() -> pathlib.Path:
     if data_dir:
         p = pathlib.Path(data_dir) / "metrics" / "rbil_metrics.json"
     else:
-        p = pathlib.Path(tempfile.gettempdir()) / "kattappa_runtime_metrics" / "rbil_metrics.json"
+        # Use project-local runtime root from central runtime_paths authority
+        from backend.core.runtime_paths import get_runtime_root
+        p = get_runtime_root() / "metrics" / "rbil_metrics.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -42,7 +44,7 @@ class MetricsTracker:
     def load(cls) -> dict[str, Any]:
         with cls._lock:
             try:
-                metrics_path = _get_metrics_path()
+                metrics_path = METRICS_PATH
                 source_path = metrics_path if metrics_path.exists() else SEED_METRICS_PATH
                 if source_path.exists():
                     with open(source_path, "r", encoding="utf-8") as f:
@@ -59,7 +61,7 @@ class MetricsTracker:
     def save(cls, data: dict[str, Any]) -> None:
         with cls._lock:
             try:
-                metrics_path = _get_metrics_path()
+                metrics_path = METRICS_PATH
                 metrics_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(metrics_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)

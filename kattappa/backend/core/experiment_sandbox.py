@@ -28,6 +28,12 @@ class ExperimentManager:
     _lock = threading.RLock()
 
     @classmethod
+    def _sandbox_root(cls) -> Path:
+        """Return the project-local sandbox root using the central runtime_paths authority."""
+        from backend.core.runtime_paths import get_sandbox_root
+        return get_sandbox_root()
+
+    @classmethod
     def _run_git(cls, args: list[str]) -> subprocess.CompletedProcess:
         """Helper to run git commands from the repository root."""
         # Trace up to find repo root
@@ -55,8 +61,8 @@ class ExperimentManager:
             log_event("sandbox: initiating startup orphan cleanup scan...")
             now = time.time()
             
-            # 1. Clean folders/files in /tmp and data root older than 1 hour
-            search_dirs = [Path(tempfile.gettempdir()), runtime_data_root() / "backend" / "data"]
+            # 1. Clean folders/files in sandbox root and data root older than 1 hour
+            search_dirs = [cls._sandbox_root(), runtime_data_root() / "backend" / "data"]
             for s_dir in search_dirs:
                 if not s_dir.exists():
                     continue
@@ -184,9 +190,10 @@ class ExperimentManager:
             "safety_score": 1.0,
         }
 
-        # Create temporary workspace path
-        temp_dir_obj = tempfile.TemporaryDirectory(prefix=f"kattappa_sandbox_{experiment_id}_")
-        workspace_path = Path(temp_dir_obj.name)
+        # Create workspace directory under project-local sandbox root
+        sandbox_dir = cls._sandbox_root() / f"kattappa_sandbox_{experiment_id}"
+        sandbox_dir.mkdir(parents=True, exist_ok=True)
+        workspace_path = sandbox_dir
         
         # Clone database file path
         db_clone_path = workspace_path / f"sandbox_db_{experiment_id}.db"
@@ -230,23 +237,41 @@ class ExperimentManager:
             # Retrieve results from subprocess
             run_results = dict(result_dict)
             if not run_results:
-                raise RuntimeError("Subprocess execution failed with no return metrics.")
+                child_details = {
+                    "child_pid": p.pid or 0,
+                    "child_exit_code": p.exitcode if p.exitcode is not None else -1,
+                    "child_exception_type": "SubprocessError" if (p.exitcode and p.exitcode != 0) else None,
+                    "child_exception_message": f"Child process exited with code {p.exitcode}" if (p.exitcode and p.exitcode != 0) else "Subprocess returned empty metrics",
+                    "child_traceback": None,
+                    "result_received": False,
+                }
+                log_event(f"sandbox: experiment subprocess failed: {child_details}")
+                raise RuntimeError(f"Subprocess (pid={p.pid}, exitcode={p.exitcode}) execution failed with no return metrics. Details: {json.dumps(child_details)}")
 
         finally:
-            # Guarantee cleanup: Git worktree remove and branch deletion
+            # Guarantee cleanup: 1. Remove physical workspace directory
+            try:
+                if workspace_path.exists():
+                    shutil.rmtree(workspace_path, ignore_errors=True)
+                log_event(f"sandbox: destroyed temporary directory at {workspace_path}")
+            except Exception as exc:
+                log_event(f"sandbox: failed to cleanup temp directory {workspace_path}: {exc}")
+
+            # 2. Cleanup Git worktree registration and branch
             if git_mounted:
                 try:
                     cls._run_git(["worktree", "remove", "--force", str(workspace_path)])
+                except Exception:
+                    pass
+                try:
+                    cls._run_git(["worktree", "prune", "--expire", "now"])
+                except Exception:
+                    pass
+                try:
                     cls._run_git(["branch", "-D", f"sandbox/{experiment_id}"])
-                    log_event(f"sandbox: removed git worktree and branch sandbox/{experiment_id}")
-                except Exception as exc:
-                    log_event(f"sandbox: failed to cleanup git worktree: {exc}")
-
-            try:
-                temp_dir_obj.cleanup()
-                log_event(f"sandbox: successfully destroyed temporary directory at {workspace_path}")
-            except Exception as exc:
-                log_event(f"sandbox: failed to cleanup temp directory {workspace_path}: {exc}")
+                except Exception:
+                    pass
+                log_event(f"sandbox: removed git worktree and branch sandbox/{experiment_id}")
 
         # Assemble the report using the frozen schema
         report = cls._assemble_report(

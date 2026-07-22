@@ -119,6 +119,7 @@ def test_metrics_tracker(tmp_path):
     test_metrics_file = tmp_path / "test_metrics.json"
     
     import backend.core.rbil as rbil_mod
+    test_metrics_file.write_text("{}")
     rbil_mod.METRICS_PATH = test_metrics_file
 
     try:
