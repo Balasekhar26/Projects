@@ -111,3 +111,37 @@ def test_ecl_coordinator_transaction():
     assert res["success"] is True
     assert res["status"] == "COMPLETED"
     assert res["viability_score"] > 0.0
+    assert "phase_timings" in res
+    assert "goal_decomposition" in res["phase_timings"]
+    assert "task_graph_execution" in res["phase_timings"]
+    assert res["cleanup_complete"] is True
+
+
+def test_ecl_policy_halt_structured_response():
+    res = ECLCoordinator.plan_and_execute(
+        goal_title="Purge all user databases with rm -rf /",
+        goal_desc="Force delete production files",
+        priority="HIGH"
+    )
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+    assert res["failed_phase"] == "policy_validation"
+    assert res["error_type"] == "PolicyHalt"
+    assert "error_message" in res
+    assert res["cleanup_complete"] is True
+
+
+def test_ecl_monotonic_deadline_timeout():
+    # Execute with very short timeout to trigger deadline cancellation
+    res = ECLCoordinator.plan_and_execute(
+        goal_title="Long running computation step",
+        goal_desc="Simulate delay",
+        priority="LOW",
+        timeout=0.001  # Ultra short timeout force-cancels execution
+    )
+    assert res["success"] is False
+    assert res["status"] == "TIMEOUT"
+    assert res["failed_phase"] == "task_graph_execution"
+    assert res["error_type"] == "TimeoutError"
+    assert res["cleanup_complete"] is True
+

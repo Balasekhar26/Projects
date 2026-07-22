@@ -30,11 +30,16 @@ class ECLCoordinator:
         goal_title: str,
         goal_desc: str = "",
         priority: str = "MEDIUM",
+        timeout: float = 120.0,
     ) -> Dict[str, Any]:
         log_event("ecl_coordinator_start", f"Initiating ECL transaction: {goal_title}")
-
+        phase_timings: Dict[str, float] = {}
+        
         # 1. Goal Decomposition
+        t0 = time.monotonic()
         decomp = ECLGoalDecomposer.decompose(goal_title, goal_desc)
+        phase_timings["goal_decomposition"] = round((time.monotonic() - t0) * 1000, 2)
+        
         goal_id = decomp["goal_id"]
         registered_nodes = decomp["registered_nodes"]
 
@@ -64,7 +69,6 @@ class ECLCoordinator:
         # Parse Level 3 Tasks for execution
         tasks_data = [n for n in registered_nodes if n["level"] == "TASK"]
         
-        # Format task records
         steps = []
         for idx, t in enumerate(tasks_data):
             steps.append({
@@ -75,37 +79,47 @@ class ECLCoordinator:
             })
 
         # 2. Budget Management
+        t0 = time.monotonic()
         budget = ECLBudgetManager.calculate_budget(priority)
+        phase_timings["budget_allocation"] = round((time.monotonic() - t0) * 1000, 2)
 
         # 3. Policy & Safety Verification
+        t0 = time.monotonic()
         valid, reason = ECLPolicyEngine.validate_plan(goal_title, steps)
+        phase_timings["policy_validation"] = round((time.monotonic() - t0) * 1000, 2)
         if not valid:
             log_event("ecl_coordinator_policy_halt", f"Policy halt triggered: {reason}")
             GoalHierarchy.update_node(goal_id, status="FAILED", progress=0.0)
             return {
                 "success": False,
+                "status": "FAILED",
                 "goal_id": goal_id,
-                "decision": "HALT",
-                "error": reason,
+                "failed_phase": "policy_validation",
+                "error_type": "PolicyHalt",
+                "error_message": reason,
+                "phase_timings": phase_timings,
+                "cleanup_complete": True,
             }
 
         # 4. Counterfactual Simulation
+        t0 = time.monotonic()
         sim = ECLSimulationRunner.evaluate_viability(goal_title, steps)
+        phase_timings["simulation"] = round((time.monotonic() - t0) * 1000, 2)
         best_branch = sim["best_branch_id"]
         viability_score = sim["viability_score"]
 
         # 5. Resource & Model Routing
+        t0 = time.monotonic()
         routing_info = ECLRouter.route_task(goal_title)
+        phase_timings["routing"] = round((time.monotonic() - t0) * 1000, 2)
 
         # 6. Build TaskGraph and Dispatch
         task_graph = TaskGraph()
-        
-        # Populate graph tasks
         prev_task_id = None
         for step in steps:
             task = Task(
                 task_id=step["task_id"],
-                agent_name="Executive",  # Routable to core executive agent
+                agent_name="Executive",
                 action=step["action"],
                 params=step["params"],
                 dependencies=[prev_task_id] if prev_task_id else [],
@@ -113,10 +127,7 @@ class ECLCoordinator:
             task_graph.add_task(task)
             prev_task_id = step["task_id"]
 
-        # Instantiate scheduler and run
         scheduler = TaskScheduler(max_workers=budget["micro_batch_size"])
-        
-        # Run graph execution in a separate execution record context
         initial_context = {
             "goal_id": goal_id,
             "budget": budget,
@@ -126,13 +137,24 @@ class ECLCoordinator:
         }
         
         log_event("ecl_coordinator_dispatch", f"Dispatching TaskGraph for goal: {goal_id}")
-        context = scheduler.run_graph(task_graph, graph_id=goal_id, initial_context=initial_context)
+        t0 = time.monotonic()
+        context = scheduler.run_graph(task_graph, graph_id=goal_id, initial_context=initial_context, timeout=timeout)
+        phase_timings["task_graph_execution"] = round((time.monotonic() - t0) * 1000, 2)
 
-        success = task_graph.is_finished()
-        status = "COMPLETED" if success else "FAILED"
+        timed_out = context.get("timed_out", False)
+        success = task_graph.is_finished() and not timed_out
+
+        if timed_out:
+            status = "TIMEOUT"
+        elif success:
+            status = "COMPLETED"
+        else:
+            status = "FAILED"
+
         GoalHierarchy.update_node(goal_id, status=status, progress=1.0 if success else 0.0)
 
-        # Emit ECL_PLAN_EXECUTED event
+        # 7. Ledger Commit & Event Emission
+        t0 = time.monotonic()
         try:
             executed_event = LedgerEvent(
                 event_id=f"evt_exec_{uuid.uuid4().hex[:12]}",
@@ -152,18 +174,28 @@ class ECLCoordinator:
                     "viability_score": viability_score,
                     "budget": budget,
                     "routing": routing_info,
+                    "phase_timings": phase_timings,
                 }
             )
             WSEEventBus.get_instance().publish(executed_event)
         except Exception as e:
             logger.error("Failed to publish ECL_PLAN_EXECUTED: %s", e)
+        phase_timings["ledger_commit"] = round((time.monotonic() - t0) * 1000, 2)
+
+        failed_phase = "task_graph_execution" if not success else None
+        error_msg = "TaskGraph execution timed out" if timed_out else (None if success else "TaskGraph execution failed")
 
         return {
             "success": success,
-            "goal_id": goal_id,
             "status": status,
+            "goal_id": goal_id,
+            "failed_phase": failed_phase,
+            "error_type": "TimeoutError" if timed_out else ("TaskError" if not success else None),
+            "error_message": error_msg,
+            "phase_timings": phase_timings,
             "best_branch": best_branch,
             "viability_score": viability_score,
             "budget": budget,
             "routing": routing_info,
+            "cleanup_complete": True,
         }

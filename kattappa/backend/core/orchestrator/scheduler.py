@@ -1,5 +1,7 @@
 from __future__ import annotations
 import concurrent.futures
+import logging
+import os
 import threading
 import time
 from typing import Any
@@ -35,8 +37,14 @@ class TaskScheduler:
         graph: TaskGraph,
         graph_id: str,
         initial_context: dict[str, Any] | None = None,
+        timeout: float = 120.0,
     ) -> SharedContext:
-        """Run the task graph to completion, blocking the caller thread."""
+        """Run the task graph to completion, blocking the caller thread.
+        
+        Args:
+            timeout: Maximum seconds to wait for graph completion before
+                     force-cancelling. Defaults to 120s.
+        """
         context = SharedContext(initial_context)
         
         with self._lock:
@@ -48,41 +56,52 @@ class TaskScheduler:
         log_event("orchestrator_graph_start", f"Starting TaskGraph run: {graph_id}")
         self._dispatch_ready(graph, graph_id, context)
 
-        # Wait until graph is finished
+        # Wait until graph is finished, with monotonic timeout guard
+        deadline = time.monotonic() + timeout
+        timed_out = False
+
         while True:
-            time.sleep(0.1)
+            time.sleep(0.05)
             with self._lock:
                 is_finished = graph.is_finished()
                 is_cancelled = self._cancellation_tokens.get(graph_id, False)
             if is_finished or is_cancelled:
                 break
+            if time.monotonic() > deadline:
+                timed_out = True
+                log_event("orchestrator_graph_timeout", f"TaskGraph {graph_id} exceeded {timeout}s monotonic deadline, triggering cancellation")
+                self.cancel_graph(graph_id, status="TIMEOUT")
+                break
 
-        # Cleanup
+        # Cleanup and release resources
         with self._lock:
             self._running_graphs.pop(graph_id, None)
             self._cancellation_tokens.pop(graph_id, None)
             self._active_futures.pop(graph_id, None)
 
-        log_event("orchestrator_graph_end", f"Finished TaskGraph run: {graph_id}")
+        if timed_out:
+            context.set("timed_out", True)
+            context.set("graph_status", "TIMEOUT")
+
+        log_event("orchestrator_graph_end", f"Finished TaskGraph run: {graph_id} (timed_out={timed_out})")
         return context
 
-    def cancel_graph(self, graph_id: str) -> None:
-        """Signal cancellation for all running/pending tasks in the graph."""
+    def cancel_graph(self, graph_id: str, status: str = "CANCELLED") -> None:
+        """Signal cancellation for all running/pending tasks in the graph and shutdown pending futures."""
         with self._lock:
             self._cancellation_tokens[graph_id] = True
             graph = self._running_graphs.get(graph_id)
-            if not graph:
-                return
-
-            for task in graph.tasks.values():
-                if task.status in ("PENDING", "RUNNING"):
-                    task.status = "CANCELLED"
-                    try:
-                        agent = self.registry.get(task.agent_name)
-                        if agent:
-                            agent.terminate(task.task_id)
-                    except Exception as e:
-                        log_event("orchestrator_cancellation_error", f"Error terminating agent task: {e}")
+            if graph:
+                for task in graph.tasks.values():
+                    if task.status in ("PENDING", "RUNNING"):
+                        task.status = status
+                        task.error = f"Execution halted due to {status}"
+                        try:
+                            agent = self.registry.get(task.agent_name)
+                            if agent:
+                                agent.terminate(task.task_id)
+                        except Exception as e:
+                            log_event("orchestrator_cancellation_error", f"Error terminating agent task: {e}")
 
             futures = self._active_futures.get(graph_id, [])
             for future in futures:
@@ -109,22 +128,21 @@ class TaskScheduler:
         
         # ── K11: Register Action (Level 4) and Update Task (Level 3) ─────────
         action_node_id = f"{task.task_id}_action"
-        if os.getenv("KATTAPPA_TEST_MODE") != "true":
-            try:
-                from backend.core.goal_hierarchy import GoalHierarchy, HierarchyLevel
-                # Update Task to ACTIVE
-                GoalHierarchy.update_node(task.task_id, status="ACTIVE", progress=0.1)
-                # Create Action node
-                GoalHierarchy.add_node(
-                    node_id=action_node_id,
-                    parent_id=task.task_id,
-                    level=HierarchyLevel.ACTION,
-                    title=f"Agent {task.agent_name} executing {task.action}",
-                    status="ACTIVE",
-                    progress=0.1,
-                )
-            except Exception as e:
-                log_event("scheduler_hierarchy_error", f"Error registering action node: {e}")
+        try:
+            from backend.core.goal_hierarchy import GoalHierarchy, HierarchyLevel
+            # Update Task to ACTIVE
+            GoalHierarchy.update_node(task.task_id, status="ACTIVE", progress=0.1)
+            # Create Action node
+            GoalHierarchy.add_node(
+                node_id=action_node_id,
+                parent_id=task.task_id,
+                level=HierarchyLevel.ACTION,
+                title=f"Agent {task.agent_name} executing {task.action}",
+                status="ACTIVE",
+                progress=0.1,
+            )
+        except Exception as e:
+            log_event("scheduler_hierarchy_error", f"Error registering action node: {e}")
 
         try:
             agent = self.registry.get_or_raise(task.agent_name)
@@ -135,29 +153,26 @@ class TaskScheduler:
                 with self._lock:
                     task.status = "COMPLETED"
                     task.output = result.output
-                if os.getenv("KATTAPPA_TEST_MODE") != "true":
-                    try:
-                        from backend.core.goal_hierarchy import GoalHierarchy
-                        GoalHierarchy.update_node(action_node_id, status="COMPLETED", progress=1.0)
-                    except Exception as e:
-                        log_event("scheduler_hierarchy_error", f"Error completing action node: {e}")
+                try:
+                    from backend.core.goal_hierarchy import GoalHierarchy
+                    GoalHierarchy.update_node(action_node_id, status="COMPLETED", progress=1.0)
+                except Exception as e:
+                    log_event("scheduler_hierarchy_error", f"Error completing action node: {e}")
                 self.message_bus.publish(f"task/completed/{task.task_id}", result.output)
                 self.message_bus.publish("task/completed", task.task_id)
             else:
-                if os.getenv("KATTAPPA_TEST_MODE") != "true":
-                    try:
-                        from backend.core.goal_hierarchy import GoalHierarchy
-                        GoalHierarchy.update_node(action_node_id, status="FAILED", progress=0.0)
-                    except Exception as e:
-                        log_event("scheduler_hierarchy_error", f"Error failing action node: {e}")
-                self._handle_failure(task, graph_id, context, result.error or "Unknown failure")
-        except Exception as e:
-            if os.getenv("KATTAPPA_TEST_MODE") != "true":
                 try:
                     from backend.core.goal_hierarchy import GoalHierarchy
                     GoalHierarchy.update_node(action_node_id, status="FAILED", progress=0.0)
-                except Exception as ex:
-                    log_event("scheduler_hierarchy_error", f"Error failing action node: {ex}")
+                except Exception as e:
+                    log_event("scheduler_hierarchy_error", f"Error failing action node: {e}")
+                self._handle_failure(task, graph_id, context, result.error or "Unknown failure")
+        except Exception as e:
+            try:
+                from backend.core.goal_hierarchy import GoalHierarchy
+                GoalHierarchy.update_node(action_node_id, status="FAILED", progress=0.0)
+            except Exception as ex:
+                log_event("scheduler_hierarchy_error", f"Error failing action node: {ex}")
             self._handle_failure(task, graph_id, context, str(e))
         finally:
             with self._lock:

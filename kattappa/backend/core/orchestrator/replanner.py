@@ -26,61 +26,53 @@ class FailureReplanner:
             f"Replanner analyzing failure of task {failed_task.task_id} ({failed_task.action}): {error_msg}"
         )
         
-        # Determine if we should use mock replanning (tests) or dynamic LLM replanning
-        import sys
-        use_mock = (
-            os.getenv("KATTAPPA_ENV") == "test" or 
-            os.getenv("KATTAPPA_TEST_MODE") == "true" or
-            os.getenv("KATTAPPA_MOCK_LLM") == "true"
-        )
-        
         corrective_steps = []
         
-        if use_mock:
-            # Deterministic mock scenarios for tests
-            action_lower = failed_task.action.lower()
-            params_str = str(failed_task.params).lower()
-            err_lower = error_msg.lower()
-            
-            if "pip" in action_lower or "pip install" in params_str or "install" in action_lower:
-                corrective_steps = [
-                    {
-                        "task_id": f"recover_venv_{failed_task.task_id}",
-                        "agent_name": "Tool Executor",
-                        "action": "RUN_SHELL",
-                        "params": {"command": "python -m venv venv"},
-                        "description": "Create local virtual environment"
-                    }
-                ]
-            elif "permission" in err_lower or "access denied" in err_lower or "unauthorized" in err_lower:
-                corrective_steps = [
-                    {
-                        "task_id": f"recover_perm_{failed_task.task_id}",
-                        "agent_name": "Tool Executor",
-                        "action": "RUN_SHELL",
-                        "params": {"command": "echo Retrying with permissions"},
-                        "description": "Fix execution permissions"
-                    }
-                ]
-        else:
-            # Production Mode: Elicit corrective tasks from the LLM
-            prompt = (
-                f"A task execution graph encountered a failure.\n"
-                f"Goal of the execution run: {getattr(graph, 'goal', 'unknown')}\n"
-                f"Failed Task Action: {failed_task.action}\n"
-                f"Failed Task Params: {failed_task.params}\n"
-                f"Error Message: {error_msg}\n\n"
-                f"Propose corrective task steps to run BEFORE we retry this failed task.\n"
-                f"Output ONLY a valid JSON array of objects. Each object must contain:\n"
-                f"- task_id (string, must be unique)\n"
-                f"- agent_name (string, e.g. 'Tool Executor')\n"
-                f"- action (string, e.g. 'RUN_SHELL', 'WRITE_FILE')\n"
-                f"- params (dict)\n"
-                f"- description (string)\n"
-                f"Example: "
-                f'[{"task_id": "fix_pip", "agent_name": "Tool Executor", "action": "RUN_SHELL", "params": {"command": "pip install --user flask"}, "description": "install with user flag"}]'
-            )
+        # 1. Try deterministic heuristic recovery strategies first
+        action_lower = failed_task.action.lower()
+        params_str = str(failed_task.params).lower()
+        err_lower = error_msg.lower()
+        
+        if "pip" in action_lower or "pip install" in params_str or "install" in action_lower:
+            corrective_steps = [
+                {
+                    "task_id": f"recover_venv_{failed_task.task_id}",
+                    "agent_name": "Tool Executor",
+                    "action": "RUN_SHELL",
+                    "params": {"command": "python -m venv venv"},
+                    "description": "Create local virtual environment"
+                }
+            ]
+        elif "permission" in err_lower or "access denied" in err_lower or "unauthorized" in err_lower:
+            corrective_steps = [
+                {
+                    "task_id": f"recover_perm_{failed_task.task_id}",
+                    "agent_name": "Tool Executor",
+                    "action": "RUN_SHELL",
+                    "params": {"command": "echo Retrying with permissions"},
+                    "description": "Fix execution permissions"
+                }
+            ]
+        
+        # 2. If no heuristic matched, try LLM-based replanning with a timeout guard
+        if not corrective_steps:
             try:
+                prompt = (
+                    f"A task execution graph encountered a failure.\n"
+                    f"Goal of the execution run: {getattr(graph, 'goal', 'unknown')}\n"
+                    f"Failed Task Action: {failed_task.action}\n"
+                    f"Failed Task Params: {failed_task.params}\n"
+                    f"Error Message: {error_msg}\n\n"
+                    f"Propose corrective task steps to run BEFORE we retry this failed task.\n"
+                    f"Output ONLY a valid JSON array of objects. Each object must contain:\n"
+                    f"- task_id (string, must be unique)\n"
+                    f"- agent_name (string, e.g. 'Tool Executor')\n"
+                    f"- action (string, e.g. 'RUN_SHELL', 'WRITE_FILE')\n"
+                    f"- params (dict)\n"
+                    f"- description (string)\n"
+                    f"Example: "
+                    f'[{{"task_id": "fix_pip", "agent_name": "Tool Executor", "action": "RUN_SHELL", "params": {{"command": "pip install --user flask"}}, "description": "install with user flag"}}]'
+                )
                 res = ask_model(prompt, role="planning")
                 clean_res = res.strip()
                 if clean_res.startswith("```json"):
