@@ -158,7 +158,8 @@ class RelationshipMemory:
                     first_seen REAL NOT NULL,
                     last_seen REAL NOT NULL,
                     status TEXT DEFAULT 'ACTIVE',
-                    superseded_by TEXT REFERENCES relationship_preferences(preference_id) ON DELETE SET NULL
+                    superseded_by TEXT REFERENCES relationship_preferences(preference_id) ON DELETE SET NULL,
+                    revision_number INTEGER NOT NULL DEFAULT 1
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_rel_pref_active ON relationship_preferences(entity_id, category, preference_key) WHERE status = 'ACTIVE' OR status = 'active';
 
@@ -552,6 +553,11 @@ class RelationshipMemory:
                 """
             )
 
+            try:
+                conn.execute("ALTER TABLE relationship_preferences ADD COLUMN revision_number INTEGER NOT NULL DEFAULT 1")
+            except Exception:
+                pass
+
             # Copy data if migrating
             if is_legacy:
                 try:
@@ -796,11 +802,19 @@ class RelationshipMemory:
         with cls._lock:
             conn = cls._get_sqlite_conn()
             try:
-                # Find previously active row
+                conn.execute("BEGIN IMMEDIATE")
+                # Find previously active row and max revision number for this preference key
                 prev_row = conn.execute(
-                    "SELECT preference_id, preference_value, evidence_count FROM relationship_preferences WHERE entity_id = ? AND category = ? AND preference_key = ? AND (status = 'active' OR status = 'ACTIVE')",
+                    "SELECT preference_id, preference_value, evidence_count, revision_number FROM relationship_preferences WHERE entity_id = ? AND category = ? AND preference_key = ? AND (status = 'active' OR status = 'ACTIVE')",
                     (entity_id, category.strip().lower(), key.strip())
                 ).fetchone()
+                
+                max_rev_row = conn.execute(
+                    "SELECT MAX(revision_number) FROM relationship_preferences WHERE entity_id = ? AND category = ? AND preference_key = ?",
+                    (entity_id, category.strip().lower(), key.strip())
+                ).fetchone()
+                max_rev = max_rev_row[0] if (max_rev_row and max_rev_row[0] is not None) else 0
+                next_revision = max_rev + 1
                 
                 old_pref_id = None
                 # Check for contradiction (conflict)
@@ -843,13 +857,13 @@ class RelationshipMemory:
                     conn.commit()
                     return prev_row["preference_id"]
 
-                # Insert the new preference
+                # Insert the new preference with transactional next_revision
                 conn.execute(
                     """
-                    INSERT INTO relationship_preferences (preference_id, entity_id, category, preference_key, preference_value, confidence_score, confidence_state, evidence_count, privacy_tier, first_seen, last_seen, status, superseded_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    INSERT INTO relationship_preferences (preference_id, entity_id, category, preference_key, preference_value, confidence_score, confidence_state, evidence_count, privacy_tier, first_seen, last_seen, status, superseded_by, revision_number)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
                     """,
-                    (pref_id, entity_id, category.strip().lower(), key.strip(), redacted_value, confidence, confidence_state, evidence_count, privacy_tier, now, now, status)
+                    (pref_id, entity_id, category.strip().lower(), key.strip(), redacted_value, confidence, confidence_state, evidence_count, privacy_tier, now, now, status, next_revision)
                 )
 
                 # Link previous active row if present
@@ -861,11 +875,12 @@ class RelationshipMemory:
 
                 # Add evidence log
                 cls._add_evidence(conn, entity_id, 'PREFERENCE', pref_id, episode_id, observation_text)
-
+                
                 # Enforce Dunbar limit
                 cls._enforce_dunbar_limit(conn, entity_id)
 
                 conn.commit()
+                log_event("preference_saved", f"Preference {category}:{key} stored for entity {entity_id} (rev {next_revision})")
 
                 # Mandated Provenance Log
                 from backend.core.memory_governance import MemoryGovernance
@@ -895,7 +910,7 @@ class RelationshipMemory:
                 SELECT evidence_id AS id, entity_id, target_type, target_id, source_episode_id AS episode_id, observation_text, timestamp
                 FROM relationship_evidence
                 WHERE entity_id = ? AND target_type = ? AND target_id = ?
-                ORDER BY timestamp DESC
+                ORDER BY timestamp DESC, rowid DESC
                 """,
                 (entity_id, target_type.upper(), target_id)
             ).fetchall()
@@ -913,7 +928,7 @@ class RelationshipMemory:
                     """
                     SELECT preference_id AS id, entity_id, category, preference_key AS key, preference_value AS value, 
                            confidence_score AS confidence, confidence_state, evidence_count, privacy_tier, 
-                           first_seen AS created_at, last_seen AS updated_at, status, superseded_by
+                           first_seen AS created_at, last_seen AS updated_at, status, superseded_by, revision_number
                     FROM relationship_preferences 
                     WHERE entity_id = ? AND category = ? AND (status = 'active' OR status = 'ACTIVE') AND confidence_score >= ?
                     """,
@@ -924,7 +939,7 @@ class RelationshipMemory:
                     """
                     SELECT preference_id AS id, entity_id, category, preference_key AS key, preference_value AS value, 
                            confidence_score AS confidence, confidence_state, evidence_count, privacy_tier, 
-                           first_seen AS created_at, last_seen AS updated_at, status, superseded_by
+                           first_seen AS created_at, last_seen AS updated_at, status, superseded_by, revision_number
                     FROM relationship_preferences 
                     WHERE entity_id = ? AND (status = 'active' OR status = 'ACTIVE') AND confidence_score >= ?
                     """,
@@ -943,10 +958,10 @@ class RelationshipMemory:
                 """
                 SELECT preference_id AS id, entity_id, category, preference_key AS key, preference_value AS value, 
                        confidence_score AS confidence, confidence_state, evidence_count, privacy_tier, 
-                       first_seen AS created_at, last_seen AS updated_at, status, superseded_by
+                       first_seen AS created_at, last_seen AS updated_at, status, superseded_by, revision_number
                 FROM relationship_preferences 
                 WHERE entity_id = ? AND category = ? AND preference_key = ? 
-                ORDER BY first_seen DESC
+                ORDER BY revision_number DESC, first_seen DESC, rowid DESC
                 """,
                 (entity_id, category.strip().lower(), key.strip())
             ).fetchall()

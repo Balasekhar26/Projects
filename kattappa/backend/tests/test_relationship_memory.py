@@ -672,3 +672,38 @@ class TestRelationshipMemory(unittest.TestCase):
         proj_rank = [r for r in ranking if r["type"] == "project" and r["identifier"] == "Rust Compiler"][0]
         self.assertEqual(len(proj_rank["evidence"]), 1)
         self.assertEqual(proj_rank["evidence"][0]["episode_id"], "conv_104")
+
+    def test_durable_preference_revision_ordering(self):
+        """Verify revision_number increments transactionally and stays stable across reopen and VACUUM."""
+        entity_id = "user_rev_ordering_test"
+        RelationshipMemory.get_or_create_entity(entity_id, "Revision User")
+
+        # 1. Three rapid preference changes (possibly identical time.time() resolution)
+        p1 = RelationshipMemory.set_preference(entity_id, "ui", "theme", "light", confidence=1.0, confidence_state="STATED")
+        p2 = RelationshipMemory.set_preference(entity_id, "ui", "theme", "dark", confidence=1.0, confidence_state="STATED")
+        p3 = RelationshipMemory.set_preference(entity_id, "ui", "theme", "system", confidence=1.0, confidence_state="STATED")
+
+        history = RelationshipMemory.get_preference_history(entity_id, "ui", "theme")
+        self.assertEqual(len(history), 3)
+
+        # Check revision numbers: 3, 2, 1 in DESC order
+        revisions = [h["revision_number"] for h in history]
+        self.assertEqual(revisions, [3, 2, 1])
+
+        # Active preference must be the latest revision
+        active = RelationshipMemory.get_preferences(entity_id, category="ui")
+        self.assertEqual(active[0]["value"], "system")
+        self.assertEqual(active[0]["revision_number"], 3)
+
+        # 2. Test stability after VACUUM
+        conn = RelationshipMemory._get_sqlite_conn()
+        try:
+            conn.execute("VACUUM")
+        finally:
+            conn.close()
+
+        history_post_vacuum = RelationshipMemory.get_preference_history(entity_id, "ui", "theme")
+        revisions_post_vacuum = [h["revision_number"] for h in history_post_vacuum]
+        self.assertEqual(revisions_post_vacuum, [3, 2, 1])
+        self.assertEqual(history_post_vacuum[0]["value"], "system")
+
