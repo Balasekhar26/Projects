@@ -56,6 +56,11 @@ class LedgerStore(ABC):
         pass
 
     @abstractmethod
+    def clear_metrics(self) -> None:
+        """Clears metric history from the storage engine."""
+        pass
+
+    @abstractmethod
     def get_metric_values(self, metric_name: str, since_timestamp: float | None = None) -> List[tuple[float, float]]:
         """Queries metric history from the storage engine."""
         pass

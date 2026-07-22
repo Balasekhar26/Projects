@@ -148,6 +148,10 @@ class MemoryLedgerStore(LedgerStore):
                 "metadata": metadata
             })
 
+    def clear_metrics(self) -> None:
+        with self._lock:
+            self._metrics.clear()
+
     def get_metric_values(self, metric_name: str, since_timestamp: float | None = None) -> List[tuple[float, float]]:
         with self._lock:
             results = []

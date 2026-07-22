@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "system_root": "C:\\Users\\balu\\Projects",
+  "projects_checked": 13,
+  "projects": [
+    {
+      "project_name": "07-NeuroSeed",
+      "container_path": "C:\\Users\\balu\\Projects\\07-NeuroSeed",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\07-NeuroSeed"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\07-NeuroSeed\\env", "C:\\Users\\balu\\Projects\\07-NeuroSeed\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\07-NeuroSeed\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\07-NeuroSeed\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\07-NeuroSeed\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\07-NeuroSeed\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": ["C:\\Users\\balu\\AppData\\Local\\NeuroSeed"]
+    },
+    {
+      "project_name": "ai-cyber-shield",
+      "container_path": "C:\\Users\\balu\\Projects\\ai-cyber-shield",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\ai-cyber-shield"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\ai-cyber-shield\\env", "C:\\Users\\balu\\Projects\\ai-cyber-shield\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\ai-cyber-shield\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\ai-cyber-shield\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\ai-cyber-shield\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\ai-cyber-shield\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "dews",
+      "container_path": "C:\\Users\\balu\\Projects\\dews",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\dews"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\dews\\env", "C:\\Users\\balu\\Projects\\dews\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\dews\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\dews\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\dews\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\dews\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "kairo",
+      "container_path": "C:\\Users\\balu\\Projects\\kairo",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\kairo"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\kairo\\env", "C:\\Users\\balu\\Projects\\kairo\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\kairo\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\kairo\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\kairo\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\kairo\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "kattappa",
+      "container_path": "C:\\Users\\balu\\Projects\\kattappa",
+      "repository_roots": [
+        "C:\\Users\\balu\\Projects\\kattappa",
+        "C:\\Users\\balu\\Projects\\kattappa\\worktrees\\k-r0.5-clean\\kattappa"
+      ],
+      "worktree_roots": [
+        "C:\\Users\\balu\\Projects\\kattappa\\worktrees\\k-r0.5-clean\\kattappa"
+      ],
+      "environment_roots": [
+        "C:\\Users\\balu\\Projects\\kattappa\\environments\\k-r0.5-py310",
+        "C:\\Users\\balu\\Projects\\kattappa\\environments"
+      ],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\kattappa\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\kattappa\\backend\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\kattappa\\models"],
+      "evidence_roots": [
+        "C:\\Users\\balu\\Projects\\kattappa\\validation-runs",
+        "C:\\Users\\balu\\Projects\\kattappa\\worktrees\\k-r0.5-clean\\kattappa\\docs\\evidence"
+      ],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": [
+        "C:\\Users\\balu\\AppData\\Local\\Kattappa\\validation-runs"
+      ]
+    },
+    {
+      "project_name": "mira",
+      "container_path": "C:\\Users\\balu\\Projects\\mira",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\mira"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\mira\\env", "C:\\Users\\balu\\Projects\\mira\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\mira\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\mira\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\mira\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\mira\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "musical-keyboard",
+      "container_path": "C:\\Users\\balu\\Projects\\musical-keyboard",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\musical-keyboard"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\musical-keyboard\\env", "C:\\Users\\balu\\Projects\\musical-keyboard\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\musical-keyboard\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\musical-keyboard\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\musical-keyboard\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\musical-keyboard\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "pcb-doctor",
+      "container_path": "C:\\Users\\balu\\Projects\\pcb-doctor",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\pcb-doctor"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\pcb-doctor\\env", "C:\\Users\\balu\\Projects\\pcb-doctor\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\pcb-doctor\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\pcb-doctor\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\pcb-doctor\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\pcb-doctor\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "portal",
+      "container_path": "C:\\Users\\balu\\Projects\\portal",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\portal"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\portal\\env", "C:\\Users\\balu\\Projects\\portal\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\portal\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\portal\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\portal\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\portal\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "prism",
+      "container_path": "C:\\Users\\balu\\Projects\\prism",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\prism"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\prism\\env", "C:\\Users\\balu\\Projects\\prism\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\prism\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\prism\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\prism\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\prism\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "tempo",
+      "container_path": "C:\\Users\\balu\\Projects\\tempo",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\tempo"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\tempo\\env", "C:\\Users\\balu\\Projects\\tempo\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\tempo\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\tempo\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\tempo\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\tempo\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "universal-translator",
+      "container_path": "C:\\Users\\balu\\Projects\\universal-translator",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\universal-translator"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\universal-translator\\env", "C:\\Users\\balu\\Projects\\universal-translator\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\universal-translator\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\universal-translator\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\universal-translator\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\universal-translator\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    },
+    {
+      "project_name": "voltis",
+      "container_path": "C:\\Users\\balu\\Projects\\voltis",
+      "repository_roots": ["C:\\Users\\balu\\Projects\\voltis"],
+      "worktree_roots": [],
+      "environment_roots": ["C:\\Users\\balu\\Projects\\voltis\\env", "C:\\Users\\balu\\Projects\\voltis\\.venv"],
+      "runtime_roots": ["C:\\Users\\balu\\Projects\\voltis\\runtime"],
+      "database_roots": ["C:\\Users\\balu\\Projects\\voltis\\data"],
+      "model_roots": ["C:\\Users\\balu\\Projects\\voltis\\models"],
+      "evidence_roots": ["C:\\Users\\balu\\Projects\\voltis\\evidence"],
+      "allowed_global_dependencies": ["python", "git", "node"],
+      "forbidden_external_project_paths": []
+    }
+  ]
+}

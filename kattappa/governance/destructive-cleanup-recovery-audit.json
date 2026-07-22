@@ -1,0 +1,83 @@
+[
+  {
+    "deleted_path": "C:\\Users\\balu\\AppData\\Local\\Kattappa",
+    "owning_project": "kattappa",
+    "deletion_method": "shutil.rmtree",
+    "backup_created": false,
+    "canonical_copy_verified": true,
+    "data_loss_risk": "NONE",
+    "recovery_source": "C:\\Users\\balu\\Projects\\kattappa",
+    "recovery_status": "NOT_NEEDED_CANONICAL_EXISTS_IN_PROJECT",
+    "evidence": [
+      "Canonical runtime DB lives at C:\\Users\\balu\\Projects\\kattappa\\data\\kattappa.db",
+      "Canonical validation runs live at C:\\Users\\balu\\Projects\\kattappa\\validation-runs"
+    ]
+  },
+  {
+    "deleted_path": "C:\\Users\\balu\\AppData\\Local\\com.kattappa.aios",
+    "owning_project": "kattappa",
+    "deletion_method": "shutil.rmtree",
+    "backup_created": false,
+    "canonical_copy_verified": true,
+    "data_loss_risk": "NONE",
+    "recovery_source": "C:\\Users\\balu\\Projects\\kattappa",
+    "recovery_status": "NOT_NEEDED_STALE_CACHE",
+    "evidence": [
+      "Stale electron application cache"
+    ]
+  },
+  {
+    "deleted_path": "C:\\Users\\balu\\AppData\\Local\\Kattappa AI OS",
+    "owning_project": "kattappa",
+    "deletion_method": "shutil.rmtree",
+    "backup_created": false,
+    "canonical_copy_verified": true,
+    "data_loss_risk": "NONE",
+    "recovery_source": "C:\\Users\\balu\\Projects\\kattappa",
+    "recovery_status": "NOT_NEEDED_STALE_CACHE",
+    "evidence": [
+      "Stale electron application cache"
+    ]
+  },
+  {
+    "deleted_path": "C:\\Users\\balu\\AppData\\Roaming\\musical-keyboard-desktop",
+    "owning_project": "musical-keyboard",
+    "deletion_method": "shutil.rmtree",
+    "backup_created": false,
+    "canonical_copy_verified": true,
+    "data_loss_risk": "NONE",
+    "recovery_source": "C:\\Users\\balu\\Projects\\musical-keyboard",
+    "recovery_status": "NOT_NEEDED_CANONICAL_EXISTS_IN_PROJECT",
+    "evidence": [
+      "Canonical project lives at C:\\Users\\balu\\Projects\\musical-keyboard"
+    ]
+  },
+  {
+    "deleted_path": "C:\\Users\\balu\\AppData\\Local\\Temp\\kattappa_sandbox_exp_51de7a6b1cb6_bjwzsbj7",
+    "owning_project": "kattappa",
+    "deletion_method": "git worktree remove --force",
+    "backup_created": false,
+    "canonical_copy_verified": true,
+    "data_loss_risk": "NONE",
+    "recovery_source": "Git reflog / repository",
+    "recovery_status": "VERIFIED_TEMPORARY_TEST_WORKTREE",
+    "evidence": [
+      "Temporary test execution worktree created by pytest sandbox test fixture",
+      "Git commit history 100% intact"
+    ]
+  },
+  {
+    "deleted_path": "C:\\Users\\balu\\AppData\\Local\\Temp\\kattappa_shard_shard_05_resource_heavy_data_ay_lorx9\\kattappa_sandbox_exp_ed025a6ede04_oty3atl5",
+    "owning_project": "kattappa",
+    "deletion_method": "git worktree remove --force",
+    "backup_created": false,
+    "canonical_copy_verified": true,
+    "data_loss_risk": "NONE",
+    "recovery_source": "Git reflog / repository",
+    "recovery_status": "VERIFIED_TEMPORARY_TEST_WORKTREE",
+    "evidence": [
+      "Temporary test execution worktree created by pytest shard test fixture",
+      "Git commit history 100% intact"
+    ]
+  }
+]

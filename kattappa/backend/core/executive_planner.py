@@ -473,8 +473,8 @@ class ExecutivePlanner:
             blueprint_id = f"blp_{uuid.uuid4().hex[:8]}"
 
             # Stage 0: Reasoning Engine Analysis Gate
-            import sys
-            is_testing = "pytest" in sys.modules
+            import os
+            is_testing = os.environ.get("KATTAPPA_ENV") == "test"
             from backend.core.reasoning_engine import ReasoningEngine
             reasoning_res = ReasoningEngine.analyze(plan_title, plan_description)
             if reasoning_res["status"] == "REQUIRES_CLARIFICATION" and not is_testing:

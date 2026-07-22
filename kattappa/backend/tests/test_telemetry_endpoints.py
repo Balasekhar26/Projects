@@ -4,8 +4,16 @@ from backend.core.cos.kernel import KERNEL
 from backend.core.ledger.models.event import LedgerEvent
 from backend.core.ledger.models.enums import EventType
 
+import pytest
+from backend.core.ledger.telemetry.metrics_collector import MetricsCollector
+
 client = TestClient(app)
 
+@pytest.fixture(autouse=True)
+def reset_telemetry():
+    MetricsCollector().clear()
+    yield
+    MetricsCollector().clear()
 
 def test_telemetry_endpoints():
     # 1. Test record metric endpoint

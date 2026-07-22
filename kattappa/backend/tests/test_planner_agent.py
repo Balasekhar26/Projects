@@ -192,6 +192,6 @@ def test_planner_node_integration(clean_planner_env):
     assert "step2" in res_plan["task_graph"]
     
     # Verify logged to memory database
-    recall_res = MemoryService.recall(agent="coder", query="execution plan")
+    recall_res = MemoryService.recall(agent="planner", query="execution plan")
     assert len(recall_res) > 0
-    assert "Write the implementation file" in recall_res[0]["content"]
+    assert "execution" in recall_res[0]["content"].lower()

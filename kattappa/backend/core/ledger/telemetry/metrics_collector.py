@@ -40,9 +40,8 @@ class MetricsCollector:
 
     def get_values(self, metric_name: str) -> List[float]:
         """Returns the collected list of values for the given metric name."""
-        import sys
         with self._lock:
-            if metric_name in self._metrics and (len(self._metrics[metric_name]) > 0 or "pytest" in sys.modules):
+            if metric_name in self._metrics and len(self._metrics[metric_name]) > 0:
                 return [val for _, val in self._metrics[metric_name]]
 
         try:
@@ -61,9 +60,8 @@ class MetricsCollector:
 
     def get_values_since(self, metric_name: str, since_timestamp: float) -> List[float]:
         """Returns the collected list of values since the target timestamp."""
-        import sys
         with self._lock:
-            if metric_name in self._metrics and (len(self._metrics[metric_name]) > 0 or "pytest" in sys.modules):
+            if metric_name in self._metrics and len(self._metrics[metric_name]) > 0:
                 return [val for ts, val in self._metrics[metric_name] if ts >= since_timestamp]
 
         try:

@@ -251,19 +251,42 @@ def _write_base_run_files(tmp_path, run_id="r1", commit="c1", coll_h="a"*64, pol
     (tmp_path / "run-identity.json").write_text(json.dumps(run_identity), encoding="utf-8")
     return core_hash_to_use, real_file_hash
 
+def _write_mock_shard_files(s_dir, shard_id="shard_01", node_ids=None):
+    import hashlib
+    if node_ids is None:
+        node_ids = ["t1"]
+    s_dir.mkdir(parents=True, exist_ok=True)
+    def_data = {"schema_version": 1, "shard_id": shard_id, "node_ids": node_ids}
+    def_bytes = json.dumps(def_data).encode("utf-8")
+    (s_dir / "shard_definition.json").write_bytes(def_bytes)
+    def_hash = hashlib.sha256(def_bytes).hexdigest()
+
+    nodes_bytes = json.dumps(node_ids).encode("utf-8")
+    (s_dir / "expected-node-ids.json").write_bytes(nodes_bytes)
+    nodes_hash = hashlib.sha256(nodes_bytes).hexdigest()
+
+    return {
+        "shard_definition_sha256": def_hash,
+        "expected_node_ids_sha256": nodes_hash,
+        "shard_definition_hash_verified": True,
+        "expected_node_ids_hash_verified": True
+    }
+
 def test_shard_run_id_mismatch_is_rejected():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         core_h, file_h = _write_base_run_files(tmp_path, run_id="active_run")
         s1 = tmp_path / "shards" / "shard_01"
-        s1.mkdir(parents=True)
+        h_info = _write_mock_shard_files(s1, "shard_01")
         # Write shard result from a different run_id
-        (s1 / "shard-result.json").write_text(json.dumps({
+        res_data = {
             "run_id": "different_run", "candidate_commit": "c1", "collection_hash": "a"*64, "policy_hash": "b"*64,
             "manifest_core_hash": core_h, "manifest_file_hash": file_h,
             "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
-        }))
+        }
+        res_data.update(h_info)
+        (s1 / "shard-result.json").write_text(json.dumps(res_data))
         with pytest.raises(ValueError, match="mismatching run_id"):
             aggregate_results(tmp_path)
 
@@ -272,13 +295,15 @@ def test_shard_commit_mismatch_is_rejected():
         tmp_path = Path(tmp_dir)
         core_h, file_h = _write_base_run_files(tmp_path, commit="commit_A")
         s1 = tmp_path / "shards" / "shard_01"
-        s1.mkdir(parents=True)
-        (s1 / "shard-result.json").write_text(json.dumps({
+        h_info = _write_mock_shard_files(s1, "shard_01")
+        res_data = {
             "run_id": "r1", "candidate_commit": "commit_B", "collection_hash": "a"*64, "policy_hash": "b"*64,
             "manifest_core_hash": core_h, "manifest_file_hash": file_h,
             "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
-        }))
+        }
+        res_data.update(h_info)
+        (s1 / "shard-result.json").write_text(json.dumps(res_data))
         with pytest.raises(ValueError, match="mismatching candidate_commit"):
             aggregate_results(tmp_path)
 
@@ -287,13 +312,15 @@ def test_shard_manifest_hash_mismatch_is_rejected():
         tmp_path = Path(tmp_dir)
         core_h, file_h = _write_base_run_files(tmp_path, man_h="a"*64)
         s1 = tmp_path / "shards" / "shard_01"
-        s1.mkdir(parents=True)
-        (s1 / "shard-result.json").write_text(json.dumps({
+        h_info = _write_mock_shard_files(s1, "shard_01")
+        res_data = {
             "run_id": "r1", "candidate_commit": "c1", "collection_hash": "a"*64, "policy_hash": "b"*64,
             "manifest_core_hash": "b"*64, "manifest_file_hash": file_h,
             "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
-        }))
+        }
+        res_data.update(h_info)
+        (s1 / "shard-result.json").write_text(json.dumps(res_data))
         with pytest.raises(ValueError, match="manifest_core_hash"):
             aggregate_results(tmp_path)
 
@@ -302,13 +329,15 @@ def test_shard_id_not_in_manifest_is_rejected():
         tmp_path = Path(tmp_dir)
         core_h, file_h = _write_base_run_files(tmp_path)
         s2 = tmp_path / "shards" / "shard_99" # unregistered shard
-        s2.mkdir(parents=True)
-        (s2 / "shard-result.json").write_text(json.dumps({
+        h_info = _write_mock_shard_files(s2, "shard_99")
+        res_data = {
             "run_id": "r1", "candidate_commit": "c1", "collection_hash": "a"*64, "policy_hash": "b"*64,
             "manifest_core_hash": core_h, "manifest_file_hash": file_h,
             "shard_id": "shard_99", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
-        }))
+        }
+        res_data.update(h_info)
+        (s2 / "shard-result.json").write_text(json.dumps(res_data))
         with pytest.raises(ValueError, match="not defined in the current manifest"):
             aggregate_results(tmp_path)
 
@@ -318,22 +347,27 @@ def test_duplicate_shard_result_is_rejected():
         core_h, file_h = _write_base_run_files(tmp_path)
         # Create duplicate shard output directory structure
         s1 = tmp_path / "shards" / "shard_01"
-        s1.mkdir(parents=True)
-        (s1 / "shard-result.json").write_text(json.dumps({
+        h1 = _write_mock_shard_files(s1, "shard_01")
+        res1 = {
             "run_id": "r1", "candidate_commit": "c1", "collection_hash": "a"*64, "policy_hash": "b"*64,
             "manifest_core_hash": core_h, "manifest_file_hash": file_h,
             "shard_id": "shard_01", "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
-        }))
+        }
+        res1.update(h1)
+        (s1 / "shard-result.json").write_text(json.dumps(res1))
+
         s2 = tmp_path / "shards" / "shard_01_dup"
-        s2.mkdir(parents=True)
-        (s2 / "shard-result.json").write_text(json.dumps({
+        h2 = _write_mock_shard_files(s2, "shard_01")
+        res2 = {
             "run_id": "r1", "candidate_commit": "c1", "collection_hash": "a"*64, "policy_hash": "b"*64,
             "manifest_core_hash": core_h, "manifest_file_hash": file_h,
             "shard_id": "shard_01", # same shard_id
             "isolation_class": "parallel_safe", "total_nodes_assigned": 1, "total_nodes_executed": 1,
             "executed_node_ids": ["t1"], "passed": 1, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0
-        }))
+        }
+        res2.update(h2)
+        (s2 / "shard-result.json").write_text(json.dumps(res2))
         with pytest.raises(ValueError, match="shard_01"):
             aggregate_results(tmp_path)
 
@@ -624,16 +658,19 @@ def _run_launcher(shard_def_path, result_path, run_identity_path=None, timeout=6
     """Execute the file-backed launcher in a subprocess."""
     from run_test_shard import get_python_executable
     launcher = PROJECT_ROOT / "scripts" / "validation" / "execute_pytest_shard.py"
+    if run_identity_path is None:
+        run_identity_path = _make_run_identity(shard_def_path.parent)
+
     cmd = [
         get_python_executable(),
         str(launcher),
         f"--shard-definition={shard_def_path}",
-        f"--result-file={result_path}"
+        f"--result-file={result_path}",
+        f"--run-identity={run_identity_path}"
     ]
-    if run_identity_path:
-        cmd.append(f"--run-identity={run_identity_path}")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
+    env["KATTAPPA_ENV"] = "test"
     run_cwd = cwd if cwd else str(PROJECT_ROOT)
     return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout, cwd=run_cwd)
 
@@ -1044,6 +1081,12 @@ def test_miniature_end_to_end_release_run(tmp_path):
         res = _run_launcher(shard_def_path, result_path, run_identity_path=identity_path, timeout=60, cwd=tmp_path)
         assert res.returncode == 0, f"Shard {shard['shard_id']} failed: {res.stderr[-500:]}"
 
+        # Write expected-node-ids.json and compute hashes
+        expected_nodes_path = shard_dir / "expected-node-ids.json"
+        expected_nodes_path.write_text(json.dumps(shard["node_ids"], indent=2), encoding="utf-8")
+        def_hash = hashlib.sha256(shard_def_path.read_bytes()).hexdigest()
+        nodes_hash = hashlib.sha256(expected_nodes_path.read_bytes()).hexdigest()
+
         # Write shard-result.json from launcher result
         launcher_data = json.loads(result_path.read_text(encoding="utf-8"))
         shard_result = {
@@ -1060,7 +1103,11 @@ def test_miniature_end_to_end_release_run(tmp_path):
             "passed": launcher_data["passed"], "failed": launcher_data["failed"],
             "errors": launcher_data["errors"], "skipped": launcher_data["skipped"],
             "exit_code": 0, "timed_out": False, "duration_seconds": 1.0,
-            "internal_errors": []
+            "internal_errors": [],
+            "shard_definition_sha256": def_hash,
+            "expected_node_ids_sha256": nodes_hash,
+            "shard_definition_hash_verified": True,
+            "expected_node_ids_hash_verified": True
         }
         (shard_dir / "shard-result.json").write_text(json.dumps(shard_result, indent=2), encoding="utf-8")
 
@@ -1072,4 +1119,31 @@ def test_miniature_end_to_end_release_run(tmp_path):
     assert verdict["test_outcomes"]["passed"] == 10
     assert verdict["test_outcomes"]["failed"] == 0
     assert verdict["test_outcomes"]["errors"] == 0
+
+
+def test_anti_test_tailoring_static_validation():
+    """Verify that production backend source code contains 0 test-specific tailoring."""
+    backend_dir = PROJECT_ROOT / "backend"
+    prohibited_patterns = [
+        '"pytest" in sys.modules',
+        "'pytest' in sys.modules",
+        "Mocked LLM reply",
+    ]
+    violations = []
+
+    for path in backend_dir.rglob("*.py"):
+        # Skip tests directory
+        if "tests" in path.parts:
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        for pattern in prohibited_patterns:
+            if pattern in content:
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}: found prohibited pattern {pattern!r}")
+
+    assert not violations, "Test-tailoring prohibited patterns found in production code:\n" + "\n".join(violations)
+
 

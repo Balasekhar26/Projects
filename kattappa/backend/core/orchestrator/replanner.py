@@ -29,7 +29,7 @@ class FailureReplanner:
         # Determine if we should use mock replanning (tests) or dynamic LLM replanning
         import sys
         use_mock = (
-            "pytest" in sys.modules or 
+            os.getenv("KATTAPPA_ENV") == "test" or 
             os.getenv("KATTAPPA_TEST_MODE") == "true" or
             os.getenv("KATTAPPA_MOCK_LLM") == "true"
         )

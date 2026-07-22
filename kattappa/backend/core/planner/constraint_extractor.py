@@ -8,7 +8,7 @@ class ConstraintExtractor:
     def extract_constraints(cls, goal: str) -> dict:
         import sys
         use_mock = (
-            "pytest" in sys.modules or 
+            os.getenv("KATTAPPA_ENV") == "test" or 
             os.getenv("KATTAPPA_TEST_MODE") == "true" or
             os.getenv("KATTAPPA_MOCK_LLM") == "true"
         )

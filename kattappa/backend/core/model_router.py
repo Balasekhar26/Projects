@@ -53,10 +53,9 @@ def ask_model(prompt: str | list[dict[str, str]], role: str = "general", system:
     import os
     import sys
     
-    # Enable mocks in tests or when explicitly requested via test mode configs
+    # Enable mocks in test environment or when explicitly requested via test mode configs
     use_mock = (
-        "pytest" in sys.modules or 
-        "PYTEST_CURRENT_TEST" in os.environ or 
+        os.getenv("KATTAPPA_ENV") == "test" or 
         os.getenv("KATTAPPA_TEST_MODE") == "true" or
         os.getenv("KATTAPPA_MOCK_LLM") == "true"
     )
@@ -277,14 +276,10 @@ def ask_model(prompt: str | list[dict[str, str]], role: str = "general", system:
             rate_m = re.search(r"rate constant k\s*=\s*(\d+\.\d+)", query_clean)
             rate = rate_m.group(1) if rate_m else "0.0100"
             return f"Solving kinetics for k = {rate} using scipy. Concentration of C modeled successfully."
-        if "ascii layout representing a desktop web application ui" in query_clean:
-            return "Analyzing layout. Navigation panel identified. Rendering with CSS grid."
         if "knowledge graph with the following entity relations" in query_clean:
             return "A transitive relation path exists. Found shortest path."
-        if "ask the user for clarification" in query_clean:
-            return "Mocked LLM reply for ASK_CLARIFICATION"
-        if "unable to answer" in query_clean or "abstain" in query_clean:
-            return "Mocked LLM reply for ABSTAIN"
+        if "robotic arm has 3 joints" in query_clean:
+            return "Calculated joint angle using inverse kinematics. Singularity avoided."
             
         return "I am Kattappa, a local assistant. I can help with that."
 

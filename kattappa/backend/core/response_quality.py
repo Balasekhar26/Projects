@@ -77,7 +77,6 @@ CONTROL_REPLY_PREFIXES = (
     "connection dropped",
     "speech-to-text is unavailable",
     "screen capture unavailable",
-    "mocked llm reply",
     "clarification request",
     "i cannot fulfill",
 )

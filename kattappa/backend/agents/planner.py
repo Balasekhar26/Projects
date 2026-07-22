@@ -733,24 +733,26 @@ def planner_node(state):
     state["plan"] = f"{plan_label}: {' -> '.join(state['execution_plan'])} (Utility: {state['utility_score']:.2f})"
     state["operator_plan"] = build_operator_plan(user_input, selected, state.get("memory_context"))
 
-    # Populate task_graph for TaskGraph compatibility
+    # Populate task_graph for TaskGraph compatibility and log plan history via public MemoryService API
     try:
         agent_inst = PlannerAgent()
         tg = agent_inst.decompose(user_input, context=state.get("memory_context") or {})
-        state["task_graph"] = {step_id: step.__dict__ for step_id, step in tg.steps.items()}
-    except Exception:
-        state["task_graph"] = {
-            "step1": {"step_id": "step1", "description": "Write the implementation file"},
-            "step2": {"step_id": "step2", "description": "Run the verification tests"}
-        }
-
-    # Store execution plan in MemoryService for memory recall verification
-    try:
-        from backend.core.memory_service import MemoryService
-        plan_content = f"Remember plan execution for goal: {user_input}\nExecution steps:\n- Write the implementation file\n- Run the verification tests"
-        MemoryService._execute_write("coder", {"content": plan_content}, {})
-    except Exception:
-        pass
+        if tg and tg.steps:
+            state["task_graph"] = {step_id: step.__dict__ for step_id, step in tg.steps.items()}
+            agent_inst.log_plan_history(tg, state)
+        else:
+            raise ValueError("TaskGraph decomposition returned empty steps")
+    except Exception as exc:
+        logs.append(f"planner: TaskGraph decomposition fallback triggered for {user_input!r}: {exc}")
+        fallback_graph = {}
+        for idx, step_name in enumerate(state.get("execution_plan", []), 1):
+            step_id = f"step_{idx}"
+            fallback_graph[step_id] = {
+                "step_id": step_id,
+                "description": f"Execute planned step: {step_name}",
+                "provenance": "goal_derived_fallback",
+            }
+        state["task_graph"] = fallback_graph
 
     logs.append(f"planner: plan generation complete, initial routing to '{selected}', remaining steps queue: {execution_steps}")
 

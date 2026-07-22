@@ -18,17 +18,23 @@ from aggregate_test_results import aggregate_results
 
 
 def _get_external_run_dir(run_id: str) -> Path:
-    """Return an external run directory outside the Git worktree."""
-    runtime_dir = os.environ.get("KATTAPPA_RUNTIME_DIR")
-    if runtime_dir:
-        base = Path(runtime_dir) / "validation"
+    """Return project-container validation directory under Kattappa project root outside worktree."""
+    val_root = os.environ.get("KATTAPPA_VALIDATION_ROOT")
+    if val_root:
+        base = Path(val_root)
     else:
-        local_app = os.environ.get("LOCALAPPDATA", "")
-        if local_app:
-            base = Path(local_app) / "Kattappa" / "validation-runs"
+        runtime_dir = os.environ.get("KATTAPPA_RUNTIME_DIR")
+        if runtime_dir:
+            base = Path(runtime_dir) / "validation-runs"
         else:
-            import tempfile
-            base = Path(tempfile.gettempdir()) / "kattappa-validation-runs"
+            container_root = Path(r"C:\Users\balu\Projects\kattappa")
+            base = container_root / "validation-runs"
+
+    resolved_base = base.resolve()
+    container_root = Path(r"C:\Users\balu\Projects\kattappa").resolve()
+    if not str(resolved_base).lower().startswith(str(container_root).lower()):
+        raise RuntimeError(f"Run evidence directory {resolved_base} is outside Kattappa container {container_root}")
+
     run_dir = base / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir

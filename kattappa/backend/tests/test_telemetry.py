@@ -3,6 +3,15 @@ from backend.core.ledger.telemetry.metrics_collector import MetricsCollector
 from backend.core.ledger.telemetry.telemetry_service import TelemetryService
 
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def reset_telemetry_state():
+    collector = MetricsCollector()
+    collector.clear()
+    yield
+    collector.clear()
+
 def test_metrics_collector():
     collector = MetricsCollector(window_size=3)
 

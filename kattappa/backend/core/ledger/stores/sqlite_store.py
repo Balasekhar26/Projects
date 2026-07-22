@@ -584,6 +584,14 @@ class SQLiteLedgerStore(LedgerStore):
             conn.commit()
             self._close_connection(conn)
 
+    def clear_metrics(self) -> None:
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM metrics")
+            conn.commit()
+            self._close_connection(conn)
+
     def get_metric_values(self, metric_name: str, since_timestamp: float | None = None) -> List[tuple[float, float]]:
         with self._lock:
             conn = self._get_connection()

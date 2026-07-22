@@ -1,0 +1,129 @@
+{
+  "projects_checked": 13,
+  "all_projects_live_and_valid": true,
+  "projects": [
+    {
+      "project_name": "07-NeuroSeed",
+      "container_path": "C:\\Users\\balu\\Projects\\07-NeuroSeed",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "ai-cyber-shield",
+      "container_path": "C:\\Users\\balu\\Projects\\ai-cyber-shield",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "dews",
+      "container_path": "C:\\Users\\balu\\Projects\\dews",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "kairo",
+      "container_path": "C:\\Users\\balu\\Projects\\kairo",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "kattappa",
+      "container_path": "C:\\Users\\balu\\Projects\\kattappa",
+      "project_type": "RUNNABLE_APPLICATION",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS",
+      "repository_root": "C:\\Users\\balu\\Projects\\kattappa\\worktrees\\k-r0.5-clean\\kattappa",
+      "environment_root": "C:\\Users\\balu\\Projects\\kattappa\\environments\\k-r0.5-py310",
+      "launch_command": "C:\\Users\\balu\\Projects\\kattappa\\environments\\k-r0.5-py310\\Scripts\\python.exe -m pytest backend/tests/test_sharded_validation.py -q --tb=short",
+      "startup_result": "PASS",
+      "exit_code": 0,
+      "smoke_test_verdict": "PASS"
+    },
+    {
+      "project_name": "mira",
+      "container_path": "C:\\Users\\balu\\Projects\\mira",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "musical-keyboard",
+      "container_path": "C:\\Users\\balu\\Projects\\musical-keyboard",
+      "project_type": "INCOMPLETE_PROTOTYPE",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "pcb-doctor",
+      "container_path": "C:\\Users\\balu\\Projects\\pcb-doctor",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "portal",
+      "container_path": "C:\\Users\\balu\\Projects\\portal",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "prism",
+      "container_path": "C:\\Users\\balu\\Projects\\prism",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "tempo",
+      "container_path": "C:\\Users\\balu\\Projects\\tempo",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "universal-translator",
+      "container_path": "C:\\Users\\balu\\Projects\\universal-translator",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    },
+    {
+      "project_name": "voltis",
+      "container_path": "C:\\Users\\balu\\Projects\\voltis",
+      "project_type": "RESEARCH_PROJECT",
+      "container_exists": true,
+      "external_writes_detected": false,
+      "broken_absolute_paths": [],
+      "status": "PASS"
+    }
+  ]
+}

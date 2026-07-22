@@ -1123,8 +1123,7 @@ def _cluster_delegated_chat_payload(message: str) -> dict[str, object] | None:
 
 def _trigger_voice_response(state: dict[str, Any]) -> None:
     import os
-    import sys
-    if ("pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ) and not os.environ.get("FORCE_TEST_SPEECH"):
+    if os.environ.get("KATTAPPA_ENV") == "test" and not os.environ.get("FORCE_TEST_SPEECH"):
         return
     if not state.get("ephemeral_worker"):
         text = str(state.get("result") or "")
