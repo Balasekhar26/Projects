@@ -1,0 +1,12 @@
+{
+  "tested_candidate": "cb759def9082483bf3c9db805e3bfe0bcc720c90",
+  "release_candidate": "fa7d5495e49a8b803d6694bdae465e0a37a46b1f",
+  "changed_files": [
+    "kattappa/docs/evidence/k-r0.5/failure-triage-19.json",
+    "kattappa/scripts/validation/save_self_validation_evidence.py"
+  ],
+  "production_files_changed": [],
+  "historical_test_files_changed": [],
+  "requirements_changed": false,
+  "carry_forward_valid": true
+}
