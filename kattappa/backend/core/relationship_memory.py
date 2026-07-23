@@ -553,10 +553,45 @@ class RelationshipMemory:
                 """
             )
 
-            try:
+            # Explicit column inspection for revision_number and deterministic backfill
+            table_info = conn.execute("PRAGMA table_info(relationship_preferences)").fetchall()
+            col_names = [r["name"] for r in table_info]
+            if "revision_number" not in col_names:
                 conn.execute("ALTER TABLE relationship_preferences ADD COLUMN revision_number INTEGER NOT NULL DEFAULT 1")
-            except Exception:
-                pass
+
+            # Deterministic backfill for historical rows per (entity_id, category, preference_key) group
+            groups = conn.execute("""
+                SELECT DISTINCT entity_id, category, preference_key 
+                FROM relationship_preferences
+            """).fetchall()
+            for g in groups:
+                rows = conn.execute("""
+                    SELECT preference_id 
+                    FROM relationship_preferences 
+                    WHERE entity_id = ? AND category = ? AND preference_key = ?
+                    ORDER BY first_seen ASC, last_seen ASC, rowid ASC
+                """, (g["entity_id"], g["category"], g["preference_key"])).fetchall()
+                for idx, r in enumerate(rows, start=1):
+                    conn.execute("""
+                        UPDATE relationship_preferences 
+                        SET revision_number = ? 
+                        WHERE preference_id = ?
+                    """, (idx, r["preference_id"]))
+
+            # Verify no duplicates exist prior to creating index
+            dupes = conn.execute("""
+                SELECT entity_id, category, preference_key, revision_number, COUNT(*) as cnt
+                FROM relationship_preferences
+                GROUP BY entity_id, category, preference_key, revision_number
+                HAVING cnt > 1
+            """).fetchall()
+            if dupes:
+                raise RuntimeError(f"Duplicate preference revision numbers detected prior to unique index creation: {dupes}")
+
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_relationship_preference_revision
+                ON relationship_preferences(entity_id, category, preference_key, revision_number)
+            """)
 
             # Copy data if migrating
             if is_legacy:
