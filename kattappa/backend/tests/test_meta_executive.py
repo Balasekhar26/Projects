@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import pytest
 from backend.core.cognitive_kernel import KERNEL, ServiceStatus
-from backend.core.meta_executive import MetaExecutive, MetaExecutiveMode, MetaExecutiveService, DeterministicModelClient
+from backend.core.meta_executive import MetaExecutive, MetaExecutiveMode, MetaExecutiveService
+from backend.core.model_clients import UnavailableModelClient
 from backend.core.planning.meta_cognition import SelfAwarenessState
+from backend.tests.support import DeterministicModelClient, TimeoutModelClient, FailureModelClient
 
 
 class TestMetaExecutive:
@@ -47,44 +49,52 @@ class TestMetaExecutive:
         assert exec_ctx.arbitrate_planner(MetaExecutiveMode.ENGINEER, complexity=3.0, confidence=0.75) == "HTN_PLANNER"
         assert exec_ctx.arbitrate_planner(MetaExecutiveMode.WISDOM, complexity=3.0, confidence=0.75) == "HTN_PLANNER"
 
-    def test_prefrontal_loop_low_confidence(self):
-        exec_ctx = MetaExecutive(model_client=DeterministicModelClient(confidence=0.30))
-        # Sabotage state to force low confidence
+    def test_prefrontal_loop_low_confidence_invokes_model_client(self):
+        client = DeterministicModelClient(default_response="Specific refined question?", confidence=0.30)
+        exec_ctx = MetaExecutive(model_client=client)
         exec_ctx._state = SelfAwarenessState(uncertainty=0.8, failure_count=2)
         
         res = exec_ctx.run_prefrontal_loop("Build a startup.", complexity=5.0)
         assert res["decision"] == "ASK_HUMAN"
-        assert len(res["self_questions"]) > 0
-        assert res["confidence"] < 0.40
+        assert res["self_questions"] == ["Specific refined question?"]
+        assert client.call_count == 1
 
     def test_prefrontal_loop_high_confidence(self):
-        exec_ctx = MetaExecutive(model_client=DeterministicModelClient(confidence=0.90))
+        client = DeterministicModelClient(confidence=0.90)
+        exec_ctx = MetaExecutive(model_client=client)
         exec_ctx._state = SelfAwarenessState(uncertainty=0.1, failure_count=0)
         
         res = exec_ctx.run_prefrontal_loop("Explain Ohm's law.", complexity=2.0)
         assert res["strategy"] == MetaExecutiveMode.TEACHER
         assert res["decision"] == "PROCEED"
         assert len(res["self_questions"]) == 0
+        assert client.call_count == 0
+
+    def test_prefrontal_loop_unavailable_default_client(self):
+        exec_ctx = MetaExecutive()  # defaults to UnavailableModelClient
+        exec_ctx._state = SelfAwarenessState(uncertainty=0.8, failure_count=2)
+        
+        res = exec_ctx.run_prefrontal_loop("Build a startup.", complexity=5.0)
+        assert res["decision"] == "ASK_HUMAN"
+        assert len(res["self_questions"]) > 0
 
     def test_prefrontal_loop_timeout_client(self):
-        from backend.core.meta_executive import TimeoutModelClient, ModelRequest
+        from backend.core.model_clients import ModelRequest
         client = TimeoutModelClient()
         resp = client.ask(ModelRequest(prompt="Test"))
         assert resp.success is False
         assert resp.error == "TIMEOUT"
 
     def test_prefrontal_loop_failure_client(self):
-        from backend.core.meta_executive import FailureModelClient, ModelRequest
+        from backend.core.model_clients import ModelRequest
         client = FailureModelClient()
         resp = client.ask(ModelRequest(prompt="Test"))
         assert resp.success is False
         assert resp.error == "BACKEND_UNAVAILABLE"
 
     def test_kernel_service_discovery(self):
-        # Retrieve registered service
         service = KERNEL.get_service("meta_executive")
         assert isinstance(service, MetaExecutiveService)
         assert service.status == ServiceStatus.ACTIVE
         assert isinstance(service.executive, MetaExecutive)
         assert KERNEL.meta_executive is service.executive
-

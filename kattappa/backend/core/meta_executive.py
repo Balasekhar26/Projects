@@ -57,6 +57,8 @@ class FailureModelClient:
     def ask(self, request: ModelRequest) -> ModelResponse:
         return ModelResponse(success=False, error="BACKEND_UNAVAILABLE", confidence=0.0)
 
+from backend.core.model_clients import ModelClient, ModelRequest, ModelResponse, UnavailableModelClient
+
 class MetaExecutiveMode:
     TEACHER = "TEACHER"
     ENGINEER = "ENGINEER"
@@ -71,7 +73,7 @@ class MetaExecutive:
     def __init__(self, kernel_ref: Any = None, model_client: Optional[ModelClient] = None) -> None:
         self._kernel = kernel_ref
         self._state = SelfAwarenessState()
-        self._model_client = model_client or DeterministicModelClient()
+        self._model_client = model_client or UnavailableModelClient()
 
     def classify_strategy(self, prompt: str) -> str:
         """Categorizes prompt intents to select the optimal cognitive strategy."""
@@ -169,11 +171,18 @@ class MetaExecutive:
         # Trigger self-questioning loop if confidence falls below threshold
         if confidence < 0.40:
             decision = "ASK_HUMAN"
-            self_questions = [
-                f"What are the explicit constraints for '{prompt}'?",
-                "Are all required tools and libraries currently installed?",
-                "Do we have permission to execute this on the current system?"
-            ]
+            model_resp = self._model_client.ask(
+                ModelRequest(prompt=f"Refine self questions for prompt: {prompt}", timeout_sec=3.0)
+            )
+            if model_resp.success and model_resp.text:
+                self_questions = [model_resp.text]
+            else:
+                self_questions = [
+                    f"What are the explicit constraints for '{prompt}'?",
+                    "Are all required tools and libraries currently installed?",
+                    "Do we have permission to execute this on the current system?"
+                ]
+
 
         # Gated simulation checks for Architect plans or high complexity
         if strategy == MetaExecutiveMode.ARCHITECT or complexity >= 5.0:
@@ -233,7 +242,13 @@ class MetaExecutiveService(CognitiveService):
         self._executive: Optional[MetaExecutive] = None
 
     def initialize(self) -> None:
-        self._executive = MetaExecutive(self.kernel)
+        model_client = None
+        try:
+            if self.kernel and hasattr(self.kernel, "get_service"):
+                model_client = self.kernel.get_service("model_client")
+        except Exception:
+            pass
+        self._executive = MetaExecutive(self.kernel, model_client=model_client)
         self.set_status(ServiceStatus.ACTIVE)
 
     def shutdown(self) -> None:
