@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from backend.core.cognitive_kernel import KERNEL, ServiceStatus
 from backend.core.meta_executive import MetaExecutive, MetaExecutiveMode, MetaExecutiveService
-from backend.core.model_clients import UnavailableModelClient
+from backend.core.model_clients import UnavailableModelClient, ConfiguredModelClient, ModelRequest
 from backend.core.planning.meta_cognition import SelfAwarenessState
 from backend.tests.support import DeterministicModelClient, TimeoutModelClient, FailureModelClient
 
@@ -78,15 +78,19 @@ class TestMetaExecutive:
         assert res["decision"] == "ASK_HUMAN"
         assert len(res["self_questions"]) > 0
 
+    def test_configured_client_connection_refused(self):
+        client = ConfiguredModelClient(endpoint_url="http://127.0.0.1:59999/api/generate", request_timeout_sec=0.5)
+        resp = client.ask(ModelRequest(prompt="Test"))
+        assert resp.success is False
+        assert resp.error in ("CONNECTION_REFUSED", "URLError")
+
     def test_prefrontal_loop_timeout_client(self):
-        from backend.core.model_clients import ModelRequest
         client = TimeoutModelClient()
         resp = client.ask(ModelRequest(prompt="Test"))
         assert resp.success is False
         assert resp.error == "TIMEOUT"
 
     def test_prefrontal_loop_failure_client(self):
-        from backend.core.model_clients import ModelRequest
         client = FailureModelClient()
         resp = client.ask(ModelRequest(prompt="Test"))
         assert resp.success is False

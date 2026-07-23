@@ -19,45 +19,13 @@ def log_event(event_type: str, message: str) -> None:
     logger.info("[%s] %s", event_type, message)
 
 
-from dataclasses import dataclass, field
-from typing import Protocol
+from backend.core.model_clients import (
+    ModelClient,
+    ModelRequest,
+    ModelResponse,
+    UnavailableModelClient,
+)
 
-@dataclass
-class ModelRequest:
-    prompt: str
-    timeout_sec: float = 5.0
-
-@dataclass
-class ModelResponse:
-    success: bool
-    text: str = ""
-    confidence: float = 0.80
-    error: str = ""
-
-class ModelClient(Protocol):
-    def ask(self, request: ModelRequest) -> ModelResponse:
-        ...
-
-class DeterministicModelClient:
-    """Deterministic model double for offline test execution without network access."""
-    def __init__(self, default_response: str = "PASS", confidence: float = 0.85):
-        self.default_response = default_response
-        self.confidence = confidence
-
-    def ask(self, request: ModelRequest) -> ModelResponse:
-        return ModelResponse(success=True, text=self.default_response, confidence=self.confidence)
-
-class TimeoutModelClient:
-    """Model double that simulates timeout behavior."""
-    def ask(self, request: ModelRequest) -> ModelResponse:
-        return ModelResponse(success=False, error="TIMEOUT", confidence=0.0)
-
-class FailureModelClient:
-    """Model double that simulates backend failure."""
-    def ask(self, request: ModelRequest) -> ModelResponse:
-        return ModelResponse(success=False, error="BACKEND_UNAVAILABLE", confidence=0.0)
-
-from backend.core.model_clients import ModelClient, ModelRequest, ModelResponse, UnavailableModelClient
 
 class MetaExecutiveMode:
     TEACHER = "TEACHER"
@@ -243,13 +211,23 @@ class MetaExecutiveService(CognitiveService):
 
     def initialize(self) -> None:
         model_client = None
-        try:
-            if self.kernel and hasattr(self.kernel, "get_service"):
-                model_client = self.kernel.get_service("model_client")
-        except Exception:
-            pass
-        self._executive = MetaExecutive(self.kernel, model_client=model_client)
+        if self.kernel and hasattr(self.kernel, "get_service"):
+            try:
+                srv = self.kernel.get_service("model_client")
+                if srv is not None:
+                    if hasattr(srv, "ask") and callable(getattr(srv, "ask")):
+                        model_client = srv
+                    else:
+                        self.set_status(ServiceStatus.FAILED)
+                        raise ValueError("Registered model_client service does not implement ModelClient protocol interface.")
+            except (KeyError, AttributeError, ValueError, RuntimeError):
+                model_client = UnavailableModelClient()
+
+        self._executive = MetaExecutive(self.kernel, model_client=model_client or UnavailableModelClient())
         self.set_status(ServiceStatus.ACTIVE)
+
+
+
 
     def shutdown(self) -> None:
         self._executive = None
