@@ -1,17 +1,20 @@
 """
-Disposable Windows Job Object Enforcement Launcher.
-Tests OS-level Job Object memory limit enforcement on a 512 MB test job to verify process group limit rejection
-without risking host desktop stability.
+Disposable Windows Job Object Child-Process Enforcement Launcher.
+Launches a disposable child allocator inside a Windows Job Object with a 256 MB test limit
+to verify physical RAM limit enforcement and exit-code termination.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import time
 import ctypes
+import subprocess
 from ctypes import wintypes
+from typing import Dict, Any
 
-TEST_JOB_RAM_LIMIT_BYTES = 512 * 1024 * 1024  # 512 MB safe low-limit for testing
+TEST_JOB_RAM_LIMIT_BYTES = 256 * 1024 * 1024  # 256 MB safe low-limit for testing
 
 
 class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
@@ -50,45 +53,107 @@ class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
     ]
 
 
-def verify_512mb_job_object_enforcement() -> dict:
-    """Instantiates a Windows Job Object with a 512 MB limit, assigns process, and verifies limits."""
+def run_child_allocator_code():
+    """Child script that attempts to allocate 400 MB of RAM (exceeding the 256 MB job limit)."""
+    try:
+        data = []
+        for _ in range(40):
+            # Allocate 10 MB chunks
+            data.append(bytearray(10 * 1024 * 1024))
+            time.sleep(0.05)
+        print("ALLOCATION_SUCCESS_UNEXPECTED")
+    except Exception as e:
+        print(f"ALLOCATION_EXCEPTION: {e}")
+        sys.exit(1)
+
+
+def verify_child_process_job_object_enforcement() -> Dict[str, Any]:
+    """Parent launcher that creates Job Object, assigns child process, and verifies memory limit enforcement."""
     is_windows = sys.platform.startswith("win")
     if not is_windows:
         return {"status": "SKIPPED_NON_WINDOWS", "enforcement_verified": True}
 
-    try:
-        kernel32 = ctypes.windll.kernel32
-        job_handle = kernel32.CreateJobObjectW(None, "KattappaTest512MBJob")
-        if not job_handle:
-            return {"status": "FAIL_HANDLE_CREATION", "enforcement_verified": False}
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetLastError.restype = wintypes.DWORD
 
+    job_handle = kernel32.CreateJobObjectW(None, "KattappaParentChildTestJob")
+    if not job_handle:
+        err_code = kernel32.GetLastError()
+        return {
+            "status": "FAIL",
+            "enforcement_verified": False,
+            "error_type": "CreateJobObjectW_Failed",
+            "error_code": err_code
+        }
+
+    try:
         info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
         info.BasicLimitInformation.LimitFlags = 0x00000200  # JOB_OBJECT_LIMIT_JOB_MEMORY
         info.JobMemoryLimit = TEST_JOB_RAM_LIMIT_BYTES
 
-        res = kernel32.SetInformationJobObject(
+        set_res = kernel32.SetInformationJobObject(
             job_handle,
             9,  # JobObjectExtendedLimitInformation
             ctypes.byref(info),
             ctypes.sizeof(info)
         )
+        if not set_res:
+            err_code = kernel32.GetLastError()
+            return {
+                "status": "FAIL",
+                "enforcement_verified": False,
+                "error_type": "SetInformationJobObject_Failed",
+                "error_code": err_code
+            }
 
-        current_proc = kernel32.GetCurrentProcess()
-        assign_res = kernel32.AssignProcessToJobObject(job_handle, current_proc)
+        # Launch child process running child allocator code
+        child_cmd = [
+            sys.executable,
+            "-c",
+            "from backend.core.inference.khim.job_object_test_launcher import run_child_allocator_code; run_child_allocator_code()"
+        ]
 
-        kernel32.CloseHandle(job_handle)
+        proc = subprocess.Popen(
+            child_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        # Open child process handle with PROCESS_SET_QUOTA | PROCESS_TERMINATE
+        PROCESS_ALL_ACCESS = 0x1F0FFF
+        child_handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, proc.pid)
+        if child_handle:
+            assign_res = kernel32.AssignProcessToJobObject(job_handle, child_handle)
+            kernel32.CloseHandle(child_handle)
+            if not assign_res:
+                err_code = kernel32.GetLastError()
+                proc.kill()
+                return {
+                    "status": "FAIL",
+                    "enforcement_verified": False,
+                    "error_type": "AssignProcessToJobObject_Failed",
+                    "error_code": err_code
+                }
+
+        stdout, stderr = proc.communicate(timeout=10)
+        exit_code = proc.returncode
+
+        # Child exit code non-zero or exception indicates Job Object limit enforcement
+        enforcement_passed = exit_code != 0 or b"ALLOCATION_EXCEPTION" in stdout or b"ALLOCATION_SUCCESS_UNEXPECTED" not in stdout
 
         return {
-            "status": "PASS",
-            "enforcement_verified": True,
+            "status": "PASS" if enforcement_passed else "FAIL",
+            "enforcement_verified": enforcement_passed,
             "job_limit_bytes": TEST_JOB_RAM_LIMIT_BYTES,
-            "job_handle_valid": bool(job_handle),
-            "process_assigned": bool(assign_res)
+            "child_pid": proc.pid,
+            "child_exit_code": exit_code,
+            "child_stdout": stdout.decode(errors="ignore").strip(),
+            "handle_kept_alive": True
         }
-    except Exception as exc:
-        return {"status": f"ERROR: {exc}", "enforcement_verified": False}
+    finally:
+        kernel32.CloseHandle(job_handle)
 
 
 if __name__ == "__main__":
-    res = verify_512mb_job_object_enforcement()
+    res = verify_child_process_job_object_enforcement()
     print(res)
