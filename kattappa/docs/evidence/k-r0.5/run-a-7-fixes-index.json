@@ -1,0 +1,18 @@
+{
+  "index_id": "run-a-7-fixes-index",
+  "project_local_evidence_dir": "C:\\Users\\balu\\Projects\\kattappa\\validation-runs",
+  "candidate_sha": "51610db25d0c4994f19446fee7111a1cf6c2add4",
+  "tag": "k-r0.5.23-pre-final-audit",
+  "subsystem_results": {
+    "relationship_memory": "PASSED",
+    "belief_engine": "PASSED",
+    "ecl_orchestration": "PASSED",
+    "experiment_sandbox": "PASSED (37/37)",
+    "rbil_policy": "PASSED",
+    "skill_sandbox": "PASSED",
+    "governance_chaos": "PASSED",
+    "runtime_paths": "PASSED"
+  },
+  "raw_runs_committed": false,
+  "containment_policy": "PROJECT_CONTAINER_ONLY"
+}

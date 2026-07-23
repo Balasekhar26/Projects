@@ -1,0 +1,6 @@
+{
+  "historical_run_19": {
+    "status": "SUPERSEDED_FOR_PRODUCTION_QUALIFICATION",
+    "reason": "Run A 7-node closure repairs supersede historical candidate run 19. Full suite re-qualification required on codex/k-r0.5-clean."
+  }
+}

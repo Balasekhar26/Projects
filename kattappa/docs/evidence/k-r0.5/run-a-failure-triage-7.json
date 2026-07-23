@@ -1,0 +1,28 @@
+{
+  "triage_id": "run-a-failure-triage-7",
+  "candidate_sha": "51610db25d0c4994f19446fee7111a1cf6c2add4",
+  "tagged_ref": "refs/tags/k-r0.5.23-pre-final-audit",
+  "timestamp_utc": "2026-07-22T16:21:00Z",
+  "subsystem_triage": [
+    {
+      "subsystem": "Belief Engine",
+      "issue": "Unordered set iteration and visited state propagation order dependency in production traversal",
+      "resolution": "Repaired production traversal in backend/core/belief/engine.py with deterministic topological/timestamp sorting"
+    },
+    {
+      "subsystem": "ECL Orchestration",
+      "issue": "TaskGraph completion was evaluated as success even when tasks failed/cancelled, and retry threads survived graph cancellation",
+      "resolution": "Updated ECLCoordinator and TaskScheduler with explicit task state validation, GraphExecutionState, cancel_event wait, and close() method"
+    },
+    {
+      "subsystem": "Relationship Memory",
+      "issue": "Swallowed ALTER TABLE exceptions during migration and missing unique constraint for preference revisions",
+      "resolution": "Explicit PRAGMA table_info check, deterministic historical row revision backfill, and unique index creation"
+    },
+    {
+      "subsystem": "Sandbox Allocator",
+      "issue": "String startswith path check permitted sibling prefix collisions and symlink/junction escapes",
+      "resolution": "Canonical path ancestry validation using Path.relative_to and case normalization"
+    }
+  ]
+}
