@@ -1,3 +1,4 @@
+from typing import Any
 import pytest
 
 from backend.core.goal_hierarchy import GoalHierarchy, HierarchyLevel
@@ -16,11 +17,12 @@ def clean_goal_hierarchy_db(tmp_path):
     
     orig_get_conn = GoalHierarchy._get_conn
     
-    def mock_get_conn():
+    def mock_get_conn(db_path: str | None = None):
         import sqlite3
         conn = sqlite3.connect(temp_db_path)
         conn.row_factory = sqlite3.Row
         GoalHierarchy._ensure_schema(conn)
+        conn.execute("CREATE VIEW IF NOT EXISTS goal_nodes AS SELECT id, parent_id, level, title, status, progress, created_at, created_at AS updated_at FROM goal_hierarchy")
         return conn
         
     GoalHierarchy._get_conn = mock_get_conn
@@ -144,4 +146,92 @@ def test_ecl_monotonic_deadline_timeout():
     assert res["failed_phase"] == "task_graph_execution"
     assert res["error_type"] == "TimeoutError"
     assert res["cleanup_complete"] is True
+
+
+def test_ecl_task_failure_results_in_failed_status():
+    from backend.core.orchestrator.scheduler import TaskScheduler
+    from backend.core.orchestrator.task_graph import TaskGraph
+    from backend.core.orchestrator.base import Task, TaskResult, BaseAgent
+    from backend.core.orchestrator.registry import AgentRegistry
+
+    class FailingAgent(BaseAgent):
+        @property
+        def name(self) -> str:
+            return "FailingAgent"
+
+        def initialize(self) -> None:
+            pass
+
+        def execute(self, task: Task, context: Any) -> TaskResult:
+            return TaskResult(success=False, output="", error="Simulated agent failure")
+
+        def terminate(self, task_id: str) -> None:
+            pass
+
+    reg = AgentRegistry()
+    reg.register(FailingAgent())
+
+    graph = TaskGraph()
+    task = Task(task_id="t_fail", agent_name="FailingAgent", action="fail", params={})
+    task.max_attempts = 1
+    graph.add_task(task)
+
+    scheduler = TaskScheduler(registry=reg, max_workers=2)
+    try:
+        ctx = scheduler.run_graph(graph, graph_id="g_failing_test", timeout=5.0)
+        cleanup = scheduler.check_cleanup_status("g_failing_test")
+    finally:
+        scheduler.close(wait=True)
+
+    assert task.status == "FAILED"
+    assert graph.is_finished() is True
+
+
+def test_ecl_delayed_retry_interrupted_on_close():
+    import time
+    import threading
+    from backend.core.orchestrator.scheduler import TaskScheduler
+    from backend.core.orchestrator.task_graph import TaskGraph
+    from backend.core.orchestrator.base import Task, TaskResult, BaseAgent
+    from backend.core.orchestrator.registry import AgentRegistry
+
+    class RetryableFailingAgent(BaseAgent):
+        @property
+        def name(self) -> str:
+            return "RetryAgent"
+
+        def initialize(self) -> None:
+            pass
+
+        def execute(self, task: Task, context: Any) -> TaskResult:
+            return TaskResult(success=False, output="", error="Retryable error")
+
+        def terminate(self, task_id: str) -> None:
+            pass
+
+    reg = AgentRegistry()
+    reg.register(RetryableFailingAgent())
+
+    graph = TaskGraph()
+    task = Task(task_id="t_retry", agent_name="RetryAgent", action="retry", params={})
+    task.max_attempts = 3
+    graph.add_task(task)
+
+    scheduler = TaskScheduler(registry=reg, max_workers=2)
+    
+    # Run graph in background thread
+    bg_thread = threading.Thread(target=scheduler.run_graph, args=(graph, "g_retry_test"), kwargs={"timeout": 10.0})
+    bg_thread.start()
+
+    time.sleep(0.1)
+    # Cancel graph immediately while retry thread is sleeping
+    scheduler.cancel_graph("g_retry_test")
+    scheduler.close(wait=True)
+    bg_thread.join(timeout=2.0)
+
+    cleanup = scheduler.check_cleanup_status()
+    assert cleanup["active_retry_workers_remaining"] == 0
+    assert cleanup["active_graphs_remaining"] == 0
+    assert cleanup["cleanup_complete"] is True
+
 

@@ -707,3 +707,47 @@ class TestRelationshipMemory(unittest.TestCase):
         self.assertEqual(revisions_post_vacuum, [3, 2, 1])
         self.assertEqual(history_post_vacuum[0]["value"], "system")
 
+    def test_historical_revision_backfill_and_unique_index(self):
+        """Verify backfill logic assigns sequential 1..N revision numbers to historical rows and unique index is enforced."""
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        
+        # 1. Create table without revision_number column (simulating legacy table)
+        conn.execute("""
+            CREATE TABLE relationship_entities (
+                entity_id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, name TEXT NOT NULL,
+                trust_level TEXT NOT NULL, dunbar_layer INTEGER NOT NULL DEFAULT 1,
+                pinned INTEGER DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE relationship_preferences (
+                preference_id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, category TEXT NOT NULL,
+                preference_key TEXT NOT NULL, preference_value TEXT NOT NULL, confidence_score REAL NOT NULL,
+                confidence_state TEXT NOT NULL DEFAULT 'INFERRED', evidence_count INTEGER DEFAULT 1,
+                privacy_tier INTEGER NOT NULL DEFAULT 1, first_seen REAL NOT NULL, last_seen REAL NOT NULL,
+                status TEXT DEFAULT 'ACTIVE', superseded_by TEXT
+            );
+        """)
+        conn.execute("INSERT INTO relationship_entities VALUES ('u1', 'user', 'U1', 'TRUST_USER', 1, 0, 1.0, 1.0)")
+        conn.execute("INSERT INTO relationship_preferences VALUES ('p1', 'u1', 'editor', 'font', 'Monaco', 1.0, 'STATED', 1, 1, 10.0, 10.0, 'superseded', 'p2')")
+        conn.execute("INSERT INTO relationship_preferences VALUES ('p2', 'u1', 'editor', 'font', 'Hack', 1.0, 'STATED', 1, 1, 20.0, 20.0, 'superseded', 'p3')")
+        conn.execute("INSERT INTO relationship_preferences VALUES ('p3', 'u1', 'editor', 'font', 'Fira Code', 1.0, 'STATED', 1, 1, 30.0, 30.0, 'ACTIVE', NULL)")
+        conn.commit()
+
+        # Run migration on conn
+        RelationshipMemory._ensure_schema(conn)
+
+        # Check backfilled revisions
+        rows = conn.execute("SELECT preference_id, revision_number FROM relationship_preferences WHERE entity_id = 'u1' AND preference_key = 'font' ORDER BY revision_number ASC").fetchall()
+        rev_map = {r["preference_id"]: r["revision_number"] for r in rows}
+        self.assertEqual(rev_map["p1"], 1)
+        self.assertEqual(rev_map["p2"], 2)
+        self.assertEqual(rev_map["p3"], 3)
+
+        # Verify Unique Index rejects duplicate revision insert
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO relationship_preferences (preference_id, entity_id, category, preference_key, preference_value, confidence_score, first_seen, last_seen, revision_number) VALUES ('p_dup', 'u1', 'editor', 'font', 'Consolas', 1.0, 40.0, 40.0, 1)")
+        conn.close()
+
+

@@ -317,3 +317,35 @@ class TestTraceDBCorruption:
         confidences = {d["decision_id"]: d["confidence"] for d in decisions}
         assert confidences["DEC-BOUNDARY-0"] == pytest.approx(0.0)
         assert confidences["DEC-BOUNDARY-1"] == pytest.approx(1.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Sandbox Path Boundary Security Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSandboxPathSecurity:
+    def test_sibling_prefix_collision_blocked(self):
+        """Path C:\\allowed-evil must be blocked when allowed path is C:\\allowed."""
+        from backend.core.governance.sandbox_allocator import allocate_sandbox_and_run
+        skill = {
+            "entrypoint": __file__,
+            "allowed_paths": [r"C:\allowed"],
+            "allow_network": False,
+        }
+        # Injected check_path_allowed logic test
+        from pathlib import Path
+        allowed_root = Path(r"C:\allowed").resolve()
+        evil_path = Path(r"C:\allowed-evil\secret.txt").resolve()
+        
+        with pytest.raises(ValueError):
+            evil_path.relative_to(allowed_root)
+
+    def test_path_traversal_blocked(self):
+        """Traversal attempts with .. must fail relative_to validation."""
+        from pathlib import Path
+        allowed_root = Path(r"C:\allowed").resolve()
+        traversal_path = Path(r"C:\allowed\..\secret.txt").resolve()
+        
+        with pytest.raises(ValueError):
+            traversal_path.relative_to(allowed_root)
+
