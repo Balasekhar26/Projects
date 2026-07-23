@@ -138,16 +138,41 @@ class ECLCoordinator:
         
         log_event("ecl_coordinator_dispatch", f"Dispatching TaskGraph for goal: {goal_id}")
         t0 = time.monotonic()
-        context = scheduler.run_graph(task_graph, graph_id=goal_id, initial_context=initial_context, timeout=timeout)
+        try:
+            context = scheduler.run_graph(task_graph, graph_id=goal_id, initial_context=initial_context, timeout=timeout)
+        finally:
+            scheduler.close(wait=True)
         phase_timings["task_graph_execution"] = round((time.monotonic() - t0) * 1000, 2)
 
-        timed_out = context.get("timed_out", False)
-        success = task_graph.is_finished() and not timed_out
+        cleanup_details = scheduler.check_cleanup_status(goal_id)
 
-        if timed_out:
-            status = "TIMEOUT"
-        elif success:
+        task_states = {
+            task.task_id: task.status
+            for task in task_graph.tasks.values()
+        }
+
+        completed_count = sum(1 for s in task_states.values() if s == "COMPLETED")
+        failed_count = sum(1 for s in task_states.values() if s == "FAILED")
+        cancelled_count = sum(1 for s in task_states.values() if s == "CANCELLED")
+        timed_out_count = sum(1 for s in task_states.values() if s == "TIMEOUT")
+
+        all_completed = bool(task_states) and all(s == "COMPLETED" for s in task_states.values())
+        any_failed = any(s == "FAILED" for s in task_states.values())
+        any_cancelled = any(s == "CANCELLED" for s in task_states.values())
+        any_timeout = any(s == "TIMEOUT" for s in task_states.values()) or context.get("timed_out", False)
+
+        timed_out = any_timeout
+        cleanup_complete = cleanup_details["cleanup_complete"]
+        success = all_completed and not timed_out and cleanup_complete
+
+        if all_completed and not timed_out and cleanup_complete:
             status = "COMPLETED"
+        elif any_timeout:
+            status = "TIMEOUT"
+        elif any_cancelled:
+            status = "CANCELLED"
+        elif any_failed:
+            status = "FAILED"
         else:
             status = "FAILED"
 
@@ -175,6 +200,8 @@ class ECLCoordinator:
                     "budget": budget,
                     "routing": routing_info,
                     "phase_timings": phase_timings,
+                    "task_states": task_states,
+                    "cleanup_complete": cleanup_complete,
                 }
             )
             WSEEventBus.get_instance().publish(executed_event)
@@ -197,5 +224,11 @@ class ECLCoordinator:
             "viability_score": viability_score,
             "budget": budget,
             "routing": routing_info,
-            "cleanup_complete": True,
+            "task_states": task_states,
+            "completed_task_count": completed_count,
+            "failed_task_count": failed_count,
+            "cancelled_task_count": cancelled_count,
+            "timed_out_task_count": timed_out_count,
+            "cleanup_complete": cleanup_complete,
+            "cleanup_details": cleanup_details,
         }

@@ -87,6 +87,13 @@ class GoalHierarchy:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE VIEW IF NOT EXISTS goal_nodes AS
+            SELECT id, parent_id, level, title, status, progress, created_at, created_at AS updated_at
+            FROM goal_hierarchy
+            """
+        )
         conn.commit()
 
     @classmethod

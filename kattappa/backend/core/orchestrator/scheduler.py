@@ -1,9 +1,11 @@
 from __future__ import annotations
 import concurrent.futures
+from dataclasses import dataclass, field
 import logging
 import os
 import threading
 import time
+import uuid
 from typing import Any
 from backend.core.orchestrator.base import Task, TaskResult, BaseAgent
 from backend.core.orchestrator.context import SharedContext
@@ -11,6 +13,19 @@ from backend.core.orchestrator.message_bus import MessageBus
 from backend.core.orchestrator.task_graph import TaskGraph
 from backend.core.orchestrator.registry import ORCHESTRATOR_REGISTRY, AgentRegistry
 from backend.core.logger import log_event
+
+
+@dataclass
+class GraphExecutionState:
+    graph_id: str
+    generation_id: str
+    cancelled: bool = False
+    closed: bool = False
+    deadline: float = 0.0
+    cancel_event: threading.Event = field(default_factory=threading.Event)
+    retry_threads: set[threading.Thread] = field(default_factory=set)
+    futures: set[concurrent.futures.Future] = field(default_factory=set)
+
 
 class TaskScheduler:
     def __init__(
@@ -28,8 +43,7 @@ class TaskScheduler:
         
         self._running_graphs: dict[str, TaskGraph] = {}
         self._contexts: dict[str, SharedContext] = {}
-        self._cancellation_tokens: dict[str, bool] = {}  # graph_id -> cancelled
-        self._active_futures: dict[str, list[concurrent.futures.Future]] = {}  # graph_id -> futures
+        self._graph_states: dict[str, GraphExecutionState] = {}
         self._running_tasks: dict[str, Task] = {}  # task_id -> Task
 
     def run_graph(
@@ -39,33 +53,34 @@ class TaskScheduler:
         initial_context: dict[str, Any] | None = None,
         timeout: float = 120.0,
     ) -> SharedContext:
-        """Run the task graph to completion, blocking the caller thread.
-        
-        Args:
-            timeout: Maximum seconds to wait for graph completion before
-                     force-cancelling. Defaults to 120s.
-        """
+        """Run the task graph to completion, blocking the caller thread."""
         context = SharedContext(initial_context)
+        generation_id = uuid.uuid4().hex
+        deadline = time.monotonic() + timeout
+        
+        state = GraphExecutionState(
+            graph_id=graph_id,
+            generation_id=generation_id,
+            deadline=deadline,
+        )
         
         with self._lock:
             self._running_graphs[graph_id] = graph
             self._contexts[graph_id] = context
-            self._cancellation_tokens[graph_id] = False
-            self._active_futures[graph_id] = []
+            self._graph_states[graph_id] = state
 
-        log_event("orchestrator_graph_start", f"Starting TaskGraph run: {graph_id}")
-        self._dispatch_ready(graph, graph_id, context)
+        log_event("orchestrator_graph_start", f"Starting TaskGraph run: {graph_id} (gen={generation_id})")
+        self._dispatch_ready(graph, graph_id, context, state)
 
-        # Wait until graph is finished, with monotonic timeout guard
-        deadline = time.monotonic() + timeout
         timed_out = False
-
         while True:
-            time.sleep(0.05)
+            time.sleep(0.02)
             with self._lock:
+                st = self._graph_states.get(graph_id)
+                if not st or st.closed or st.cancelled:
+                    break
                 is_finished = graph.is_finished()
-                is_cancelled = self._cancellation_tokens.get(graph_id, False)
-            if is_finished or is_cancelled:
+            if is_finished:
                 break
             if time.monotonic() > deadline:
                 timed_out = True
@@ -73,15 +88,12 @@ class TaskScheduler:
                 self.cancel_graph(graph_id, status="TIMEOUT")
                 break
 
-        # Cleanup and release resources
-        with self._lock:
-            self._running_graphs.pop(graph_id, None)
-            self._cancellation_tokens.pop(graph_id, None)
-            self._active_futures.pop(graph_id, None)
-
         if timed_out:
             context.set("timed_out", True)
             context.set("graph_status", "TIMEOUT")
+
+        with self._lock:
+            self._running_graphs.pop(graph_id, None)
 
         log_event("orchestrator_graph_end", f"Finished TaskGraph run: {graph_id} (timed_out={timed_out})")
         return context
@@ -89,7 +101,14 @@ class TaskScheduler:
     def cancel_graph(self, graph_id: str, status: str = "CANCELLED") -> None:
         """Signal cancellation for all running/pending tasks in the graph and shutdown pending futures."""
         with self._lock:
-            self._cancellation_tokens[graph_id] = True
+            state = self._graph_states.get(graph_id)
+            if state:
+                state.cancelled = True
+                state.cancel_event.set()
+                futures = list(state.futures)
+            else:
+                futures = []
+
             graph = self._running_graphs.get(graph_id)
             if graph:
                 for task in graph.tasks.values():
@@ -103,36 +122,126 @@ class TaskScheduler:
                         except Exception as e:
                             log_event("orchestrator_cancellation_error", f"Error terminating agent task: {e}")
 
-            futures = self._active_futures.get(graph_id, [])
             for future in futures:
-                future.cancel()
+                try:
+                    future.cancel()
+                except Exception:
+                    pass
 
-    def _dispatch_ready(self, graph: TaskGraph, graph_id: str, context: SharedContext) -> None:
+    def cancel_all_active_graphs(self) -> None:
         with self._lock:
-            if self._cancellation_tokens.get(graph_id, False):
+            graph_ids = list(self._running_graphs.keys())
+        for gid in graph_ids:
+            self.cancel_graph(gid)
+
+    def close(self, wait: bool = True) -> None:
+        """Close scheduler, cancel running graphs, set cancel events, and shutdown executor."""
+        with self._lock:
+            graph_ids = list(self._graph_states.keys())
+            for gid in graph_ids:
+                state = self._graph_states.get(gid)
+                if state:
+                    state.closed = True
+                    state.cancelled = True
+                    state.cancel_event.set()
+                self.cancel_graph(gid, status="CANCELLED")
+                
+            states = list(self._graph_states.values())
+
+        # Cancel futures
+        for st in states:
+            for f in list(st.futures):
+                try:
+                    f.cancel()
+                except Exception:
+                    pass
+
+        # Shutdown executor
+        try:
+            self.executor.shutdown(wait=wait, cancel_futures=True)
+        except Exception as e:
+            log_event("scheduler_shutdown_error", f"Error during executor shutdown: {e}")
+
+        # Wait for retry threads
+        for st in states:
+            for t in list(st.retry_threads):
+                if t.is_alive():
+                    t.join(timeout=1.0)
+
+    def check_cleanup_status(self, graph_id: str | None = None) -> dict[str, Any]:
+        with self._lock:
+            active_graphs = len(self._running_graphs)
+            active_futures = sum(
+                sum(1 for f in st.futures if not f.done())
+                for st in self._graph_states.values()
+            )
+            active_retry_workers = sum(
+                sum(1 for t in st.retry_threads if t.is_alive())
+                for st in self._graph_states.values()
+            )
+            running_tasks = len(self._running_tasks)
+            executor_shutdown = getattr(self.executor, "_shutdown", False)
+            running_worker_threads = sum(
+                1 for t in threading.enumerate()
+                if "OrchestratorAgentWorker" in t.name and t.is_alive()
+            )
+
+            cleanup_complete = (
+                active_graphs == 0
+                and active_futures == 0
+                and active_retry_workers == 0
+                and running_tasks == 0
+            )
+
+            return {
+                "cleanup_complete": cleanup_complete,
+                "active_graphs_remaining": active_graphs,
+                "active_futures_remaining": active_futures,
+                "active_retry_workers_remaining": active_retry_workers,
+                "running_tasks_remaining": running_tasks,
+                "running_worker_threads_remaining": running_worker_threads,
+                "executor_shutdown": executor_shutdown,
+            }
+
+    def _dispatch_ready(
+        self,
+        graph: TaskGraph,
+        graph_id: str,
+        context: SharedContext,
+        state: GraphExecutionState | None = None
+    ) -> None:
+        with self._lock:
+            st = state or self._graph_states.get(graph_id)
+            if not st or st.cancelled or st.closed or st.cancel_event.is_set():
                 return
             ready_tasks = graph.get_ready_tasks()
             for task in ready_tasks:
                 task.status = "RUNNING"
-                future = self.executor.submit(self._execute_task, task, graph_id, context)
-                self._active_futures[graph_id].append(future)
+                future = self.executor.submit(self._execute_task, task, graph_id, context, st.generation_id)
+                st.futures.add(future)
+                future.add_done_callback(lambda f, s=st: s.futures.discard(f))
 
-    def _execute_task(self, task: Task, graph_id: str, context: SharedContext) -> None:
+    def _execute_task(
+        self,
+        task: Task,
+        graph_id: str,
+        context: SharedContext,
+        expected_gen: str
+    ) -> None:
         with self._lock:
-            if self._cancellation_tokens.get(graph_id, False):
+            st = self._graph_states.get(graph_id)
+            if not st or st.cancelled or st.closed or st.generation_id != expected_gen or st.cancel_event.is_set():
                 task.status = "CANCELLED"
                 return
             self._running_tasks[task.task_id] = task
 
         log_event("orchestrator_task_start", f"Running task {task.task_id} on agent {task.agent_name}")
         
-        # ── K11: Register Action (Level 4) and Update Task (Level 3) ─────────
+        # Action node registration
         action_node_id = f"{task.task_id}_action"
         try:
             from backend.core.goal_hierarchy import GoalHierarchy, HierarchyLevel
-            # Update Task to ACTIVE
             GoalHierarchy.update_node(task.task_id, status="ACTIVE", progress=0.1)
-            # Create Action node
             GoalHierarchy.add_node(
                 node_id=action_node_id,
                 parent_id=task.task_id,
@@ -166,24 +275,32 @@ class TaskScheduler:
                     GoalHierarchy.update_node(action_node_id, status="FAILED", progress=0.0)
                 except Exception as e:
                     log_event("scheduler_hierarchy_error", f"Error failing action node: {e}")
-                self._handle_failure(task, graph_id, context, result.error or "Unknown failure")
+                self._handle_failure(task, graph_id, context, result.error or "Unknown failure", expected_gen)
         except Exception as e:
             try:
                 from backend.core.goal_hierarchy import GoalHierarchy
                 GoalHierarchy.update_node(action_node_id, status="FAILED", progress=0.0)
             except Exception as ex:
                 log_event("scheduler_hierarchy_error", f"Error failing action node: {ex}")
-            self._handle_failure(task, graph_id, context, str(e))
+            self._handle_failure(task, graph_id, context, str(e), expected_gen)
         finally:
             with self._lock:
                 self._running_tasks.pop(task.task_id, None)
 
             with self._lock:
                 graph = self._running_graphs.get(graph_id)
-            if graph:
-                self._dispatch_ready(graph, graph_id, context)
+                st = self._graph_states.get(graph_id)
+            if graph and st:
+                self._dispatch_ready(graph, graph_id, context, st)
 
-    def _handle_failure(self, task: Task, graph_id: str, context: SharedContext, error_msg: str) -> None:
+    def _handle_failure(
+        self,
+        task: Task,
+        graph_id: str,
+        context: SharedContext,
+        error_msg: str,
+        expected_gen: str
+    ) -> None:
         max_attempts = getattr(task, "max_attempts", 3)
         task.retry_count += 1
         
@@ -196,21 +313,49 @@ class TaskScheduler:
             delay = min(10.0, 1.5 ** task.retry_count)
             log_event("orchestrator_task_retry", f"Scheduling retry for task {task.task_id} in {delay:.2f}s")
             
-            def retry_dispatch():
-                time.sleep(delay)
+            def retry_dispatch(target_gen: str):
+                cur_thread = threading.current_thread()
                 with self._lock:
-                    if self._cancellation_tokens.get(graph_id, False):
-                        task.status = "CANCELLED"
-                        return
-                    task.status = "RUNNING"
-                future = self.executor.submit(self._execute_task, task, graph_id, context)
-                with self._lock:
-                    if graph_id in self._active_futures:
-                        self._active_futures[graph_id].append(future)
+                    st = self._graph_states.get(graph_id)
+                    if st:
+                        st.retry_threads.add(cur_thread)
 
-            threading.Thread(target=retry_dispatch, daemon=True).start()
+                try:
+                    with self._lock:
+                        st = self._graph_states.get(graph_id)
+                        if not st or st.cancelled or st.closed or st.generation_id != target_gen or st.cancel_event.is_set():
+                            task.status = "CANCELLED"
+                            return
+                        evt = st.cancel_event
+
+                    interrupted = evt.wait(timeout=delay)
+
+                    with self._lock:
+                        st = self._graph_states.get(graph_id)
+                        if interrupted or not st or st.cancelled or st.closed or st.generation_id != target_gen or time.monotonic() > st.deadline:
+                            task.status = "CANCELLED"
+                            return
+                        task.status = "RUNNING"
+
+                    future = self.executor.submit(self._execute_task, task, graph_id, context, target_gen)
+                    with self._lock:
+                        st = self._graph_states.get(graph_id)
+                        if st:
+                            st.futures.add(future)
+                            future.add_done_callback(lambda f: st.futures.discard(f) if st else None)
+                finally:
+                    with self._lock:
+                        st = self._graph_states.get(graph_id)
+                        if st:
+                            st.retry_threads.discard(cur_thread)
+
+            t = threading.Thread(target=retry_dispatch, args=(expected_gen,), daemon=True)
+            with self._lock:
+                st = self._graph_states.get(graph_id)
+                if st:
+                    st.retry_threads.add(t)
+            t.start()
         else:
-            # Try dynamic failure replanning first before terminating
             with self._lock:
                 graph = self._running_graphs.get(graph_id)
             if graph:
@@ -223,7 +368,10 @@ class TaskScheduler:
                 
                 if replan_ok:
                     log_event("orchestrator_replan_triggered", f"Replanned graph {graph_id} around failed task {task.task_id}")
-                    self._dispatch_ready(graph, graph_id, context)
+                    with self._lock:
+                        st = self._graph_states.get(graph_id)
+                    if st:
+                        self._dispatch_ready(graph, graph_id, context, st)
                     return
 
             with self._lock:
