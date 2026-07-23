@@ -249,15 +249,8 @@ class ExperimentManager:
                 raise RuntimeError(f"Subprocess (pid={p.pid}, exitcode={p.exitcode}) execution failed with no return metrics. Details: {json.dumps(child_details)}")
 
         finally:
-            # Guarantee cleanup: 1. Remove physical workspace directory
-            try:
-                if workspace_path.exists():
-                    shutil.rmtree(workspace_path, ignore_errors=True)
-                log_event(f"sandbox: destroyed temporary directory at {workspace_path}")
-            except Exception as exc:
-                log_event(f"sandbox: failed to cleanup temp directory {workspace_path}: {exc}")
-
-            # 2. Cleanup Git worktree registration and branch
+            # Guarantee cleanup in robust order:
+            # 1. Unregister Git worktree & prune branch first so Git does not track deleted folder
             if git_mounted:
                 try:
                     cls._run_git(["worktree", "remove", "--force", str(workspace_path)])
@@ -271,7 +264,26 @@ class ExperimentManager:
                     cls._run_git(["branch", "-D", f"sandbox/{experiment_id}"])
                 except Exception:
                     pass
-                log_event(f"sandbox: removed git worktree and branch sandbox/{experiment_id}")
+                log_event(f"sandbox: unmounted git worktree and branch sandbox/{experiment_id}")
+
+            # 2. Delete physical workspace directory if any files remain with Windows retry logic
+            try:
+                def _handle_remove_readonly(func, path, exc_info):
+                    try:
+                        os.chmod(path, 0o777)
+                        func(path)
+                    except Exception:
+                        pass
+
+                for attempt in range(3):
+                    if not workspace_path.exists():
+                        break
+                    shutil.rmtree(workspace_path, onerror=_handle_remove_readonly)
+                    if workspace_path.exists():
+                        time.sleep(0.05)
+                log_event(f"sandbox: destroyed temporary directory at {workspace_path}")
+            except Exception as exc:
+                log_event(f"sandbox: failed to cleanup temp directory {workspace_path}: {exc}")
 
         # Assemble the report using the frozen schema
         report = cls._assemble_report(

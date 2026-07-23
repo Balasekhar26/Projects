@@ -9,22 +9,49 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Absolute allowed container root
-CONTAINER_ROOT = Path(r"C:\Users\balu\Projects\kattappa").resolve()
+# Absolute allowed container root default
+CONTAINER_ROOT_DEFAULT = Path(r"C:\Users\balu\Projects\kattappa").resolve()
 
 
 def get_kattappa_container_root() -> Path:
-    """Return the absolute, canonical root of the Kattappa project container."""
-    if CONTAINER_ROOT.exists():
-        return CONTAINER_ROOT
+    """Return the absolute, canonical root of the Kattappa project container.
     
-    # Fallback to local repo root search
+    Authority chain:
+    1. Explicit KATTAPPA_CONTAINER_ROOT env var
+    2. Governance config workspace_dir (if available)
+    3. Local default or .git (file or directory) upward search
+    4. Fail closed if no root found
+    """
+    # 1. Env Var Authority
+    env_root = os.getenv("KATTAPPA_CONTAINER_ROOT")
+    if env_root:
+        candidate = Path(env_root).resolve()
+        if candidate.is_dir():
+            return candidate
+
+    # 2. Config Authority
+    try:
+        from backend.core.config import load_config
+        config = load_config()
+        if hasattr(config, "workspace_dir") and config.workspace_dir:
+            cfg_root = Path(config.workspace_dir).resolve()
+            if cfg_root.is_dir():
+                return cfg_root
+    except Exception:
+        pass
+
+    # 3. Default container root
+    if CONTAINER_ROOT_DEFAULT.is_dir():
+        return CONTAINER_ROOT_DEFAULT
+
+    # Upward search for .git file or directory
     cwd = Path(__file__).resolve().parent
-    for _ in range(5):
+    for _ in range(7):
         if (cwd / ".git").exists():
             return cwd
         cwd = cwd.parent
-    return cwd
+
+    raise RuntimeError("No valid Kattappa container root found. Execution failed closed.")
 
 
 def assert_project_local_path(path: Path | str) -> Path:
@@ -36,20 +63,25 @@ def assert_project_local_path(path: Path | str) -> Path:
     - Drive-letter mismatch
     - UNC path redirection
     """
+    p_str = str(path)
+    if p_str.startswith(r"\\") or p_str.startswith("//"):
+        raise ValueError(f"UNC paths are prohibited for container safety: '{path}'")
+
     resolved = Path(path).resolve()
     root = get_kattappa_container_root()
     
     # Drive mismatch check (Windows)
-    if resolved.drive.lower() != root.drive.lower():
+    if os.name == 'nt' and resolved.drive.lower() != root.drive.lower():
         raise ValueError(f"Path '{resolved}' has drive '{resolved.drive}' which mismatches container drive '{root.drive}'")
-    
-    # UNC path check
-    if str(path).startswith(r"\\") or str(resolved).startswith(r"\\"):
-        raise ValueError(f"UNC paths are prohibited for container safety: '{path}'")
         
     try:
         resolved.relative_to(root)
     except ValueError:
+        if os.name == 'nt':
+            r_parts = [pt.lower() for pt in root.parts]
+            p_parts = [pt.lower() for pt in resolved.parts]
+            if len(p_parts) >= len(r_parts) and p_parts[:len(r_parts)] == r_parts:
+                return resolved
         raise ValueError(f"Security Violation: Path '{resolved}' escapes project container root '{root}'")
         
     return resolved

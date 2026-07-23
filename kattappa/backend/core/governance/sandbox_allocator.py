@@ -12,6 +12,9 @@ from typing import Any, Dict
 import psutil
 
 
+SANDBOX_ENFORCEMENT_LEVEL = "RESTRICTED_SUBPROCESS"
+
+
 def allocate_sandbox_and_run(skill: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     """Runs a registered skill inside an isolated Python subprocess sandbox with resource limits."""
     entrypoint = skill["entrypoint"]
@@ -44,9 +47,10 @@ def allocate_sandbox_and_run(skill: Dict[str, Any], args: Dict[str, Any]) -> Dic
     # It injects interceptors into the target interpreter context
     bootstrap_code = f"""import builtins
 import sys
+import json
 import os
 import socket
-import json
+from pathlib import Path
 
 # 1. Network restriction
 if not {allow_network}:
@@ -59,20 +63,32 @@ if not {allow_network}:
 ALLOWED_PATHS = {json.dumps(effective_allowed_paths)}
 def check_path_allowed(path):
     if not ALLOWED_PATHS:
-        return  # If none specified, allow
+        return
     try:
-        abs_path = os.path.abspath(path)
-        is_windows = os.name == 'nt'
+        if not path:
+            return
+        p_str = str(path)
+        if p_str.startswith("\\\\") or p_str.startswith("//"):
+            raise PermissionError(f"Access to UNC path '{{path}}' is prohibited.")
+        cand = Path(path).resolve()
+        is_win = os.name == 'nt'
         for allowed in ALLOWED_PATHS:
-            allowed_abs = os.path.abspath(allowed)
-            if is_windows:
-                if abs_path.lower().startswith(allowed_abs.lower()):
-                    return
-            else:
-                if abs_path.startswith(allowed_abs):
-                    return
+            allowed_root = Path(allowed).resolve()
+            if is_win and cand.drive.lower() != allowed_root.drive.lower():
+                continue
+            try:
+                cand.relative_to(allowed_root)
+                return
+            except ValueError:
+                if is_win:
+                    c_parts = [pt.lower() for pt in cand.parts]
+                    r_parts = [pt.lower() for pt in allowed_root.parts]
+                    if len(c_parts) >= len(r_parts) and c_parts[:len(r_parts)] == r_parts:
+                        return
         raise PermissionError(f"Access to path '{{path}}' is blocked outside sandbox boundaries.")
     except Exception as e:
+        if isinstance(e, PermissionError):
+            raise
         raise PermissionError(f"Access to path '{{path}}' is denied: {{str(e)}}")
 
 original_open = builtins.open
