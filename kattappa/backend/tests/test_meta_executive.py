@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from backend.core.cognitive_kernel import KERNEL, ServiceStatus
-from backend.core.meta_executive import MetaExecutive, MetaExecutiveMode, MetaExecutiveService
+from backend.core.meta_executive import MetaExecutive, MetaExecutiveMode, MetaExecutiveService, DeterministicModelClient
 from backend.core.planning.meta_cognition import SelfAwarenessState
 
 
@@ -48,7 +48,7 @@ class TestMetaExecutive:
         assert exec_ctx.arbitrate_planner(MetaExecutiveMode.WISDOM, complexity=3.0, confidence=0.75) == "HTN_PLANNER"
 
     def test_prefrontal_loop_low_confidence(self):
-        exec_ctx = MetaExecutive()
+        exec_ctx = MetaExecutive(model_client=DeterministicModelClient(confidence=0.30))
         # Sabotage state to force low confidence
         exec_ctx._state = SelfAwarenessState(uncertainty=0.8, failure_count=2)
         
@@ -58,13 +58,27 @@ class TestMetaExecutive:
         assert res["confidence"] < 0.40
 
     def test_prefrontal_loop_high_confidence(self):
-        exec_ctx = MetaExecutive()
+        exec_ctx = MetaExecutive(model_client=DeterministicModelClient(confidence=0.90))
         exec_ctx._state = SelfAwarenessState(uncertainty=0.1, failure_count=0)
         
         res = exec_ctx.run_prefrontal_loop("Explain Ohm's law.", complexity=2.0)
         assert res["strategy"] == MetaExecutiveMode.TEACHER
         assert res["decision"] == "PROCEED"
         assert len(res["self_questions"]) == 0
+
+    def test_prefrontal_loop_timeout_client(self):
+        from backend.core.meta_executive import TimeoutModelClient, ModelRequest
+        client = TimeoutModelClient()
+        resp = client.ask(ModelRequest(prompt="Test"))
+        assert resp.success is False
+        assert resp.error == "TIMEOUT"
+
+    def test_prefrontal_loop_failure_client(self):
+        from backend.core.meta_executive import FailureModelClient, ModelRequest
+        client = FailureModelClient()
+        resp = client.ask(ModelRequest(prompt="Test"))
+        assert resp.success is False
+        assert resp.error == "BACKEND_UNAVAILABLE"
 
     def test_kernel_service_discovery(self):
         # Retrieve registered service
@@ -73,3 +87,4 @@ class TestMetaExecutive:
         assert service.status == ServiceStatus.ACTIVE
         assert isinstance(service.executive, MetaExecutive)
         assert KERNEL.meta_executive is service.executive
+
